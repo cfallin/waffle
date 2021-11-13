@@ -5,7 +5,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use log::trace;
 use std::collections::VecDeque;
-use wasmparser::{ImportSectionEntryType, Parser, Payload, TypeDef};
+use wasmparser::{ImportSectionEntryType, Operator, Parser, Payload, TypeDef};
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module> {
     let mut module = Module::default();
@@ -75,5 +75,31 @@ fn parse_body(body: wasmparser::FunctionBody) -> Result<FunctionBody> {
         }
     }
 
+    let mut builder = FunctionBodyBuilder::new(&mut ret);
+    let ops = body.get_operators_reader()?;
+    for op in ops.into_iter() {
+        let op = op?;
+        builder.handle_op(op)?;
+    }
+
     Ok(ret)
+}
+
+#[derive(Debug)]
+struct FunctionBodyBuilder<'a> {
+    body: &'a mut FunctionBody,
+}
+
+impl<'a> FunctionBodyBuilder<'a> {
+    fn new(body: &'a mut FunctionBody) -> Self {
+        Self { body }
+    }
+
+    fn handle_op(&mut self, op: Operator<'_>) -> Result<()> {
+        match op {
+            _ => {}
+        }
+
+        Ok(())
+    }
 }
