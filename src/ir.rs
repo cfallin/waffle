@@ -9,21 +9,30 @@ pub type InstId = usize;
 pub type ValueId = usize;
 
 #[derive(Clone, Debug, Default)]
-pub struct Module {
-    pub funcs: Vec<FuncDecl>,
+pub struct Module<'a> {
+    pub funcs: Vec<FuncDecl<'a>>,
     pub signatures: Vec<FuncType>,
 }
 
 #[derive(Clone, Debug)]
-pub enum FuncDecl {
+pub enum FuncDecl<'a> {
     Import(SignatureId),
-    Body(SignatureId, FunctionBody),
+    Body(SignatureId, FunctionBody<'a>),
+}
+
+impl<'a> FuncDecl<'a> {
+    pub fn sig(&self) -> SignatureId {
+        match self {
+            &FuncDecl::Import(sig) => sig,
+            &FuncDecl::Body(sig, ..) => sig,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct FunctionBody {
+pub struct FunctionBody<'a> {
     pub locals: Vec<Type>,
-    pub blocks: Vec<Block>,
+    pub blocks: Vec<Block<'a>>,
     pub values: Vec<ValueDef>,
 }
 
@@ -35,26 +44,25 @@ pub struct ValueDef {
 
 #[derive(Clone, Debug)]
 pub enum ValueKind {
-    BlockParam(Block),
+    BlockParam(BlockId, usize),
     Inst(BlockId, InstId),
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Block {
+pub struct Block<'a> {
     pub params: Vec<Type>,
-    pub insts: Vec<Inst>,
+    pub insts: Vec<Inst<'a>>,
 }
 
 #[derive(Clone, Debug)]
-pub struct Inst {
-    pub operator: Operator<'static>,
+pub struct Inst<'a> {
+    pub operator: Operator<'a>,
     pub outputs: Vec<ValueId>,
-    pub inputs: Vec<Operand>,
+    pub inputs: Vec<Operand<'a>>,
 }
 
 #[derive(Clone, Debug)]
-pub enum Operand {
+pub enum Operand<'a> {
     Value(ValueId),
-    Sub(Box<Inst>),
-    Local(usize), // eliminated during local2ssa pass
+    Sub(Box<Inst<'a>>),
 }

@@ -4,28 +4,26 @@
 
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
-use anyhow::anyhow;
 use anyhow::{bail, Result};
 use log::trace;
-use std::collections::VecDeque;
-use wasmparser::{FuncType, ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef};
+use wasmparser::{ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef};
 
-pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module> {
+pub fn wasm_to_ir<'a>(bytes: &'a [u8]) -> Result<Module<'a>> {
     let mut module = Module::default();
     let parser = Parser::new(0);
-    let mut sigs = VecDeque::new();
+    let mut next_func = 0;
     for payload in parser.parse_all(bytes) {
         let payload = payload?;
-        handle_payload(&mut module, payload, &mut sigs)?;
+        handle_payload(&mut module, payload, &mut next_func)?;
     }
 
     Ok(module)
 }
 
 fn handle_payload<'a>(
-    module: &mut Module,
+    module: &mut Module<'a>,
     payload: Payload<'a>,
-    func_sigs: &mut VecDeque<SignatureId>,
+    next_func: &mut usize,
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
@@ -45,6 +43,7 @@ fn handle_payload<'a>(
                 match reader.read()?.ty {
                     ImportSectionEntryType::Function(sig_idx) => {
                         module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
+                        *next_func += 1;
                     }
                     _ => {}
                 }
@@ -52,15 +51,25 @@ fn handle_payload<'a>(
         }
         Payload::FunctionSection(mut reader) => {
             for _ in 0..reader.get_count() {
-                func_sigs.push_back(reader.read()? as SignatureId);
+                let sig_idx = reader.read()? as SignatureId;
+                module
+                    .funcs
+                    .push(FuncDecl::Body(sig_idx, FunctionBody::default()));
             }
         }
         Payload::CodeSectionEntry(body) => {
-            let sig = func_sigs
-                .pop_front()
-                .ok_or_else(|| anyhow!("mismatched func section and code section sizes"))?;
-            let body = parse_body(&module, body)?;
-            module.funcs.push(FuncDecl::Body(sig as SignatureId, body));
+            let func_idx = *next_func;
+            *next_func += 1;
+
+            let my_sig = module.funcs[func_idx].sig();
+            let body = parse_body(&module, my_sig, body)?;
+
+            match &mut module.funcs[func_idx] {
+                &mut FuncDecl::Body(_, ref mut existing_body) => {
+                    *existing_body = body;
+                }
+                _ => unreachable!(),
+            }
         }
         _ => {}
     }
@@ -68,8 +77,12 @@ fn handle_payload<'a>(
     Ok(())
 }
 
-fn parse_body(module: &Module, body: wasmparser::FunctionBody) -> Result<FunctionBody> {
-    let mut ret = FunctionBody::default();
+fn parse_body<'a, 'b>(
+    module: &'b Module<'a>,
+    my_sig: SignatureId,
+    body: wasmparser::FunctionBody<'a>,
+) -> Result<FunctionBody<'a>> {
+    let mut ret: FunctionBody<'a> = FunctionBody::default();
     let mut locals = body.get_locals_reader()?;
     for _ in 0..locals.get_count() {
         let (count, ty) = locals.read()?;
@@ -78,7 +91,7 @@ fn parse_body(module: &Module, body: wasmparser::FunctionBody) -> Result<Functio
         }
     }
 
-    let mut builder = FunctionBodyBuilder::new(&module.signatures[..], &mut ret);
+    let mut builder = FunctionBodyBuilder::new(&module, my_sig, &mut ret);
     let ops = body.get_operators_reader()?;
     for op in ops.into_iter() {
         let op = op?;
@@ -89,9 +102,10 @@ fn parse_body(module: &Module, body: wasmparser::FunctionBody) -> Result<Functio
 }
 
 #[derive(Debug)]
-struct FunctionBodyBuilder<'a> {
-    signatures: &'a [FuncType],
-    body: &'a mut FunctionBody,
+struct FunctionBodyBuilder<'a, 'b> {
+    module: &'b Module<'a>,
+    my_sig: SignatureId,
+    body: &'b mut FunctionBody<'a>,
     cur_block: BlockId,
     ctrl_stack: Vec<Frame>,
     op_stack: Vec<ValueId>,
@@ -100,34 +114,35 @@ struct FunctionBodyBuilder<'a> {
 #[derive(Debug)]
 enum Frame {
     Block {
-        out: Block,
+        out: BlockId,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     Loop {
-        top: Block,
-        out: Block,
+        top: BlockId,
+        out: BlockId,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     If {
-        out: Block,
-        el: Block,
+        out: BlockId,
+        el: BlockId,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     Else {
-        out: Block,
+        out: BlockId,
         params: Vec<Type>,
         results: Vec<Type>,
     },
 }
 
-impl<'a> FunctionBodyBuilder<'a> {
-    fn new(signatures: &'a [FuncType], body: &'a mut FunctionBody) -> Self {
+impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
+    fn new(module: &'b Module<'a>, my_sig: SignatureId, body: &'b mut FunctionBody<'a>) -> Self {
         body.blocks.push(Block::default());
         Self {
-            signatures,
+            module,
+            my_sig,
             body,
             ctrl_stack: vec![],
             op_stack: vec![],
@@ -135,29 +150,47 @@ impl<'a> FunctionBodyBuilder<'a> {
         }
     }
 
-    fn handle_op(&mut self, op: Operator<'_>) -> Result<()> {
+    fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
         match op {
-            Operator::Unreachable => self.emit(Operator::Unreachable, vec![], vec![])?,
+            Operator::Unreachable
+            | Operator::Call { .. }
+            | Operator::LocalGet { .. }
+            | Operator::LocalSet { .. }
+            | Operator::LocalTee { .. } => self.emit(op.clone())?,
+
+            Operator::End => {
+                if self.ctrl_stack.is_empty() {
+                    self.emit(Operator::Return)?;
+                } else {
+                    bail!("Unsupported End");
+                }
+            }
+
             _ => bail!("Unsupported operator: {:?}", op),
         }
 
         Ok(())
     }
 
-    fn emit(
-        &mut self,
-        op: Operator<'static>,
-        outputs: Vec<ValueId>,
-        inputs: Vec<Operand>,
-    ) -> Result<()> {
+    fn emit(&mut self, op: Operator<'a>) -> Result<()> {
         let block = self.cur_block;
         let inst = self.body.blocks[block].insts.len() as InstId;
 
-        for input in op_inputs(self.signatures, &op)?.into_iter().rev() {
-            assert_eq!(self.body.values[self.op_stack.pop().unwrap()].ty, input);
+        let mut inputs = vec![];
+        for input in op_inputs(self.module, self.my_sig, &self.body.locals[..], &op)?
+            .into_iter()
+            .rev()
+        {
+            let stack_top = self.op_stack.pop().unwrap();
+            assert_eq!(self.body.values[stack_top].ty, input);
+            inputs.push(Operand::Value(stack_top));
         }
-        for output in op_outputs(self.signatures, &op)?.into_iter() {
+        inputs.reverse();
+
+        let mut outputs = vec![];
+        for output in op_outputs(self.module, &self.body.locals[..], &op)?.into_iter() {
             let val = self.body.values.len() as ValueId;
+            outputs.push(val);
             self.body.values.push(ValueDef {
                 kind: ValueKind::Inst(block, inst),
                 ty: output,

@@ -1,18 +1,45 @@
 //! Metadata on operators.
 
+use crate::ir::{Module, SignatureId};
 use anyhow::{bail, Result};
-use wasmparser::{FuncType, Operator, Type};
+use wasmparser::{Operator, Type};
 
-pub fn op_inputs(_sigs: &[FuncType], op: &Operator<'_>) -> Result<Vec<Type>> {
+pub fn op_inputs(
+    module: &Module,
+    my_sig: SignatureId,
+    my_locals: &[Type],
+    op: &Operator<'_>,
+) -> Result<Vec<Type>> {
     match op {
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
+
+        &Operator::Call { function_index } => {
+            let sig = module.funcs[function_index as usize].sig();
+            Ok(Vec::from(module.signatures[sig].params.clone()))
+        }
+        &Operator::Return => Ok(Vec::from(module.signatures[my_sig].returns.clone())),
+
+        &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
+            Ok(vec![my_locals[local_index as usize]])
+        }
+        &Operator::LocalGet { .. } => Ok(vec![]),
+
         _ => bail!("Unknown operator in op_inputs(): {:?}", op),
     }
 }
 
-pub fn op_outputs(_sigs: &[FuncType], op: &Operator<'_>) -> Result<Vec<Type>> {
+pub fn op_outputs(module: &Module, my_locals: &[Type], op: &Operator<'_>) -> Result<Vec<Type>> {
     match op {
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
+
+        &Operator::Call { function_index } => {
+            let sig = module.funcs[function_index as usize].sig();
+            Ok(Vec::from(module.signatures[sig].returns.clone()))
+        }
+        &Operator::Return => Ok(vec![]),
+        &Operator::LocalSet { .. } | &Operator::LocalTee { .. } => Ok(vec![]),
+        &Operator::LocalGet { local_index } => Ok(vec![my_locals[local_index as usize]]),
+
         _ => bail!("Unknown operator in op_outputs(): {:?}", op),
     }
 }
