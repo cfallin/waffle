@@ -69,19 +69,25 @@ pub enum Operand<'a> {
 }
 
 #[derive(Clone, Debug)]
+pub struct BlockTarget<'a> {
+    pub block: BlockId,
+    pub args: Vec<Operand<'a>>,
+}
+
+#[derive(Clone, Debug)]
 pub enum Terminator<'a> {
     Br {
-        target: BlockId,
+        target: BlockTarget<'a>,
     },
     CondBr {
         cond: Operand<'a>,
-        if_true: BlockId,
-        if_false: BlockId,
+        if_true: BlockTarget<'a>,
+        if_false: BlockTarget<'a>,
     },
     Select {
         value: Operand<'a>,
-        targets: Vec<BlockId>,
-        default: BlockId,
+        targets: Vec<BlockTarget<'a>>,
+        default: BlockTarget<'a>,
     },
     Return {
         values: Vec<Operand<'a>>,
