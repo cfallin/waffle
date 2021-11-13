@@ -24,6 +24,9 @@ pub fn op_inputs(
         }
         &Operator::LocalGet { .. } => Ok(vec![]),
 
+        &Operator::I32Eqz => Ok(vec![Type::I32]),
+        &Operator::I32Eq => Ok(vec![Type::I32, Type::I32]),
+
         _ => bail!("Unknown operator in op_inputs(): {:?}", op),
     }
 }
@@ -39,6 +42,8 @@ pub fn op_outputs(module: &Module, my_locals: &[Type], op: &Operator<'_>) -> Res
         &Operator::Return => Ok(vec![]),
         &Operator::LocalSet { .. } | &Operator::LocalTee { .. } => Ok(vec![]),
         &Operator::LocalGet { local_index } => Ok(vec![my_locals[local_index as usize]]),
+
+        &Operator::I32Eqz | &Operator::I32Eq => Ok(vec![Type::I32]),
 
         _ => bail!("Unknown operator in op_outputs(): {:?}", op),
     }

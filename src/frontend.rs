@@ -189,7 +189,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | Operator::Call { .. }
             | Operator::LocalGet { .. }
             | Operator::LocalSet { .. }
-            | Operator::LocalTee { .. } => self.emit(op.clone())?,
+            | Operator::LocalTee { .. }
+            | Operator::I32Eqz => self.emit(op.clone())?,
 
             Operator::End => match self.ctrl_stack.pop() {
                 None => {
@@ -409,7 +410,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn emit_branch(&mut self, target: BlockId, args: &[ValueId]) {
         if let Some(block) = self.cur_block {
-            let args = args.iter().map(|&val| Operand::Value(val)).collect();
+            let args = args.iter().map(|&val| Operand::value(val)).collect();
             let target = BlockTarget {
                 block: target,
                 args,
@@ -429,14 +430,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if let Some(block) = self.cur_block {
             let if_true_args = if_true_args
                 .iter()
-                .map(|&val| Operand::Value(val))
+                .map(|&val| Operand::value(val))
                 .collect();
             let if_false_args = if_false_args
                 .iter()
-                .map(|&val| Operand::Value(val))
+                .map(|&val| Operand::value(val))
                 .collect();
             self.body.blocks[block].terminator = Terminator::CondBr {
-                cond: Operand::Value(cond),
+                cond: Operand::value(cond),
                 if_true: BlockTarget {
                     block: if_true,
                     args: if_true_args,
@@ -457,7 +458,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         args: &[ValueId],
     ) {
         if let Some(block) = self.cur_block {
-            let args: Vec<Operand<'a>> = args.iter().map(|&arg| Operand::Value(arg)).collect();
+            let args: Vec<Operand<'a>> = args.iter().map(|&arg| Operand::value(arg)).collect();
             let targets = indexed_targets
                 .iter()
                 .map(|&block| BlockTarget {
@@ -470,7 +471,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 args: args.clone(),
             };
             self.body.blocks[block].terminator = Terminator::Select {
-                value: Operand::Value(index),
+                value: Operand::value(index),
                 targets,
                 default,
             };
@@ -500,7 +501,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             {
                 let stack_top = self.op_stack.pop().unwrap();
                 assert_eq!(self.body.values[stack_top].ty, input);
-                inputs.push(Operand::Value(stack_top));
+                inputs.push(Operand::value(stack_top));
             }
             inputs.reverse();
 
@@ -520,6 +521,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 outputs,
                 inputs,
             });
+        } else {
+            let _ = self
+                .op_stack
+                .split_off(op_inputs(self.module, self.my_sig, &self.body.locals[..], &op)?.len());
+            for _ in 0..op_outputs(self.module, &self.body.locals[..], &op)?.len() {
+                self.op_stack.push(NO_VALUE);
+            }
         }
 
         Ok(())

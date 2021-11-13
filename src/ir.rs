@@ -8,6 +8,8 @@ pub type BlockId = usize;
 pub type InstId = usize;
 pub type ValueId = usize;
 
+pub const NO_VALUE: ValueId = usize::MAX;
+
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
     pub funcs: Vec<FuncDecl<'a>>,
@@ -64,8 +66,23 @@ pub struct Inst<'a> {
 
 #[derive(Clone, Debug)]
 pub enum Operand<'a> {
+    /// An SSA value.
     Value(ValueId),
+    /// Tree-ified instructions for Wasm emission.
     Sub(Box<Inst<'a>>),
+    /// Undef values are produced when code is unreachable and thus
+    /// removed/never executed.
+    Undef,
+}
+
+impl<'a> Operand<'a> {
+    pub fn value(value: ValueId) -> Self {
+        if value == NO_VALUE {
+            Operand::Undef
+        } else {
+            Operand::Value(value)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
