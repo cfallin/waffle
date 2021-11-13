@@ -10,7 +10,7 @@ use wasmparser::{
     ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef, TypeOrFuncType,
 };
 
-pub fn wasm_to_ir<'a>(bytes: &'a [u8]) -> Result<Module<'a>> {
+pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::default();
     let parser = Parser::new(0);
     let mut next_func = 0;
@@ -32,22 +32,16 @@ fn handle_payload<'a>(
         Payload::TypeSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let ty = reader.read()?;
-                match ty {
-                    TypeDef::Func(fty) => {
-                        module.signatures.push(fty);
-                    }
-                    _ => {}
+                if let TypeDef::Func(fty) = ty {
+                    module.signatures.push(fty);
                 }
             }
         }
         Payload::ImportSection(mut reader) => {
             for _ in 0..reader.get_count() {
-                match reader.read()?.ty {
-                    ImportSectionEntryType::Function(sig_idx) => {
-                        module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
-                        *next_func += 1;
-                    }
-                    _ => {}
+                if let ImportSectionEntryType::Function(sig_idx) = reader.read()?.ty {
+                    module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
+                    *next_func += 1;
                 }
             }
         }
@@ -64,10 +58,10 @@ fn handle_payload<'a>(
             *next_func += 1;
 
             let my_sig = module.funcs[func_idx].sig();
-            let body = parse_body(&module, my_sig, body)?;
+            let body = parse_body(module, my_sig, body)?;
 
             match &mut module.funcs[func_idx] {
-                &mut FuncDecl::Body(_, ref mut existing_body) => {
+                FuncDecl::Body(_, ref mut existing_body) => {
                     *existing_body = body;
                 }
                 _ => unreachable!(),
@@ -93,7 +87,7 @@ fn parse_body<'a, 'b>(
         }
     }
 
-    let mut builder = FunctionBodyBuilder::new(&module, my_sig, &mut ret);
+    let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
     let ops = body.get_operators_reader()?;
     for op in ops.into_iter() {
         let op = op?;

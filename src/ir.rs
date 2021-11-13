@@ -23,8 +23,8 @@ pub enum FuncDecl<'a> {
 impl<'a> FuncDecl<'a> {
     pub fn sig(&self) -> SignatureId {
         match self {
-            &FuncDecl::Import(sig) => sig,
-            &FuncDecl::Body(sig, ..) => sig,
+            FuncDecl::Import(sig) => *sig,
+            FuncDecl::Body(sig, ..) => *sig,
         }
     }
 }
