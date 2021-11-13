@@ -5,5 +5,5 @@ use waffle::frontend::wasm_to_ir;
 use wasm_smith::Module;
 
 fuzz_target!(|module: Module| {
-    let _parsed_module = wasm_to_ir(module.to_bytes()).unwrap();
+    let _parsed_module = wasm_to_ir(&module.to_bytes()[..]).unwrap();
 });
