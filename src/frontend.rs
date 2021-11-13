@@ -1,11 +1,14 @@
 //! Frontend: convert Wasm to IR.
 
+#![allow(dead_code)]
+
 use crate::ir::*;
+use crate::op_traits::{op_inputs, op_outputs};
 use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use log::trace;
 use std::collections::VecDeque;
-use wasmparser::{ImportSectionEntryType, Operator, Parser, Payload, TypeDef};
+use wasmparser::{FuncType, ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef};
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module> {
     let mut module = Module::default();
@@ -56,7 +59,7 @@ fn handle_payload<'a>(
             let sig = func_sigs
                 .pop_front()
                 .ok_or_else(|| anyhow!("mismatched func section and code section sizes"))?;
-            let body = parse_body(body)?;
+            let body = parse_body(&module, body)?;
             module.funcs.push(FuncDecl::Body(sig as SignatureId, body));
         }
         _ => {}
@@ -65,7 +68,7 @@ fn handle_payload<'a>(
     Ok(())
 }
 
-fn parse_body(body: wasmparser::FunctionBody) -> Result<FunctionBody> {
+fn parse_body(module: &Module, body: wasmparser::FunctionBody) -> Result<FunctionBody> {
     let mut ret = FunctionBody::default();
     let mut locals = body.get_locals_reader()?;
     for _ in 0..locals.get_count() {
@@ -75,7 +78,7 @@ fn parse_body(body: wasmparser::FunctionBody) -> Result<FunctionBody> {
         }
     }
 
-    let mut builder = FunctionBodyBuilder::new(&mut ret);
+    let mut builder = FunctionBodyBuilder::new(&module.signatures[..], &mut ret);
     let ops = body.get_operators_reader()?;
     for op in ops.into_iter() {
         let op = op?;
@@ -87,18 +90,86 @@ fn parse_body(body: wasmparser::FunctionBody) -> Result<FunctionBody> {
 
 #[derive(Debug)]
 struct FunctionBodyBuilder<'a> {
+    signatures: &'a [FuncType],
     body: &'a mut FunctionBody,
+    cur_block: BlockId,
+    ctrl_stack: Vec<Frame>,
+    op_stack: Vec<ValueId>,
+}
+
+#[derive(Debug)]
+enum Frame {
+    Block {
+        out: Block,
+        params: Vec<Type>,
+        results: Vec<Type>,
+    },
+    Loop {
+        top: Block,
+        out: Block,
+        params: Vec<Type>,
+        results: Vec<Type>,
+    },
+    If {
+        out: Block,
+        el: Block,
+        params: Vec<Type>,
+        results: Vec<Type>,
+    },
+    Else {
+        out: Block,
+        params: Vec<Type>,
+        results: Vec<Type>,
+    },
 }
 
 impl<'a> FunctionBodyBuilder<'a> {
-    fn new(body: &'a mut FunctionBody) -> Self {
-        Self { body }
+    fn new(signatures: &'a [FuncType], body: &'a mut FunctionBody) -> Self {
+        body.blocks.push(Block::default());
+        Self {
+            signatures,
+            body,
+            ctrl_stack: vec![],
+            op_stack: vec![],
+            cur_block: 0,
+        }
     }
 
     fn handle_op(&mut self, op: Operator<'_>) -> Result<()> {
         match op {
-            _ => {}
+            Operator::Unreachable => self.emit(Operator::Unreachable, vec![], vec![])?,
+            _ => bail!("Unsupported operator: {:?}", op),
         }
+
+        Ok(())
+    }
+
+    fn emit(
+        &mut self,
+        op: Operator<'static>,
+        outputs: Vec<ValueId>,
+        inputs: Vec<Operand>,
+    ) -> Result<()> {
+        let block = self.cur_block;
+        let inst = self.body.blocks[block].insts.len() as InstId;
+
+        for input in op_inputs(self.signatures, &op)?.into_iter().rev() {
+            assert_eq!(self.body.values[self.op_stack.pop().unwrap()].ty, input);
+        }
+        for output in op_outputs(self.signatures, &op)?.into_iter() {
+            let val = self.body.values.len() as ValueId;
+            self.body.values.push(ValueDef {
+                kind: ValueKind::Inst(block, inst),
+                ty: output,
+            });
+            self.op_stack.push(val);
+        }
+
+        self.body.blocks[self.cur_block].insts.push(Inst {
+            operator: op,
+            outputs,
+            inputs,
+        });
 
         Ok(())
     }

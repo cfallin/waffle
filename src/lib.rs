@@ -7,3 +7,4 @@ pub use wasmparser;
 
 pub mod frontend;
 pub mod ir;
+pub mod op_traits;

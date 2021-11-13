@@ -36,7 +36,7 @@ pub struct ValueDef {
 #[derive(Clone, Debug)]
 pub enum ValueKind {
     BlockParam(Block),
-    Inst(Block, Inst),
+    Inst(BlockId, InstId),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -56,4 +56,5 @@ pub struct Inst {
 pub enum Operand {
     Value(ValueId),
     Sub(Box<Inst>),
+    Local(usize), // eliminated during local2ssa pass
 }
