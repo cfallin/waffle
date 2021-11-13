@@ -6,7 +6,9 @@ use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use anyhow::{bail, Result};
 use log::trace;
-use wasmparser::{ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef};
+use wasmparser::{
+    ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef, TypeOrFuncType,
+};
 
 pub fn wasm_to_ir<'a>(bytes: &'a [u8]) -> Result<Module<'a>> {
     let mut module = Module::default();
@@ -158,18 +160,59 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | Operator::LocalSet { .. }
             | Operator::LocalTee { .. } => self.emit(op.clone())?,
 
-            Operator::End => {
-                if self.ctrl_stack.is_empty() {
+            Operator::End => match self.ctrl_stack.pop() {
+                None => {
                     self.emit(Operator::Return)?;
-                } else {
-                    bail!("Unsupported End");
                 }
+                Some(Frame::Block { out, .. }) | Some(Frame::Loop { out, .. }) => {
+                    // No need to manipulate stack: assuming the input
+                    // Wasm was validated properly, the `results`
+                    // values must be on the top of the stack now, and
+                    // they will remain so once we exit the block.
+                    self.emit_branch(out);
+                    self.cur_block = out;
+                }
+                _ => bail!("unsupported block type"),
+            },
+
+            Operator::Block { ty } => {
+                let (params, results) = self.block_params_and_results(ty);
+                let out = self.create_block();
+                self.ctrl_stack.push(Frame::Block {
+                    out,
+                    params,
+                    results,
+                });
             }
 
             _ => bail!("Unsupported operator: {:?}", op),
         }
 
         Ok(())
+    }
+
+    fn create_block(&mut self) -> BlockId {
+        let id = self.body.blocks.len() as BlockId;
+        self.body.blocks.push(Block::default());
+        id
+    }
+
+    fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
+        match ty {
+            TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty]),
+            TypeOrFuncType::FuncType(sig_idx) => {
+                let sig = &self.module.signatures[sig_idx as SignatureId];
+                (
+                    Vec::from(sig.params.clone()),
+                    Vec::from(sig.returns.clone()),
+                )
+            }
+        }
+    }
+
+    fn emit_branch(&mut self, target: BlockId) {
+        let block = self.cur_block;
+        self.body.blocks[block].terminator = Terminator::Br { target };
     }
 
     fn emit(&mut self, op: Operator<'a>) -> Result<()> {

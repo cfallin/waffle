@@ -52,6 +52,7 @@ pub enum ValueKind {
 pub struct Block<'a> {
     pub params: Vec<Type>,
     pub insts: Vec<Inst<'a>>,
+    pub terminator: Terminator<'a>,
 }
 
 #[derive(Clone, Debug)]
@@ -65,4 +66,31 @@ pub struct Inst<'a> {
 pub enum Operand<'a> {
     Value(ValueId),
     Sub(Box<Inst<'a>>),
+}
+
+#[derive(Clone, Debug)]
+pub enum Terminator<'a> {
+    Br {
+        target: BlockId,
+    },
+    CondBr {
+        cond: Operand<'a>,
+        if_true: BlockId,
+        if_false: BlockId,
+    },
+    Select {
+        value: Operand<'a>,
+        targets: Vec<BlockId>,
+        default: BlockId,
+    },
+    Return {
+        values: Vec<Operand<'a>>,
+    },
+    None,
+}
+
+impl<'a> std::default::Default for Terminator<'a> {
+    fn default() -> Self {
+        Terminator::None
+    }
 }
