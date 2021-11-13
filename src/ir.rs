@@ -4,6 +4,8 @@ use wasmparser::{FuncType, Type};
 
 pub type SignatureId = usize;
 pub type FuncId = usize;
+pub type BlockId = usize;
+pub type InstId = usize;
 
 #[derive(Clone, Debug)]
 pub struct Module {
@@ -14,12 +16,11 @@ pub struct Module {
 #[derive(Clone, Debug)]
 pub enum FuncDecl {
     Import(SignatureId),
-    Body(SignatureId, Function),
+    Body(SignatureId, FunctionBody),
 }
 
 #[derive(Clone, Debug)]
-pub struct Function {
-    pub id: FuncId,
-    pub signature: SignatureId,
+pub struct FunctionBody {
     pub locals: Vec<Type>,
+    pub blocks: Vec<Block>,
 }
