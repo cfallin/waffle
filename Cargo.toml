@@ -1,0 +1,11 @@
+[package]
+name = "waffle"
+version = "0.0.1"
+description = "Wasm Analysis Framework For Lightweight Experiments"
+author = ["Chris Fallin <chris@cfallin.org>"]
+license = "Apache-2.0 WITH LLVM-exception"
+edition = "2018"
+
+[dependencies]
+wasmparser = "0.81"
+wasm-encoder = "0.3"
