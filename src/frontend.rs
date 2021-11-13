@@ -3,7 +3,7 @@
 use crate::ir::*;
 use anyhow::Result;
 use log::trace;
-use wasmparser::{Parser, Payload, TypeDef};
+use wasmparser::{ImportSectionEntryType, Parser, Payload, TypeDef};
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module> {
     let mut module = Module::default();
@@ -25,6 +25,16 @@ fn handle_payload<'a>(module: &mut Module, payload: Payload<'a>) -> Result<()> {
                 match ty {
                     TypeDef::Func(fty) => {
                         module.signatures.push(fty);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Payload::ImportSection(mut reader) => {
+            for _ in 0..reader.get_count() {
+                match reader.read()?.ty {
+                    ImportSectionEntryType::Function(sig_idx) => {
+                        module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
                     }
                     _ => {}
                 }
