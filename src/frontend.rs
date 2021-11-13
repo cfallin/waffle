@@ -186,11 +186,186 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
         match &op {
             Operator::Unreachable
-            | Operator::Call { .. }
             | Operator::LocalGet { .. }
             | Operator::LocalSet { .. }
             | Operator::LocalTee { .. }
-            | Operator::I32Eqz => self.emit(op.clone())?,
+            | Operator::Call { .. }
+            | Operator::CallIndirect { .. }
+            | Operator::Select
+            | Operator::TypedSelect { .. }
+            | Operator::GlobalGet { .. }
+            | Operator::GlobalSet { .. }
+            | Operator::I32Load { .. }
+            | Operator::I64Load { .. }
+            | Operator::F32Load { .. }
+            | Operator::F64Load { .. }
+            | Operator::I32Load8S { .. }
+            | Operator::I32Load8U { .. }
+            | Operator::I32Load16S { .. }
+            | Operator::I32Load16U { .. }
+            | Operator::I64Load8S { .. }
+            | Operator::I64Load8U { .. }
+            | Operator::I64Load16S { .. }
+            | Operator::I64Load16U { .. }
+            | Operator::I64Load32S { .. }
+            | Operator::I64Load32U { .. }
+            | Operator::I32Store { .. }
+            | Operator::I64Store { .. }
+            | Operator::F32Store { .. }
+            | Operator::F64Store { .. }
+            | Operator::I32Store8 { .. }
+            | Operator::I32Store16 { .. }
+            | Operator::I64Store8 { .. }
+            | Operator::I64Store16 { .. }
+            | Operator::I64Store32 { .. }
+            | Operator::MemorySize { .. }
+            | Operator::MemoryGrow { .. }
+            | Operator::I32Const { .. }
+            | Operator::I64Const { .. }
+            | Operator::F32Const { .. }
+            | Operator::F64Const { .. }
+            | Operator::I32Eqz
+            | Operator::I32Eq
+            | Operator::I32Ne
+            | Operator::I32LtS
+            | Operator::I32LtU
+            | Operator::I32GtS
+            | Operator::I32GtU
+            | Operator::I32LeS
+            | Operator::I32LeU
+            | Operator::I32GeS
+            | Operator::I32GeU
+            | Operator::I64Eqz
+            | Operator::I64Eq
+            | Operator::I64Ne
+            | Operator::I64LtS
+            | Operator::I64LtU
+            | Operator::I64GtU
+            | Operator::I64GtS
+            | Operator::I64LeS
+            | Operator::I64LeU
+            | Operator::I64GeS
+            | Operator::I64GeU
+            | Operator::F32Eq
+            | Operator::F32Ne
+            | Operator::F32Lt
+            | Operator::F32Gt
+            | Operator::F32Le
+            | Operator::F32Ge
+            | Operator::F64Eq
+            | Operator::F64Ne
+            | Operator::F64Lt
+            | Operator::F64Gt
+            | Operator::F64Le
+            | Operator::F64Ge
+            | Operator::I32Clz
+            | Operator::I32Ctz
+            | Operator::I32Popcnt
+            | Operator::I32Add
+            | Operator::I32Sub
+            | Operator::I32Mul
+            | Operator::I32DivS
+            | Operator::I32DivU
+            | Operator::I32RemS
+            | Operator::I32RemU
+            | Operator::I32And
+            | Operator::I32Or
+            | Operator::I32Xor
+            | Operator::I32Shl
+            | Operator::I32ShrS
+            | Operator::I32ShrU
+            | Operator::I32Rotl
+            | Operator::I32Rotr
+            | Operator::I64Clz
+            | Operator::I64Ctz
+            | Operator::I64Popcnt
+            | Operator::I64Add
+            | Operator::I64Sub
+            | Operator::I64Mul
+            | Operator::I64DivS
+            | Operator::I64DivU
+            | Operator::I64RemS
+            | Operator::I64RemU
+            | Operator::I64And
+            | Operator::I64Or
+            | Operator::I64Xor
+            | Operator::I64Shl
+            | Operator::I64ShrS
+            | Operator::I64ShrU
+            | Operator::I64Rotl
+            | Operator::I64Rotr
+            | Operator::F32Abs
+            | Operator::F32Neg
+            | Operator::F32Ceil
+            | Operator::F32Floor
+            | Operator::F32Trunc
+            | Operator::F32Nearest
+            | Operator::F32Sqrt
+            | Operator::F32Add
+            | Operator::F32Sub
+            | Operator::F32Mul
+            | Operator::F32Div
+            | Operator::F32Min
+            | Operator::F32Max
+            | Operator::F32Copysign
+            | Operator::F64Abs
+            | Operator::F64Neg
+            | Operator::F64Ceil
+            | Operator::F64Floor
+            | Operator::F64Trunc
+            | Operator::F64Nearest
+            | Operator::F64Sqrt
+            | Operator::F64Add
+            | Operator::F64Sub
+            | Operator::F64Mul
+            | Operator::F64Div
+            | Operator::F64Min
+            | Operator::F64Max
+            | Operator::F64Copysign
+            | Operator::I32WrapI64
+            | Operator::I32TruncF32S
+            | Operator::I32TruncF32U
+            | Operator::I32TruncF64S
+            | Operator::I32TruncF64U
+            | Operator::I64ExtendI32S
+            | Operator::I64ExtendI32U
+            | Operator::I64TruncF32S
+            | Operator::I64TruncF32U
+            | Operator::I64TruncF64S
+            | Operator::I64TruncF64U
+            | Operator::F32ConvertI32S
+            | Operator::F32ConvertI32U
+            | Operator::F32ConvertI64S
+            | Operator::F32ConvertI64U
+            | Operator::F32DemoteF64
+            | Operator::F64ConvertI32S
+            | Operator::F64ConvertI32U
+            | Operator::F64ConvertI64S
+            | Operator::F64ConvertI64U
+            | Operator::F64PromoteF32
+            | Operator::I32Extend8S
+            | Operator::I32Extend16S
+            | Operator::I64Extend8S
+            | Operator::I64Extend16S
+            | Operator::I64Extend32S
+            | Operator::I32TruncSatF32S
+            | Operator::I32TruncSatF32U
+            | Operator::I32TruncSatF64S
+            | Operator::I32TruncSatF64U
+            | Operator::I64TruncSatF32S
+            | Operator::I64TruncSatF32U
+            | Operator::I64TruncSatF64S
+            | Operator::I64TruncSatF64U
+            | Operator::TableGet { .. }
+            | Operator::TableSet { .. }
+            | Operator::TableGrow { .. }
+            | Operator::TableSize { .. } => self.emit(op.clone())?,
+
+            Operator::Nop => {}
+
+            Operator::Drop => {
+                self.op_stack.pop().unwrap();
+            }
 
             Operator::End => match self.ctrl_stack.pop() {
                 None => {
@@ -377,6 +552,15 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     term_targets.push(block);
                 }
                 self.emit_br_table(index, default_term_target, &term_targets[..], &args[..]);
+                self.cur_block = None;
+            }
+
+            Operator::Return => {
+                let retvals = self
+                    .op_stack
+                    .split_off(self.module.signatures[self.my_sig].returns.len());
+                self.emit_ret(&retvals[..]);
+                self.cur_block = None;
             }
 
             _ => bail!("Unsupported operator: {:?}", op),
@@ -475,6 +659,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 targets,
                 default,
             };
+        }
+    }
+
+    fn emit_ret(&mut self, vals: &[ValueId]) {
+        if let Some(block) = self.cur_block {
+            let values = vals.iter().map(|&value| Operand::value(value)).collect();
+            self.body.blocks[block].terminator = Terminator::Return { values };
         }
     }
 

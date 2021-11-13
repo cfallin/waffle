@@ -17,6 +17,11 @@ pub fn op_inputs(
             let sig = module.funcs[function_index as usize].sig();
             Ok(Vec::from(module.signatures[sig].params.clone()))
         }
+        &Operator::CallIndirect { index, .. } => {
+            let mut params = vec![Type::I32];
+            params.extend_from_slice(&module.signatures[index as usize].params[..]);
+            Ok(params)
+        }
         &Operator::Return => Ok(Vec::from(module.signatures[my_sig].returns.clone())),
 
         &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
@@ -38,6 +43,9 @@ pub fn op_outputs(module: &Module, my_locals: &[Type], op: &Operator<'_>) -> Res
         &Operator::Call { function_index } => {
             let sig = module.funcs[function_index as usize].sig();
             Ok(Vec::from(module.signatures[sig].returns.clone()))
+        }
+        &Operator::CallIndirect { index, .. } => {
+            Ok(Vec::from(module.signatures[index as usize].returns.clone()))
         }
         &Operator::Return => Ok(vec![]),
         &Operator::LocalSet { .. } | &Operator::LocalTee { .. } => Ok(vec![]),
