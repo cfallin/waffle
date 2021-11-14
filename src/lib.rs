@@ -7,6 +7,7 @@
 pub use wasm_encoder;
 pub use wasmparser;
 
+mod backend;
 mod dataflow;
 mod frontend;
 mod ir;

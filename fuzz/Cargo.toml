@@ -26,3 +26,9 @@ name = "parse_ir"
 path = "fuzz_targets/parse_ir.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+test = false
+doc = false

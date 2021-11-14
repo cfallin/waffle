@@ -1,6 +1,6 @@
 //! Intermediate representation for Wasm.
 
-use crate::frontend;
+use crate::{backend, frontend};
 use anyhow::Result;
 use wasmparser::{FuncType, Operator, Type};
 
@@ -15,6 +15,7 @@ pub const NO_VALUE: ValueId = usize::MAX;
 
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
+    pub orig_bytes: &'a [u8],
     pub funcs: Vec<FuncDecl<'a>>,
     pub signatures: Vec<FuncType>,
     pub globals: Vec<Type>,
@@ -61,28 +62,26 @@ pub enum ValueKind {
 pub struct Block<'a> {
     pub params: Vec<Type>,
     pub insts: Vec<Inst<'a>>,
-    pub terminator: Terminator<'a>,
+    pub terminator: Terminator,
 }
 
 #[derive(Clone, Debug)]
 pub struct Inst<'a> {
     pub operator: Operator<'a>,
     pub outputs: Vec<ValueId>,
-    pub inputs: Vec<Operand<'a>>,
+    pub inputs: Vec<Operand>,
 }
 
-#[derive(Clone, Debug)]
-pub enum Operand<'a> {
+#[derive(Clone, Copy, Debug)]
+pub enum Operand {
     /// An SSA value.
     Value(ValueId),
-    /// Tree-ified instructions for Wasm emission.
-    Sub(Box<Inst<'a>>),
     /// Undef values are produced when code is unreachable and thus
     /// removed/never executed.
     Undef,
 }
 
-impl<'a> Operand<'a> {
+impl Operand {
     pub fn value(value: ValueId) -> Self {
         if value == NO_VALUE {
             Operand::Undef
@@ -93,35 +92,67 @@ impl<'a> Operand<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockTarget<'a> {
+pub struct BlockTarget {
     pub block: BlockId,
-    pub args: Vec<Operand<'a>>,
+    pub args: Vec<Operand>,
 }
 
 #[derive(Clone, Debug)]
-pub enum Terminator<'a> {
+pub enum Terminator {
     Br {
-        target: BlockTarget<'a>,
+        target: BlockTarget,
     },
     CondBr {
-        cond: Operand<'a>,
-        if_true: BlockTarget<'a>,
-        if_false: BlockTarget<'a>,
+        cond: Operand,
+        if_true: BlockTarget,
+        if_false: BlockTarget,
     },
     Select {
-        value: Operand<'a>,
-        targets: Vec<BlockTarget<'a>>,
-        default: BlockTarget<'a>,
+        value: Operand,
+        targets: Vec<BlockTarget>,
+        default: BlockTarget,
     },
     Return {
-        values: Vec<Operand<'a>>,
+        values: Vec<Operand>,
     },
     None,
 }
 
-impl<'a> std::default::Default for Terminator<'a> {
+impl std::default::Default for Terminator {
     fn default() -> Self {
         Terminator::None
+    }
+}
+
+impl Terminator {
+    pub fn args(&self) -> Vec<Operand> {
+        match self {
+            Terminator::Br { target } => target.args.clone(),
+            Terminator::CondBr {
+                cond,
+                if_true,
+                if_false,
+            } => {
+                let mut ret = vec![*cond];
+                ret.extend(if_true.args.iter().cloned());
+                ret.extend(if_false.args.iter().cloned());
+                ret
+            }
+            Terminator::Select {
+                value,
+                targets,
+                default,
+            } => {
+                let mut ret = vec![*value];
+                for target in targets {
+                    ret.extend(target.args.iter().cloned());
+                }
+                ret.extend(default.args.clone());
+                ret
+            }
+            Terminator::Return { values } => values.clone(),
+            Terminator::None => vec![],
+        }
     }
 }
 
@@ -129,9 +160,22 @@ impl<'a> Module<'a> {
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
         frontend::wasm_to_ir(bytes)
     }
+
+    pub fn to_wasm_bytes(mut self) -> Vec<u8> {
+        // TODO
+        for func in &mut self.funcs {
+            match func {
+                &mut FuncDecl::Body(_, ref mut body) => {
+                    let _deleted_insts = backend::treeify_function(body);
+                }
+                _ => {}
+            }
+        }
+        self.orig_bytes.to_vec()
+    }
 }
 
-impl<'a> Terminator<'a> {
+impl Terminator {
     pub fn successors(&self) -> Vec<BlockId> {
         match self {
             Terminator::Return { .. } => vec![],

@@ -14,6 +14,7 @@ use wasmparser::{
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::default();
+    module.orig_bytes = bytes;
     let parser = Parser::new(0);
     let mut next_func = 0;
     for payload in parser.parse_all(bytes) {
@@ -770,7 +771,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         &self.ctrl_stack[self.ctrl_stack.len() - 1 - relative_depth as usize]
     }
 
-    fn fill_block_params_with_locals(&mut self, target: BlockId, args: &mut Vec<Operand<'a>>) {
+    fn fill_block_params_with_locals(&mut self, target: BlockId, args: &mut Vec<Operand>) {
         if !self.block_param_locals.contains_key(&target) {
             let mut keys: Vec<LocalId> = self.locals.keys().cloned().collect();
             keys.sort();
@@ -789,7 +790,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn emit_branch(&mut self, target: BlockId, args: &[ValueId]) {
         if let Some(block) = self.cur_block {
-            let mut args: Vec<Operand<'a>> = args.iter().map(|&val| Operand::value(val)).collect();
+            let mut args: Vec<Operand> = args.iter().map(|&val| Operand::value(val)).collect();
             self.fill_block_params_with_locals(target, &mut args);
             let target = BlockTarget {
                 block: target,
@@ -840,7 +841,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         args: &[ValueId],
     ) {
         if let Some(block) = self.cur_block {
-            let args: Vec<Operand<'a>> = args.iter().map(|&arg| Operand::value(arg)).collect();
+            let args: Vec<Operand> = args.iter().map(|&arg| Operand::value(arg)).collect();
             let targets = indexed_targets
                 .iter()
                 .map(|&block| {
