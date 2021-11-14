@@ -14,6 +14,8 @@ pub const NO_VALUE: ValueId = usize::MAX;
 pub struct Module<'a> {
     pub funcs: Vec<FuncDecl<'a>>,
     pub signatures: Vec<FuncType>,
+    pub globals: Vec<Type>,
+    pub tables: Vec<Type>,
 }
 
 #[derive(Clone, Debug)]

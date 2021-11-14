@@ -39,10 +39,31 @@ fn handle_payload<'a>(
         }
         Payload::ImportSection(mut reader) => {
             for _ in 0..reader.get_count() {
-                if let ImportSectionEntryType::Function(sig_idx) = reader.read()?.ty {
-                    module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
-                    *next_func += 1;
+                match reader.read()?.ty {
+                    ImportSectionEntryType::Function(sig_idx) => {
+                        module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
+                        *next_func += 1;
+                    }
+                    ImportSectionEntryType::Global(ty) => {
+                        module.globals.push(ty.content_type);
+                    }
+                    ImportSectionEntryType::Table(ty) => {
+                        module.tables.push(ty.element_type);
+                    }
+                    _ => {}
                 }
+            }
+        }
+        Payload::GlobalSection(mut reader) => {
+            for _ in 0..reader.get_count() {
+                let global = reader.read()?;
+                module.globals.push(global.ty.content_type);
+            }
+        }
+        Payload::TableSection(mut reader) => {
+            for _ in 0..reader.get_count() {
+                let table = reader.read()?;
+                module.tables.push(table.element_type);
             }
         }
         Payload::FunctionSection(mut reader) => {
@@ -104,7 +125,7 @@ struct FunctionBodyBuilder<'a, 'b> {
     body: &'b mut FunctionBody<'a>,
     cur_block: Option<BlockId>,
     ctrl_stack: Vec<Frame>,
-    op_stack: Vec<ValueId>,
+    op_stack: Vec<(Type, ValueId)>,
 }
 
 #[derive(Clone, Debug)]
@@ -126,7 +147,7 @@ enum Frame {
         start_depth: usize,
         out: BlockId,
         el: BlockId,
-        param_values: Vec<ValueId>,
+        param_values: Vec<(Type, ValueId)>,
         params: Vec<Type>,
         results: Vec<Type>,
     },
@@ -181,6 +202,18 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
         self.body.blocks[block].params.extend_from_slice(tys);
+    }
+
+    fn pop_n(&mut self, n: usize) -> Vec<ValueId> {
+        self.op_stack
+            .split_off(n)
+            .into_iter()
+            .map(|(_ty, value)| value)
+            .collect()
+    }
+
+    fn pop_1(&mut self) -> ValueId {
+        self.op_stack.pop().unwrap().1
     }
 
     fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
@@ -364,7 +397,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             Operator::Nop => {}
 
             Operator::Drop => {
-                self.op_stack.pop().unwrap();
+                let _ = self.pop_1();
             }
 
             Operator::End => match self.ctrl_stack.pop() {
@@ -385,7 +418,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 }) => {
                     // Generate a branch to the out-block with
                     // blockparams for the results.
-                    let result_values = self.op_stack.split_off(results.len());
+                    let result_values = self.pop_n(results.len());
                     self.emit_branch(out, &result_values[..]);
                     assert_eq!(self.op_stack.len(), start_depth);
                     self.cur_block = Some(out);
@@ -401,13 +434,17 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 }) => {
                     // Generate a branch to the out-block with
                     // blockparams for the results.
-                    let result_values = self.op_stack.split_off(results.len());
+                    let result_values = self.pop_n(results.len());
                     self.emit_branch(out, &result_values[..]);
                     // No `else`, so we need to generate a trivial
                     // branch in the else-block. If the if-block-type
                     // has results, they must be exactly the params.
                     let else_result_values = param_values;
                     assert_eq!(else_result_values.len(), results.len());
+                    let else_result_values = else_result_values
+                        .iter()
+                        .map(|(_ty, value)| *value)
+                        .collect::<Vec<_>>();
                     self.emit_branch(el, &else_result_values[..]);
                     assert_eq!(self.op_stack.len(), start_depth);
                     self.cur_block = Some(out);
@@ -421,7 +458,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 }) => {
                     // Generate a branch to the out-block with
                     // blockparams for the results.
-                    let result_values = self.op_stack.split_off(results.len());
+                    let result_values = self.pop_n(results.len());
                     assert_eq!(self.op_stack.len(), start_depth);
                     self.emit_branch(out, &result_values[..]);
                     self.cur_block = Some(out);
@@ -446,7 +483,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let (params, results) = self.block_params_and_results(*ty);
                 let header = self.create_block();
                 self.add_block_params(header, &params[..]);
-                let initial_args = self.op_stack.split_off(params.len());
+                let initial_args = self.pop_n(params.len());
                 let start_depth = self.op_stack.len();
                 self.emit_branch(header, &initial_args[..]);
                 self.cur_block = Some(header);
@@ -467,7 +504,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let if_false = self.create_block();
                 let join = self.create_block();
                 self.add_block_params(join, &results[..]);
-                let cond = self.op_stack.pop().unwrap();
+                let cond = self.pop_1();
                 let param_values = self.op_stack[self.op_stack.len() - params.len()..].to_vec();
                 let start_depth = self.op_stack.len();
                 self.ctrl_stack.push(Frame::If {
@@ -492,7 +529,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     results,
                 } = self.ctrl_stack.pop().unwrap()
                 {
-                    let if_results = self.op_stack.split_off(results.len());
+                    let if_results = self.pop_n(results.len());
                     self.emit_branch(out, &if_results[..]);
                     self.op_stack.extend(param_values);
                     self.ctrl_stack.push(Frame::Else {
@@ -510,13 +547,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             Operator::Br { relative_depth } | Operator::BrIf { relative_depth } => {
                 let cond = match &op {
                     Operator::Br { .. } => None,
-                    Operator::BrIf { .. } => Some(self.op_stack.pop().unwrap()),
+                    Operator::BrIf { .. } => Some(self.pop_1()),
                     _ => unreachable!(),
                 };
                 // Get the frame we're branching to.
                 let frame = self.relative_frame(*relative_depth).clone();
                 // Get the args off the stack.
-                let args = self.op_stack.split_off(frame.br_args().len());
+                let args = self.pop_n(frame.br_args().len());
                 // Finally, generate the branch itself.
                 match cond {
                     None => {
@@ -533,14 +570,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
             Operator::BrTable { table } => {
                 // Get the selector index.
-                let index = self.op_stack.pop().unwrap();
+                let index = self.pop_1();
                 // Get the signature of the default frame; this tells
                 // us the signature of all frames (since wasmparser
                 // validates the input for us). Pop that many args.
                 let default_frame = self.relative_frame(table.default());
                 let default_term_target = default_frame.br_target();
                 let arg_len = default_frame.br_args().len();
-                let args = self.op_stack.split_off(arg_len);
+                let args = self.pop_n(arg_len);
                 // Generate a branch terminator with the same args for
                 // every branch target.
                 let mut term_targets = vec![];
@@ -556,9 +593,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             }
 
             Operator::Return => {
-                let retvals = self
-                    .op_stack
-                    .split_off(self.module.signatures[self.my_sig].returns.len());
+                let retvals = self.pop_n(self.module.signatures[self.my_sig].returns.len());
                 self.emit_ret(&retvals[..]);
                 self.cur_block = None;
             }
@@ -677,7 +712,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 kind: ValueKind::BlockParam(self.cur_block.unwrap(), i),
                 ty,
             });
-            self.op_stack.push(value_id);
+            self.op_stack.push((ty, value_id));
         }
     }
 
@@ -686,25 +721,33 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             let inst = self.body.blocks[block].insts.len() as InstId;
 
             let mut inputs = vec![];
-            for input in op_inputs(self.module, self.my_sig, &self.body.locals[..], &op)?
-                .into_iter()
-                .rev()
+            for input in op_inputs(
+                self.module,
+                self.my_sig,
+                &self.body.locals[..],
+                &self.op_stack[..],
+                &op,
+            )?
+            .into_iter()
+            .rev()
             {
-                let stack_top = self.op_stack.pop().unwrap();
-                assert_eq!(self.body.values[stack_top].ty, input);
+                let (stack_top_ty, stack_top) = self.op_stack.pop().unwrap();
+                assert_eq!(stack_top_ty, input);
                 inputs.push(Operand::value(stack_top));
             }
             inputs.reverse();
 
             let mut outputs = vec![];
-            for output in op_outputs(self.module, &self.body.locals[..], &op)?.into_iter() {
+            for output_ty in
+                op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?.into_iter()
+            {
                 let val = self.body.values.len() as ValueId;
                 outputs.push(val);
                 self.body.values.push(ValueDef {
                     kind: ValueKind::Inst(block, inst),
-                    ty: output,
+                    ty: output_ty,
                 });
-                self.op_stack.push(val);
+                self.op_stack.push((output_ty, val));
             }
 
             self.body.blocks[block].insts.push(Inst {
@@ -713,11 +756,18 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 inputs,
             });
         } else {
-            let _ = self
-                .op_stack
-                .split_off(op_inputs(self.module, self.my_sig, &self.body.locals[..], &op)?.len());
-            for _ in 0..op_outputs(self.module, &self.body.locals[..], &op)?.len() {
-                self.op_stack.push(NO_VALUE);
+            let _ = self.pop_n(
+                op_inputs(
+                    self.module,
+                    self.my_sig,
+                    &self.body.locals[..],
+                    &self.op_stack[..],
+                    &op,
+                )?
+                .len(),
+            );
+            for ty in op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)? {
+                self.op_stack.push((ty, NO_VALUE));
             }
         }
 
