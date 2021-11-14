@@ -108,12 +108,24 @@ fn parse_body<'a, 'b>(
         }
     }
 
+    trace!(
+        "Parsing function body: locals = {:?} sig = {:?}",
+        ret.locals,
+        module.signatures[my_sig]
+    );
+
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
     let ops = body.get_operators_reader()?;
     for op in ops.into_iter() {
         let op = op?;
         builder.handle_op(op)?;
     }
+
+    if builder.cur_block.is_some() {
+        builder.handle_op(Operator::Return)?;
+    }
+
+    trace!("Final function body:{:?}", ret);
 
     Ok(ret)
 }
@@ -190,14 +202,26 @@ impl Frame {
 impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn new(module: &'b Module<'a>, my_sig: SignatureId, body: &'b mut FunctionBody<'a>) -> Self {
         body.blocks.push(Block::default());
-        Self {
+        let mut ret = Self {
             module,
             my_sig,
             body,
             ctrl_stack: vec![],
             op_stack: vec![],
             cur_block: Some(0),
-        }
+        };
+
+        // Push initial implicit Block.
+        let params = module.signatures[my_sig].params.to_vec();
+        let results = module.signatures[my_sig].params.to_vec();
+        let out = ret.create_block();
+        ret.ctrl_stack.push(Frame::Block {
+            start_depth: 0,
+            out,
+            params,
+            results,
+        });
+        ret
     }
 
     fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
@@ -217,6 +241,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
+        trace!("handle_op: {:?}", op);
         match &op {
             Operator::Unreachable
             | Operator::LocalGet { .. }

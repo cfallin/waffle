@@ -12,6 +12,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 wasm-smith = "0.8"
+env_logger = "0.9"
 
 [dependencies.waffle]
 path = ".."
