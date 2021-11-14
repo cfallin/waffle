@@ -1,6 +1,6 @@
 //! Intermediate representation for Wasm.
 
-use crate::frontend;
+use crate::{frontend, localssa::LocalSSATransform};
 use anyhow::Result;
 use wasmparser::{FuncType, Operator, Type};
 
@@ -124,6 +124,42 @@ impl<'a> std::default::Default for Terminator<'a> {
 
 impl<'a> Module<'a> {
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
-        frontend::wasm_to_ir(bytes)
+        let mut module = frontend::wasm_to_ir(bytes)?;
+        for func in &mut module.funcs {
+            match func {
+                &mut FuncDecl::Body(_, ref mut body) => {
+                    let ssa_transform = LocalSSATransform::new(&body);
+                    // TODO
+                }
+                _ => {}
+            }
+        }
+
+        Ok(module)
+    }
+}
+
+impl<'a> Terminator<'a> {
+    pub fn successors(&self) -> Vec<BlockId> {
+        match self {
+            Terminator::Return { .. } => vec![],
+            Terminator::Br { target, .. } => vec![target.block],
+            Terminator::CondBr {
+                if_true, if_false, ..
+            } => vec![if_true.block, if_false.block],
+            Terminator::Select {
+                ref targets,
+                default,
+                ..
+            } => {
+                let mut ret = targets
+                    .iter()
+                    .map(|target| target.block)
+                    .collect::<Vec<_>>();
+                ret.push(default.block);
+                ret
+            }
+            Terminator::None => vec![],
+        }
     }
 }

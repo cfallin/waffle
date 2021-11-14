@@ -5,6 +5,7 @@
 pub use wasm_encoder;
 pub use wasmparser;
 
+mod dataflow;
 mod frontend;
 mod ir;
 mod localssa;
