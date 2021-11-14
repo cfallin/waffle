@@ -1,6 +1,6 @@
 //! Intermediate representation for Wasm.
 
-use crate::{frontend, localssa::LocalSSATransform};
+use crate::frontend;
 use anyhow::Result;
 use wasmparser::{FuncType, Operator, Type};
 
@@ -50,8 +50,9 @@ pub struct ValueDef {
 
 #[derive(Clone, Debug)]
 pub enum ValueKind {
+    Arg(usize),
     BlockParam(BlockId, usize),
-    Inst(BlockId, InstId),
+    Inst(BlockId, InstId, usize),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -124,18 +125,7 @@ impl<'a> std::default::Default for Terminator<'a> {
 
 impl<'a> Module<'a> {
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
-        let mut module = frontend::wasm_to_ir(bytes)?;
-        for func in &mut module.funcs {
-            match func {
-                &mut FuncDecl::Body(_, ref mut body) => {
-                    let ssa_transform = LocalSSATransform::new(&body);
-                    // TODO
-                }
-                _ => {}
-            }
-        }
-
-        Ok(module)
+        frontend::wasm_to_ir(bytes)
     }
 }
 

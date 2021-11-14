@@ -7,7 +7,7 @@ license = "Apache-2.0 WITH LLVM-exception"
 edition = "2018"
 
 [dependencies]
-wasmparser = "0.81"
+wasmparser = { git = 'https://github.com/cfallin/wasm-tools', rev = '03a81b6a6ed4d5d9730fa71bf65636a3b1538ce7' }
 wasm-encoder = "0.3"
 anyhow = "1.0"
 structopt = "0.3"
