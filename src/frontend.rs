@@ -100,6 +100,11 @@ fn parse_body<'a, 'b>(
     body: wasmparser::FunctionBody<'a>,
 ) -> Result<FunctionBody<'a>> {
     let mut ret: FunctionBody<'a> = FunctionBody::default();
+
+    for &param in &module.signatures[my_sig].params[..] {
+        ret.locals.push(param);
+    }
+
     let mut locals = body.get_locals_reader()?;
     for _ in 0..locals.get_count() {
         let (count, ty) = locals.read()?;
@@ -197,6 +202,15 @@ impl Frame {
             Frame::If { out, .. } | Frame::Else { out, .. } => *out,
         }
     }
+
+    fn out(&self) -> BlockId {
+        match self {
+            Frame::Block { out, .. }
+            | Frame::Loop { out, .. }
+            | Frame::If { out, .. }
+            | Frame::Else { out, .. } => *out,
+        }
+    }
 }
 
 impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
@@ -212,13 +226,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         };
 
         // Push initial implicit Block.
-        let params = module.signatures[my_sig].params.to_vec();
-        let results = module.signatures[my_sig].params.to_vec();
+        let results = module.signatures[my_sig].returns.to_vec();
         let out = ret.create_block();
+        ret.add_block_params(out, &results[..]);
         ret.ctrl_stack.push(Frame::Block {
             start_depth: 0,
             out,
-            params,
+            params: vec![],
             results,
         });
         ret
@@ -229,11 +243,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn pop_n(&mut self, n: usize) -> Vec<ValueId> {
-        self.op_stack
-            .split_off(n)
-            .into_iter()
-            .map(|(_ty, value)| value)
-            .collect()
+        let new_top = self.op_stack.len() - n;
+        let ret = self.op_stack[new_top..]
+            .iter()
+            .map(|(_ty, value)| *value)
+            .collect::<Vec<_>>();
+        self.op_stack.truncate(new_top);
+        ret
     }
 
     fn pop_1(&mut self) -> ValueId {
@@ -242,9 +258,17 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
         trace!("handle_op: {:?}", op);
+        trace!("op_stack = {:?}", self.op_stack);
+        trace!("ctrl_stack = {:?}", self.ctrl_stack);
         match &op {
-            Operator::Unreachable
-            | Operator::LocalGet { .. }
+            Operator::Unreachable => {
+                if let Some(block) = self.cur_block {
+                    self.body.blocks[block].terminator = Terminator::None;
+                }
+                self.cur_block = None;
+            }
+
+            Operator::LocalGet { .. }
             | Operator::LocalSet { .. }
             | Operator::LocalTee { .. }
             | Operator::Call { .. }
@@ -414,6 +438,10 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | Operator::I64TruncSatF32U
             | Operator::I64TruncSatF64S
             | Operator::I64TruncSatF64U
+            | Operator::F32ReinterpretI32
+            | Operator::F64ReinterpretI64
+            | Operator::I32ReinterpretF32
+            | Operator::I64ReinterpretF64
             | Operator::TableGet { .. }
             | Operator::TableSet { .. }
             | Operator::TableGrow { .. }
@@ -425,71 +453,88 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let _ = self.pop_1();
             }
 
-            Operator::End => match self.ctrl_stack.pop() {
-                None => {
-                    self.emit(Operator::Return)?;
+            Operator::End if self.cur_block.is_none() => {
+                let frame = self.ctrl_stack.pop().unwrap();
+                self.op_stack.truncate(frame.start_depth());
+                self.cur_block = Some(frame.out());
+                self.push_block_params();
+            }
+
+            Operator::End => {
+                let frame = self.ctrl_stack.pop();
+                match frame {
+                    None => {
+                        self.emit(Operator::Return)?;
+                    }
+                    Some(Frame::Block {
+                        start_depth,
+                        out,
+                        results,
+                        ..
+                    })
+                    | Some(Frame::Loop {
+                        start_depth,
+                        out,
+                        results,
+                        ..
+                    }) => {
+                        // Generate a branch to the out-block with
+                        // blockparams for the results.
+                        if self.cur_block.is_some() {
+                            let result_values = self.pop_n(results.len());
+                            self.emit_branch(out, &result_values[..]);
+                        }
+                        self.op_stack.truncate(start_depth);
+                        self.cur_block = Some(out);
+                        self.push_block_params();
+                    }
+                    Some(Frame::If {
+                        start_depth,
+                        out,
+                        el,
+                        param_values,
+                        results,
+                        ..
+                    }) => {
+                        // Generate a branch to the out-block with
+                        // blockparams for the results.
+                        if self.cur_block.is_some() {
+                            let result_values = self.pop_n(results.len());
+                            self.emit_branch(out, &result_values[..]);
+                        }
+                        self.op_stack.truncate(start_depth);
+                        // No `else`, so we need to generate a trivial
+                        // branch in the else-block. If the if-block-type
+                        // has results, they must be exactly the params.
+                        let else_result_values = param_values;
+                        assert_eq!(else_result_values.len(), results.len());
+                        let else_result_values = else_result_values
+                            .iter()
+                            .map(|(_ty, value)| *value)
+                            .collect::<Vec<_>>();
+                        self.emit_branch(el, &else_result_values[..]);
+                        assert_eq!(self.op_stack.len(), start_depth);
+                        self.cur_block = Some(out);
+                        self.push_block_params();
+                    }
+                    Some(Frame::Else {
+                        out,
+                        results,
+                        start_depth,
+                        ..
+                    }) => {
+                        // Generate a branch to the out-block with
+                        // blockparams for the results.
+                        if self.cur_block.is_some() {
+                            let result_values = self.pop_n(results.len());
+                            self.emit_branch(out, &result_values[..]);
+                        }
+                        self.op_stack.truncate(start_depth);
+                        self.cur_block = Some(out);
+                        self.push_block_params();
+                    }
                 }
-                Some(Frame::Block {
-                    start_depth,
-                    out,
-                    results,
-                    ..
-                })
-                | Some(Frame::Loop {
-                    start_depth,
-                    out,
-                    results,
-                    ..
-                }) => {
-                    // Generate a branch to the out-block with
-                    // blockparams for the results.
-                    let result_values = self.pop_n(results.len());
-                    self.emit_branch(out, &result_values[..]);
-                    assert_eq!(self.op_stack.len(), start_depth);
-                    self.cur_block = Some(out);
-                    self.push_block_params(&results[..]);
-                }
-                Some(Frame::If {
-                    start_depth,
-                    out,
-                    el,
-                    param_values,
-                    results,
-                    ..
-                }) => {
-                    // Generate a branch to the out-block with
-                    // blockparams for the results.
-                    let result_values = self.pop_n(results.len());
-                    self.emit_branch(out, &result_values[..]);
-                    // No `else`, so we need to generate a trivial
-                    // branch in the else-block. If the if-block-type
-                    // has results, they must be exactly the params.
-                    let else_result_values = param_values;
-                    assert_eq!(else_result_values.len(), results.len());
-                    let else_result_values = else_result_values
-                        .iter()
-                        .map(|(_ty, value)| *value)
-                        .collect::<Vec<_>>();
-                    self.emit_branch(el, &else_result_values[..]);
-                    assert_eq!(self.op_stack.len(), start_depth);
-                    self.cur_block = Some(out);
-                    self.push_block_params(&results[..]);
-                }
-                Some(Frame::Else {
-                    out,
-                    results,
-                    start_depth,
-                    ..
-                }) => {
-                    // Generate a branch to the out-block with
-                    // blockparams for the results.
-                    let result_values = self.pop_n(results.len());
-                    assert_eq!(self.op_stack.len(), start_depth);
-                    self.emit_branch(out, &result_values[..]);
-                    self.cur_block = Some(out);
-                    self.push_block_params(&results[..]);
-                }
-            },
+            }
 
             Operator::Block { ty } => {
                 let (params, results) = self.block_params_and_results(*ty);
@@ -512,8 +557,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let start_depth = self.op_stack.len();
                 self.emit_branch(header, &initial_args[..]);
                 self.cur_block = Some(header);
-                self.push_block_params(&params[..]);
+                self.push_block_params();
                 let out = self.create_block();
+                self.add_block_params(out, &results[..]);
                 self.ctrl_stack.push(Frame::Loop {
                     start_depth,
                     header,
@@ -531,7 +577,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.add_block_params(join, &results[..]);
                 let cond = self.pop_1();
                 let param_values = self.op_stack[self.op_stack.len() - params.len()..].to_vec();
-                let start_depth = self.op_stack.len();
+                let start_depth = self.op_stack.len() - params.len();
                 self.ctrl_stack.push(Frame::If {
                     start_depth,
                     out: join,
@@ -554,8 +600,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     results,
                 } = self.ctrl_stack.pop().unwrap()
                 {
-                    let if_results = self.pop_n(results.len());
-                    self.emit_branch(out, &if_results[..]);
+                    if self.cur_block.is_some() {
+                        let if_results = self.pop_n(results.len());
+                        self.emit_branch(out, &if_results[..]);
+                    }
+                    self.op_stack.truncate(start_depth);
                     self.op_stack.extend(param_values);
                     self.ctrl_stack.push(Frame::Else {
                         start_depth,
@@ -577,16 +626,21 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 };
                 // Get the frame we're branching to.
                 let frame = self.relative_frame(*relative_depth).clone();
-                // Get the args off the stack.
-                let args = self.pop_n(frame.br_args().len());
                 // Finally, generate the branch itself.
                 match cond {
                     None => {
+                        // Get the args off the stack unconditionally.
+                        let args = self.pop_n(frame.br_args().len());
                         self.emit_branch(frame.br_target(), &args[..]);
                         self.cur_block = None;
                     }
                     Some(cond) => {
                         let cont = self.create_block();
+                        // Get the args off the stack but leave for the fallthrough.
+                        let args = self.op_stack[self.op_stack.len() - frame.br_args().len()..]
+                            .iter()
+                            .map(|(_ty, value)| *value)
+                            .collect::<Vec<_>>();
                         self.emit_cond_branch(cond, frame.br_target(), &args[..], cont, &[]);
                         self.cur_block = Some(cont);
                     }
@@ -637,6 +691,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
         match ty {
+            TypeOrFuncType::Type(Type::EmptyBlockType) => (vec![], vec![]),
             TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty]),
             TypeOrFuncType::FuncType(sig_idx) => {
                 let sig = &self.module.signatures[sig_idx as SignatureId];
@@ -729,8 +784,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn push_block_params(&mut self, tys: &[Type]) {
-        assert_eq!(tys, self.body.blocks[self.cur_block.unwrap()].params);
+    fn push_block_params(&mut self) {
+        let tys = &self.body.blocks[self.cur_block.unwrap()].params[..];
+
         for (i, &ty) in tys.iter().enumerate() {
             let value_id = self.body.values.len() as ValueId;
             self.body.values.push(ValueDef {
@@ -742,32 +798,30 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn emit(&mut self, op: Operator<'a>) -> Result<()> {
+        let inputs = op_inputs(
+            self.module,
+            self.my_sig,
+            &self.body.locals[..],
+            &self.op_stack[..],
+            &op,
+        )?;
+        let outputs = op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?;
+
         if let Some(block) = self.cur_block {
             let inst = self.body.blocks[block].insts.len() as InstId;
 
-            let mut inputs = vec![];
-            for input in op_inputs(
-                self.module,
-                self.my_sig,
-                &self.body.locals[..],
-                &self.op_stack[..],
-                &op,
-            )?
-            .into_iter()
-            .rev()
-            {
+            let mut input_operands = vec![];
+            for input in inputs.into_iter().rev() {
                 let (stack_top_ty, stack_top) = self.op_stack.pop().unwrap();
                 assert_eq!(stack_top_ty, input);
-                inputs.push(Operand::value(stack_top));
+                input_operands.push(Operand::value(stack_top));
             }
-            inputs.reverse();
+            input_operands.reverse();
 
-            let mut outputs = vec![];
-            for output_ty in
-                op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?.into_iter()
-            {
+            let mut output_operands = vec![];
+            for output_ty in outputs.into_iter() {
                 let val = self.body.values.len() as ValueId;
-                outputs.push(val);
+                output_operands.push(val);
                 self.body.values.push(ValueDef {
                     kind: ValueKind::Inst(block, inst),
                     ty: output_ty,
@@ -777,21 +831,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
             self.body.blocks[block].insts.push(Inst {
                 operator: op,
-                outputs,
-                inputs,
+                outputs: output_operands,
+                inputs: input_operands,
             });
         } else {
-            let _ = self.pop_n(
-                op_inputs(
-                    self.module,
-                    self.my_sig,
-                    &self.body.locals[..],
-                    &self.op_stack[..],
-                    &op,
-                )?
-                .len(),
-            );
-            for ty in op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)? {
+            let _ = self.pop_n(inputs.len());
+            for ty in outputs {
                 self.op_stack.push((ty, NO_VALUE));
             }
         }

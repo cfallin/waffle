@@ -19,8 +19,8 @@ pub fn op_inputs(
             Ok(Vec::from(module.signatures[sig].params.clone()))
         }
         &Operator::CallIndirect { index, .. } => {
-            let mut params = vec![Type::I32];
-            params.extend_from_slice(&module.signatures[index as usize].params[..]);
+            let mut params = module.signatures[index as usize].params.to_vec();
+            params.push(Type::I32);
             Ok(params)
         }
         &Operator::Return => Ok(Vec::from(module.signatures[my_sig].returns.clone())),
@@ -210,10 +210,16 @@ pub fn op_inputs(
         Operator::I64TruncSatF32U => Ok(vec![Type::F32]),
         Operator::I64TruncSatF64S => Ok(vec![Type::F64]),
         Operator::I64TruncSatF64U => Ok(vec![Type::F64]),
+        Operator::F32ReinterpretI32 => Ok(vec![Type::I32]),
+        Operator::F64ReinterpretI64 => Ok(vec![Type::I64]),
+        Operator::I32ReinterpretF32 => Ok(vec![Type::F32]),
+        Operator::I64ReinterpretF64 => Ok(vec![Type::F64]),
         Operator::TableGet { .. } => Ok(vec![Type::I32]),
         Operator::TableSet { table } => Ok(vec![Type::I32, module.tables[*table as usize]]),
         Operator::TableGrow { .. } => Ok(vec![Type::I32]),
         Operator::TableSize { .. } => Ok(vec![]),
+        Operator::MemorySize { .. } => Ok(vec![]),
+        Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
 
         _ => bail!("Unknown operator in op_inputs(): {:?}", op),
     }
@@ -236,8 +242,10 @@ pub fn op_outputs(
             Ok(Vec::from(module.signatures[index as usize].returns.clone()))
         }
         &Operator::Return => Ok(vec![]),
-        &Operator::LocalSet { .. } | &Operator::LocalTee { .. } => Ok(vec![]),
-        &Operator::LocalGet { local_index } => Ok(vec![my_locals[local_index as usize]]),
+        &Operator::LocalSet { .. } => Ok(vec![]),
+        &Operator::LocalGet { local_index } | &Operator::LocalTee { local_index } => {
+            Ok(vec![my_locals[local_index as usize]])
+        }
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -248,19 +256,19 @@ pub fn op_outputs(
         &Operator::GlobalSet { .. } => Ok(vec![]),
 
         Operator::I32Load { .. }
-        | Operator::I64Load { .. }
-        | Operator::F32Load { .. }
-        | Operator::F64Load { .. }
         | Operator::I32Load8S { .. }
         | Operator::I32Load8U { .. }
         | Operator::I32Load16S { .. }
         | Operator::I32Load16U { .. } => Ok(vec![Type::I32]),
-        Operator::I64Load8S { .. }
+        Operator::I64Load { .. }
+        | Operator::I64Load8S { .. }
         | Operator::I64Load8U { .. }
         | Operator::I64Load16S { .. }
         | Operator::I64Load16U { .. }
         | Operator::I64Load32S { .. }
         | Operator::I64Load32U { .. } => Ok(vec![Type::I64]),
+        Operator::F32Load { .. } => Ok(vec![Type::F32]),
+        Operator::F64Load { .. } => Ok(vec![Type::F64]),
 
         Operator::I32Store { .. } => Ok(vec![]),
         Operator::I64Store { .. } => Ok(vec![]),
@@ -414,10 +422,16 @@ pub fn op_outputs(
         Operator::I64TruncSatF32U => Ok(vec![Type::I64]),
         Operator::I64TruncSatF64S => Ok(vec![Type::I64]),
         Operator::I64TruncSatF64U => Ok(vec![Type::I64]),
+        Operator::F32ReinterpretI32 => Ok(vec![Type::F32]),
+        Operator::F64ReinterpretI64 => Ok(vec![Type::F64]),
+        Operator::I32ReinterpretF32 => Ok(vec![Type::I32]),
+        Operator::I64ReinterpretF64 => Ok(vec![Type::I64]),
         Operator::TableGet { table } => Ok(vec![module.tables[*table as usize]]),
         Operator::TableSet { .. } => Ok(vec![]),
         Operator::TableGrow { .. } => Ok(vec![]),
         Operator::TableSize { .. } => Ok(vec![Type::I32]),
+        Operator::MemorySize { .. } => Ok(vec![Type::I32]),
+        Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
 
         _ => bail!("Unknown operator in op_outputs(): {:?}", op),
     }
