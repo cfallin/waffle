@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use waffle::frontend;
+use waffle::Module;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "waffle-util", about = "WAFFLE utility.")]
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
         Command::PrintIR { wasm } => {
             let bytes = std::fs::read(wasm)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
-            let module = frontend::wasm_to_ir(&bytes[..])?;
+            let module = Module::from_wasm_bytes(&bytes[..])?;
             println!("{:?}", module);
         }
     }

@@ -1,5 +1,7 @@
 //! Intermediate representation for Wasm.
 
+use crate::frontend;
+use anyhow::Result;
 use wasmparser::{FuncType, Operator, Type};
 
 pub type SignatureId = usize;
@@ -117,5 +119,11 @@ pub enum Terminator<'a> {
 impl<'a> std::default::Default for Terminator<'a> {
     fn default() -> Self {
         Terminator::None
+    }
+}
+
+impl<'a> Module<'a> {
+    pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
+        frontend::wasm_to_ir(bytes)
     }
 }

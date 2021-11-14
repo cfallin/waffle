@@ -5,6 +5,9 @@
 pub use wasm_encoder;
 pub use wasmparser;
 
-pub mod frontend;
-pub mod ir;
-pub mod op_traits;
+mod frontend;
+mod ir;
+mod localssa;
+mod op_traits;
+
+pub use ir::*;

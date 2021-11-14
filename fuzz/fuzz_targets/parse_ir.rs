@@ -1,10 +1,9 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use waffle::frontend::wasm_to_ir;
-use wasm_smith::Module;
+use waffle::Module;
 
-fuzz_target!(|module: Module| {
+fuzz_target!(|module: wasm_smith::Module| {
     let _ = env_logger::try_init();
-    let _parsed_module = wasm_to_ir(&module.to_bytes()[..]).unwrap();
+    let _parsed_module = Module::from_wasm_bytes(&module.to_bytes()[..]).unwrap();
 });
