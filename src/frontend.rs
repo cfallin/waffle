@@ -129,6 +129,7 @@ fn parse_body<'a, 'b>(
         builder.body.values.push(ValueDef {
             kind: ValueKind::Arg(arg_idx),
             ty: arg_ty,
+            local: Some(local_idx),
         });
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.insert(local_idx, (arg_ty, value));
@@ -148,8 +149,6 @@ fn parse_body<'a, 'b>(
 
     Ok(ret)
 }
-
-type LocalId = u32;
 
 #[derive(Debug)]
 struct FunctionBodyBuilder<'a, 'b> {
@@ -315,6 +314,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             self.body.values.push(ValueDef {
                                 ty,
                                 kind: ValueKind::Inst(block, inst, 0),
+                                local: Some(*local_index),
                             });
                             value
                         } else {
@@ -887,6 +887,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             self.body.values.push(ValueDef {
                 kind: ValueKind::BlockParam(block, block_param_num),
                 ty,
+                local: None,
             });
             self.op_stack.push((ty, value_id));
             block_param_num += 1;
@@ -901,6 +902,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.body.values.push(ValueDef {
                     kind: ValueKind::BlockParam(block, block_param_num),
                     ty,
+                    local: Some(local_id),
                 });
                 block_param_num += 1;
                 self.locals.insert(local_id, (ty, value_id));
@@ -936,6 +938,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.body.values.push(ValueDef {
                     kind: ValueKind::Inst(block, inst, i),
                     ty: output_ty,
+                    local: None,
                 });
                 self.op_stack.push((output_ty, val));
             }

@@ -9,6 +9,7 @@ pub type FuncId = usize;
 pub type BlockId = usize;
 pub type InstId = usize;
 pub type ValueId = usize;
+pub type LocalId = u32;
 
 pub const NO_VALUE: ValueId = usize::MAX;
 
@@ -46,6 +47,7 @@ pub struct FunctionBody<'a> {
 pub struct ValueDef {
     pub kind: ValueKind,
     pub ty: Type,
+    pub local: Option<LocalId>,
 }
 
 #[derive(Clone, Debug)]
