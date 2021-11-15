@@ -12,5 +12,6 @@ mod dataflow;
 mod frontend;
 mod ir;
 mod op_traits;
+mod cfg;
 
 pub use ir::*;

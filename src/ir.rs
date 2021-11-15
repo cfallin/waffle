@@ -12,6 +12,7 @@ pub type ValueId = usize;
 pub type LocalId = u32;
 
 pub const NO_VALUE: ValueId = usize::MAX;
+pub const INVALID_BLOCK: BlockId = usize::MAX;
 
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
@@ -48,7 +49,6 @@ pub struct FunctionBody<'a> {
 pub struct ValueDef {
     pub kind: ValueKind,
     pub ty: Type,
-    pub local: Option<LocalId>,
 }
 
 #[derive(Clone, Debug)]
@@ -63,6 +63,55 @@ pub struct Block<'a> {
     pub params: Vec<Type>,
     pub insts: Vec<Inst<'a>>,
     pub terminator: Terminator,
+}
+
+impl<'a> Block<'a> {
+    pub fn successors(&self) -> Vec<BlockId> {
+        self.terminator.successors()
+    }
+
+    pub fn values<'b>(&'b self) -> impl Iterator<Item = ValueId> + 'b {
+        self.insts
+            .iter()
+            .map(|inst| inst.outputs.iter().cloned())
+            .flatten()
+    }
+
+    pub fn visit_operands<F: Fn(&Operand)>(&self, f: F) {
+        for inst in &self.insts {
+            for input in &inst.inputs {
+                f(input);
+            }
+        }
+        match &self.terminator {
+            &Terminator::CondBr { ref cond, .. } => f(cond),
+            &Terminator::Select { ref value, .. } => f(value),
+            &Terminator::Return { ref values, .. } => {
+                for value in values {
+                    f(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn update_operands<F: Fn(&mut Operand)>(&mut self, f: F) {
+        for inst in &mut self.insts {
+            for input in &mut inst.inputs {
+                f(input);
+            }
+        }
+        match &mut self.terminator {
+            &mut Terminator::CondBr { ref mut cond, .. } => f(cond),
+            &mut Terminator::Select { ref mut value, .. } => f(value),
+            &mut Terminator::Return { ref mut values, .. } => {
+                for value in values {
+                    f(value);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -163,14 +212,6 @@ impl<'a> Module<'a> {
 
     pub fn to_wasm_bytes(mut self) -> Vec<u8> {
         // TODO
-        for func in &mut self.funcs {
-            match func {
-                &mut FuncDecl::Body(_, ref mut body) => {
-                    let _deleted_insts = backend::treeify_function(body);
-                }
-                _ => {}
-            }
-        }
         self.orig_bytes.to_vec()
     }
 }

@@ -1,54 +1,37 @@
 //! IR-to-Wasm transform.
 
-use crate::ir::*;
-use fxhash::{FxHashMap, FxHashSet};
+use crate::{cfg::CFGInfo, ir::*};
 
-pub fn treeify_function(func: &mut FunctionBody) -> FxHashSet<(BlockId, InstId)> {
-    // First, count uses of all values.
-    let mut uses: FxHashMap<(BlockId, InstId, usize), usize> = FxHashMap::default();
-    for block in &func.blocks {
-        for inst in &block.insts {
-            for input in &inst.inputs {
-                match input {
-                    &Operand::Value(value_id) => {
-                        if let ValueKind::Inst(src_block, src_inst, idx) =
-                            &func.values[value_id].kind
-                        {
-                            *uses.entry((*src_block, *src_inst, *idx)).or_insert(0) += 1;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
+#[derive(Clone, Debug)]
+pub enum Shape {
+    Block { head: BlockId, children: Vec<Shape> },
+    Loop { head: BlockId, children: Vec<Shape> },
+    Leaf { block: BlockId, succs: Vec<BlockId> },
+}
 
-        for arg in block.terminator.args() {
-            match arg {
-                Operand::Value(value_id) => {
-                    if let ValueKind::Inst(src_block, src_inst, idx) = &func.values[value_id].kind {
-                        *uses.entry((*src_block, *src_inst, *idx)).or_insert(0) += 1;
-                    }
-                }
-                _ => {}
-            }
-        }
+enum Region {
+    /// Forward-branch region. Extends from end (just prior to
+    /// terminator) of first block to just before second block. Can be
+    /// extended earlier, prior to the beginning, if needed.
+    Forward(BlockId, BlockId),
+
+    /// Backward-branch region. Extends from start of first block to
+    /// end (after terminator) of second block. Can be extended past
+    /// the end if needed. TODO: actually record all jump-points.
+    Backward(BlockId, BlockId),
+}
+
+impl Shape {
+    pub fn compute(f: &FunctionBody, cfg: &CFGInfo) -> Self {
+        // Process all non-contiguous edges in RPO block order. For
+        // forward and backward edges, emit Regions.
+
+        // Sort regions by start. Then examine adjacent regions to
+        // resolve nesting. If out-of-order, we can extend a Forward
+        // region's start backward, or a Backward region's end
+        // forward. If still out-of-order, drop any conflicting
+        // Backward; we'll handle by duplication.
+
+        todo!()
     }
-
-    // Next, treeify all insts with only one use.
-    let mut single_use_insts: FxHashSet<(BlockId, InstId)> = FxHashSet::default();
-    for (block_idx, block) in func.blocks.iter().enumerate() {
-        for (inst_idx, inst) in block.insts.iter().enumerate() {
-            let all_one_use = (0..inst.outputs.len()).all(|output| {
-                uses.get(&(block_idx, inst_idx, output))
-                    .cloned()
-                    .unwrap_or(0)
-                    <= 1
-            });
-            if all_one_use {
-                single_use_insts.insert((block_idx, inst_idx));
-            }
-        }
-    }
-    
-    single_use_insts
 }
