@@ -25,6 +25,11 @@ enum Region {
     /// end (after terminator) of second block. Can be extended past
     /// the end if needed.
     Backward(OrderedBlockId, OrderedBlockId),
+
+    // TODO: support irreducible CFGs by adding a `BackwardDispatch`
+    // region kind whose start is adjusted back to the first loop
+    // block. BackwardDispatch is contagious, i.e. converts adjacent
+    // Backward region records to BackwardDispatch.
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -123,25 +128,34 @@ impl Shape {
                 continue;
             }
 
-            match (prev, this) {
+            // Important invariant: none of these merging/extension
+            // operations alter the sorted order, because at worst
+            // they "pull back" the start of the second region
+            // (`this`) to the start of the first (`prev`). If the
+            // list was sorted by region-start before, it will be
+            // after this edit.
+            let did_edit = match (prev, this) {
                 (a, b) if a == b => {
                     regions.remove(i);
-                    i -= 1;
+                    true
                 }
                 (Region::Backward(a, b), Region::Backward(c, d)) if a == c => {
                     // Merge by extending end.
                     regions[i - 1] = Region::Backward(a, std::cmp::max(b, d));
                     regions.remove(i);
-                    i -= 1;
+                    true
                 }
-                (Region::Backward(a, b), Region::Backward(c, _d)) if a < c && c <= b => {
-                    panic!("Irreducible CFG");
+                (Region::Backward(a, b), Region::Backward(c, d)) if a < c && c <= b && b < d => {
+                    // Extend outer Backward to nest the inner one.
+                    regions[i - 1] = Region::Backward(a, d);
+                    true
                 }
                 (Region::Backward(a, b), Region::Forward(c, d)) if a <= c && c <= b => {
                     // Put the Forward before the Backward (extend its
                     // start) to ensure proper nesting.
                     regions[i - 1] = Region::Forward(a, d);
                     regions[i] = Region::Backward(a, b);
+                    true
                 }
                 (Region::Forward(_a, b), Region::Backward(c, d)) if b > c && b <= d => {
                     panic!("Irreducible CFG");
@@ -150,13 +164,20 @@ impl Shape {
                     // Merge.
                     regions[i - 1] = Region::Forward(std::cmp::min(a, c), b);
                     regions.remove(i);
-                    i -= 1;
+                    true
                 }
                 (Region::Forward(a, b), Region::Forward(c, d)) if a <= c && b < d => {
                     regions[i - 1] = Region::Forward(a, d);
                     regions[i] = Region::Forward(a, b);
+                    true
                 }
-                _ => {}
+                _ => false,
+            };
+
+            if did_edit {
+                // Back up to re-examine i-1 vs i-2, unless we
+                // were examining i=0 vs i=1 already.
+                i = std::cmp::max(2, i) - 2;
             }
         }
 
