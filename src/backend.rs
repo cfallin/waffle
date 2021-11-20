@@ -25,7 +25,6 @@ enum Region {
     /// end (after terminator) of second block. Can be extended past
     /// the end if needed.
     Backward(OrderedBlockId, OrderedBlockId),
-
     // TODO: support irreducible CFGs by adding a `BackwardDispatch`
     // region kind whose start is adjusted back to the first loop
     // block. BackwardDispatch is contagious, i.e. converts adjacent
@@ -157,7 +156,7 @@ impl Shape {
                     regions[i] = Region::Backward(a, b);
                     true
                 }
-                (Region::Forward(_a, b), Region::Backward(c, d)) if b > c && b <= d => {
+                (Region::Forward(a, b), Region::Backward(c, d)) if b > c && b <= d && a < c => {
                     panic!("Irreducible CFG");
                 }
                 (Region::Forward(a, b), Region::Forward(c, d)) if b == d => {
