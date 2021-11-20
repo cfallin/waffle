@@ -1,6 +1,7 @@
 //! IR-to-Wasm transform.
 
 use crate::{cfg::CFGInfo, ir::*};
+use log::debug;
 
 #[derive(Clone, Debug)]
 pub enum Shape {
@@ -13,7 +14,7 @@ pub enum Shape {
 /// Index in RPO.
 type OrderedBlockId = usize;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Region {
     /// Forward-branch region. Extends from end (just prior to
     /// terminator) of first block to just before second block. Can be
@@ -78,10 +79,14 @@ impl Region {
 }
 
 impl Shape {
-    pub fn compute(_f: &FunctionBody, cfg: &CFGInfo) -> Self {
+    pub fn compute(f: &FunctionBody, cfg: &CFGInfo) -> Self {
         // Process all non-contiguous edges in RPO block order. For
         // forward and backward edges, emit Regions.
+        debug!("f = {:?}", f);
+        debug!("cfg = {:?}", cfg);
         let order = cfg.rpo();
+        debug!("rpo = {:?}", order);
+
         assert_eq!(order[0], 0); // Entry block should come first.
         let mut regions = vec![];
         for (block_pos, &block) in order.iter().enumerate() {
@@ -102,6 +107,7 @@ impl Shape {
         // regions where necessary and duplicating where we find
         // irreducible control flow.
         regions.sort_by_key(|r| r.start());
+        debug!("regions = {:?}", regions);
 
         // Examine each region in the sequence, determining whether it
         // is properly nested with respect to all overlapping regions.
@@ -110,16 +116,23 @@ impl Shape {
             i += 1;
             let prev = regions[i - 1];
             let this = regions[i];
+            debug!("examining: {:?} -> {:?}", prev, this);
 
             if !prev.overlaps(&this) {
+                debug!(" -> no overlap");
                 continue;
             }
 
             match (prev, this) {
+                (a, b) if a == b => {
+                    regions.remove(i);
+                    i -= 1;
+                }
                 (Region::Backward(a, b), Region::Backward(c, d)) if a == c => {
                     // Merge by extending end.
                     regions[i - 1] = Region::Backward(a, std::cmp::max(b, d));
                     regions.remove(i);
+                    i -= 1;
                 }
                 (Region::Backward(a, b), Region::Backward(c, _d)) if a < c && c <= b => {
                     panic!("Irreducible CFG");
@@ -137,6 +150,7 @@ impl Shape {
                     // Merge.
                     regions[i - 1] = Region::Forward(std::cmp::min(a, c), b);
                     regions.remove(i);
+                    i -= 1;
                 }
                 (Region::Forward(a, b), Region::Forward(c, d)) if a <= c && b < d => {
                     regions[i - 1] = Region::Forward(a, d);
@@ -145,6 +159,8 @@ impl Shape {
                 _ => {}
             }
         }
+
+        debug!("after stackifying: {:?}", regions);
 
         // Ensure the regions properly nest.
         let mut stack: Vec<Region> = vec![];
@@ -166,6 +182,10 @@ impl Shape {
                 stack.push(region.clone());
             }
         }
+
+        // TODO: make regions properly nest by doing replication right
+        // as we compute the RPO. Track the current nesting, and
+        // traverse more than once if needed.
 
         Shape::None
     }
