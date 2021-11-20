@@ -88,4 +88,12 @@ impl CFGInfo {
         let is_return = self.return_blocks.binary_search(&block).is_ok();
         self.succs(block).len() + if is_return { 1 } else { 0 }
     }
+
+    pub fn rpo(&self) -> Vec<BlockId> {
+        self.postorder.iter().cloned().rev().collect()
+    }
+
+    pub fn rpo_pos(&self, block: BlockId) -> Option<usize> {
+        self.postorder_pos[block].map(|fwd_pos| self.postorder.len() - 1 - fwd_pos)
+    }
 }

@@ -1,6 +1,6 @@
 //! Intermediate representation for Wasm.
 
-use crate::{backend, frontend};
+use crate::{backend::Shape, cfg::CFGInfo, frontend};
 use anyhow::Result;
 use wasmparser::{FuncType, Operator, Type};
 
@@ -210,7 +210,16 @@ impl<'a> Module<'a> {
         frontend::wasm_to_ir(bytes)
     }
 
-    pub fn to_wasm_bytes(mut self) -> Vec<u8> {
+    pub fn to_wasm_bytes(self) -> Vec<u8> {
+        for func in &self.funcs {
+            match func {
+                &FuncDecl::Body(_, ref body) => {
+                    let cfg = CFGInfo::new(body);
+                    let _shape = Shape::compute(body, &cfg);
+                }
+                _ => {}
+            }
+        }
         // TODO
         self.orig_bytes.to_vec()
     }
