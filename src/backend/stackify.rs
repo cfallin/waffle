@@ -1,4 +1,5 @@
-//! IR-to-Wasm transform.
+//! Stackifier-like algorithm to recover (or create) structured
+//! control flow out of a CFG.
 
 use crate::{cfg::CFGInfo, ir::*};
 use log::debug;
@@ -210,3 +211,5 @@ impl Shape {
         Shape::None
     }
 }
+
+
