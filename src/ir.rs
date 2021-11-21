@@ -51,7 +51,7 @@ pub struct ValueDef {
     pub ty: Type,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ValueKind {
     Arg(usize),
     BlockParam(BlockId, usize),

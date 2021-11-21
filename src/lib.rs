@@ -8,10 +8,11 @@ pub use wasm_encoder;
 pub use wasmparser;
 
 mod backend;
+mod cfg;
 mod dataflow;
 mod frontend;
 mod ir;
 mod op_traits;
-mod cfg;
+mod pass;
 
 pub use ir::*;
