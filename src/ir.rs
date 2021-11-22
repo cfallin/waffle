@@ -16,19 +16,19 @@ pub const INVALID_BLOCK: BlockId = usize::MAX;
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
     pub orig_bytes: &'a [u8],
-    pub funcs: Vec<FuncDecl<'a>>,
+    pub funcs: Vec<FuncDecl>,
     pub signatures: Vec<FuncType>,
     pub globals: Vec<Type>,
     pub tables: Vec<Type>,
 }
 
 #[derive(Clone, Debug)]
-pub enum FuncDecl<'a> {
+pub enum FuncDecl {
     Import(SignatureId),
-    Body(SignatureId, FunctionBody<'a>),
+    Body(SignatureId, FunctionBody),
 }
 
-impl<'a> FuncDecl<'a> {
+impl FuncDecl {
     pub fn sig(&self) -> SignatureId {
         match self {
             FuncDecl::Import(sig) => *sig,
@@ -38,79 +38,79 @@ impl<'a> FuncDecl<'a> {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct FunctionBody<'a> {
+pub struct FunctionBody {
     pub arg_values: Vec<Value>,
     pub locals: Vec<Type>,
-    pub blocks: Vec<Block<'a>>,
+    pub blocks: Vec<Block>,
     pub types: FxHashMap<Value, Type>,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Block<'a> {
+pub struct Block {
     pub id: BlockId,
     pub params: Vec<Type>,
-    pub insts: Vec<Inst<'a>>,
+    pub insts: Vec<Inst>,
     pub terminator: Terminator,
 }
 
-impl<'a> Block<'a> {
+impl Block {
     pub fn successors(&self) -> Vec<BlockId> {
         self.terminator.successors()
     }
 
-    pub fn values<'b>(&'b self) -> impl Iterator<Item = Value> + 'b {
+    pub fn defs<'b>(&'b self) -> impl Iterator<Item = Value> + 'b {
         let block = self.id;
-        self.insts
+        let param_values = (0..self.params.len()).map(move |i| Value::blockparam(block, i));
+        let inst_values = self
+            .insts
             .iter()
             .enumerate()
             .map(move |(inst_id, inst)| {
                 (0..inst.n_outputs).map(move |i| Value::inst(block, inst_id, i))
             })
-            .flatten()
+            .flatten();
+        param_values.chain(inst_values)
     }
 
-    pub fn visit_values<F: Fn(&Value)>(&self, f: F) {
+    pub fn visit_uses<F: FnMut(Value)>(&self, mut f: F) {
         for inst in &self.insts {
-            for input in &inst.inputs {
+            for &input in &inst.inputs {
                 f(input);
             }
         }
-        match &self.terminator {
-            &Terminator::CondBr { ref cond, .. } => f(cond),
-            &Terminator::Select { ref value, .. } => f(value),
-            &Terminator::Return { ref values, .. } => {
-                for value in values {
-                    f(value);
-                }
-            }
-            _ => {}
-        }
+        self.terminator.visit_uses(f);
     }
 
-    pub fn update_values<F: Fn(&mut Value)>(&mut self, f: F) {
+    pub fn update_uses<F: FnMut(&mut Value)>(&mut self, mut f: F) {
         for inst in &mut self.insts {
             for input in &mut inst.inputs {
                 f(input);
             }
         }
-        match &mut self.terminator {
-            &mut Terminator::CondBr { ref mut cond, .. } => f(cond),
-            &mut Terminator::Select { ref mut value, .. } => f(value),
-            &mut Terminator::Return { ref mut values, .. } => {
-                for value in values {
-                    f(value);
-                }
-            }
-            _ => {}
-        }
+        self.terminator.update_uses(f);
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Inst<'a> {
-    pub operator: Operator<'a>,
+pub struct Inst {
+    pub operator: Operator<'static>,
     pub n_outputs: usize,
     pub inputs: Vec<Value>,
+}
+
+impl Inst {
+    pub fn make<'a>(operator: &Operator<'a>, n_outputs: usize, inputs: Vec<Value>) -> Self {
+        // The only operator that actually makes use of the lifetime
+        // parameter is BrTable.
+        assert!(!matches!(operator, &Operator::BrTable { .. }));
+        let operator = operator.clone();
+        let operator = unsafe { std::mem::transmute(operator) };
+        Inst {
+            operator,
+            n_outputs,
+            inputs,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -200,6 +200,16 @@ impl Value {
             ValueKind::Inst(block, inst, param) => Some((block, inst, param)),
             _ => None,
         }
+    }
+
+    pub fn index(self) -> u64 {
+        self.0
+    }
+
+    pub fn from_index(value: u64) -> Value {
+        let tag = value >> VALUE_TAG_SHIFT;
+        assert!(tag < 4);
+        Self(value)
     }
 }
 
@@ -328,6 +338,32 @@ impl Terminator {
                 ret
             }
             Terminator::None => vec![],
+        }
+    }
+
+    pub fn visit_uses<F: FnMut(Value)>(&self, mut f: F) {
+        match self {
+            &Terminator::CondBr { cond, .. } => f(cond),
+            &Terminator::Select { value, .. } => f(value),
+            &Terminator::Return { ref values, .. } => {
+                for &value in values {
+                    f(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn update_uses<F: FnMut(&mut Value)>(&mut self, mut f: F) {
+        match self {
+            &mut Terminator::CondBr { ref mut cond, .. } => f(cond),
+            &mut Terminator::Select { ref mut value, .. } => f(value),
+            &mut Terminator::Return { ref mut values, .. } => {
+                for value in values {
+                    f(value);
+                }
+            }
+            _ => {}
         }
     }
 }

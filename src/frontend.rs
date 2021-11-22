@@ -114,12 +114,12 @@ fn handle_payload<'a>(
     Ok(())
 }
 
-fn parse_body<'a, 'b>(
-    module: &'b Module<'a>,
+fn parse_body<'a>(
+    module: &'a Module,
     my_sig: SignatureId,
-    body: wasmparser::FunctionBody<'a>,
-) -> Result<FunctionBody<'a>> {
-    let mut ret: FunctionBody<'a> = FunctionBody::default();
+    body: wasmparser::FunctionBody,
+) -> Result<FunctionBody> {
+    let mut ret: FunctionBody = FunctionBody::default();
 
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param);
@@ -168,7 +168,7 @@ fn parse_body<'a, 'b>(
 struct FunctionBodyBuilder<'a, 'b> {
     module: &'b Module<'a>,
     my_sig: SignatureId,
-    body: &'b mut FunctionBody<'a>,
+    body: &'b mut FunctionBody,
     cur_block: Option<BlockId>,
     ctrl_stack: Vec<Frame>,
     op_stack: Vec<(Type, Value)>,
@@ -245,7 +245,7 @@ impl Frame {
 }
 
 impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
-    fn new(module: &'b Module<'a>, my_sig: SignatureId, body: &'b mut FunctionBody<'a>) -> Self {
+    fn new(module: &'b Module<'a>, my_sig: SignatureId, body: &'b mut FunctionBody) -> Self {
         body.blocks.push(Block::default());
         let mut ret = Self {
             module,
@@ -757,6 +757,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn create_block(&mut self) -> BlockId {
         let id = self.body.blocks.len() as BlockId;
         self.body.blocks.push(Block::default());
+        self.body.blocks[id].id = id;
         id
     }
 
@@ -928,11 +929,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.op_stack.push((output_ty, Value::inst(block, inst, i)));
             }
 
-            self.body.blocks[block].insts.push(Inst {
-                operator: op,
-                n_outputs,
-                inputs: input_operands,
-            });
+            self.body.blocks[block]
+                .insts
+                .push(Inst::make(&op, n_outputs, input_operands));
         } else {
             let _ = self.pop_n(inputs.len());
             for ty in outputs {
