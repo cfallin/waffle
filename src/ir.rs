@@ -2,16 +2,15 @@
 
 use crate::{backend::Shape, cfg::CFGInfo, frontend};
 use anyhow::Result;
+use fxhash::FxHashMap;
 use wasmparser::{FuncType, Operator, Type};
 
 pub type SignatureId = usize;
 pub type FuncId = usize;
 pub type BlockId = usize;
 pub type InstId = usize;
-pub type ValueId = usize;
 pub type LocalId = u32;
 
-pub const NO_VALUE: ValueId = usize::MAX;
 pub const INVALID_BLOCK: BlockId = usize::MAX;
 
 #[derive(Clone, Debug, Default)]
@@ -40,26 +39,15 @@ impl<'a> FuncDecl<'a> {
 
 #[derive(Clone, Debug, Default)]
 pub struct FunctionBody<'a> {
+    pub arg_values: Vec<Value>,
     pub locals: Vec<Type>,
     pub blocks: Vec<Block<'a>>,
-    pub values: Vec<ValueDef>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ValueDef {
-    pub kind: ValueKind,
-    pub ty: Type,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ValueKind {
-    Arg(usize),
-    BlockParam(BlockId, usize),
-    Inst(BlockId, InstId, usize),
+    pub types: FxHashMap<Value, Type>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Block<'a> {
+    pub id: BlockId,
     pub params: Vec<Type>,
     pub insts: Vec<Inst<'a>>,
     pub terminator: Terminator,
@@ -70,14 +58,18 @@ impl<'a> Block<'a> {
         self.terminator.successors()
     }
 
-    pub fn values<'b>(&'b self) -> impl Iterator<Item = ValueId> + 'b {
+    pub fn values<'b>(&'b self) -> impl Iterator<Item = Value> + 'b {
+        let block = self.id;
         self.insts
             .iter()
-            .map(|inst| inst.outputs.iter().cloned())
+            .enumerate()
+            .map(move |(inst_id, inst)| {
+                (0..inst.n_outputs).map(move |i| Value::inst(block, inst_id, i))
+            })
             .flatten()
     }
 
-    pub fn visit_operands<F: Fn(&Operand)>(&self, f: F) {
+    pub fn visit_values<F: Fn(&Value)>(&self, f: F) {
         for inst in &self.insts {
             for input in &inst.inputs {
                 f(input);
@@ -95,7 +87,7 @@ impl<'a> Block<'a> {
         }
     }
 
-    pub fn update_operands<F: Fn(&mut Operand)>(&mut self, f: F) {
+    pub fn update_values<F: Fn(&mut Value)>(&mut self, f: F) {
         for inst in &mut self.insts {
             for input in &mut inst.inputs {
                 f(input);
@@ -117,33 +109,123 @@ impl<'a> Block<'a> {
 #[derive(Clone, Debug)]
 pub struct Inst<'a> {
     pub operator: Operator<'a>,
-    pub outputs: Vec<ValueId>,
-    pub inputs: Vec<Operand>,
+    pub n_outputs: usize,
+    pub inputs: Vec<Value>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum Operand {
-    /// An SSA value.
-    Value(ValueId),
-    /// Undef values are produced when code is unreachable and thus
-    /// removed/never executed.
-    Undef,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Value(u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+enum ValueTag {
+    /// Undefined value. Fields: tag(4) unused(60).
+    Undef = 0,
+    /// Function argument. Fields: tag(4) unused(52) index(8).
+    Arg = 1,
+    /// Block param. Fields: tag(4) unused(2) block(26) param(32).
+    BlockParam = 2,
+    /// Instruction output. Fields: tag(4) block(26) inst(26) output(8).
+    InstOutput = 3,
 }
 
-impl Operand {
-    pub fn value(value: ValueId) -> Self {
-        if value == NO_VALUE {
-            Operand::Undef
-        } else {
-            Operand::Value(value)
+const VALUE_TAG_SHIFT: usize = 60;
+
+impl Value {
+    pub fn undef() -> Self {
+        Value((ValueTag::Undef as u64) << VALUE_TAG_SHIFT)
+    }
+
+    pub fn arg(index: usize) -> Self {
+        assert!(index < 256);
+        Value(((ValueTag::Arg as u64) << VALUE_TAG_SHIFT) | (index as u64))
+    }
+
+    pub fn blockparam(block: BlockId, index: usize) -> Self {
+        assert!(index < 256);
+        assert!(block < (1 << 26));
+        Value(
+            ((ValueTag::BlockParam as u64) << VALUE_TAG_SHIFT)
+                | ((block as u64) << 32)
+                | (index as u64),
+        )
+    }
+
+    pub fn inst(block: BlockId, inst: InstId, index: usize) -> Self {
+        assert!(index < 256);
+        assert!(block < (1 << 26));
+        assert!(inst < (1 << 26));
+        Value(
+            ((ValueTag::InstOutput as u64) << VALUE_TAG_SHIFT)
+                | ((block as u64) << 34)
+                | ((inst as u64) << 8)
+                | (index as u64),
+        )
+    }
+
+    pub fn unpack(self) -> ValueKind {
+        let tag = self.0 >> VALUE_TAG_SHIFT;
+        match tag {
+            0 => ValueKind::Undef,
+            1 => ValueKind::Arg((self.0 & ((1 << 8) - 1)) as usize),
+            2 => ValueKind::BlockParam(
+                ((self.0 >> 32) & ((1 << 26) - 1)) as usize,
+                (self.0 & 0xff) as usize,
+            ),
+            3 => ValueKind::Inst(
+                ((self.0 >> 34) & ((1 << 26) - 1)) as usize,
+                ((self.0 >> 8) & ((1 << 26) - 1)) as usize,
+                (self.0 & 0xff) as usize,
+            ),
+            _ => unreachable!(),
         }
     }
+
+    pub fn as_arg(self) -> Option<usize> {
+        match self.unpack() {
+            ValueKind::Arg(arg) => Some(arg),
+            _ => None,
+        }
+    }
+
+    pub fn as_blockparam(self) -> Option<(BlockId, usize)> {
+        match self.unpack() {
+            ValueKind::BlockParam(block, param) => Some((block, param)),
+            _ => None,
+        }
+    }
+
+    pub fn as_inst(self) -> Option<(BlockId, InstId, usize)> {
+        match self.unpack() {
+            ValueKind::Inst(block, inst, param) => Some((block, inst, param)),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.unpack() {
+            ValueKind::Undef => write!(f, "undef"),
+            ValueKind::Arg(i) => write!(f, "arg{}", i),
+            ValueKind::BlockParam(block, i) => write!(f, "block{}_{}", block, i),
+            ValueKind::Inst(block, inst, i) => write!(f, "inst{}_{}_{}", block, inst, i),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ValueKind {
+    Undef,
+    Arg(usize),
+    BlockParam(BlockId, usize),
+    Inst(BlockId, InstId, usize),
 }
 
 #[derive(Clone, Debug)]
 pub struct BlockTarget {
     pub block: BlockId,
-    pub args: Vec<Operand>,
+    pub args: Vec<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -152,17 +234,17 @@ pub enum Terminator {
         target: BlockTarget,
     },
     CondBr {
-        cond: Operand,
+        cond: Value,
         if_true: BlockTarget,
         if_false: BlockTarget,
     },
     Select {
-        value: Operand,
+        value: Value,
         targets: Vec<BlockTarget>,
         default: BlockTarget,
     },
     Return {
-        values: Vec<Operand>,
+        values: Vec<Value>,
     },
     None,
 }
@@ -174,7 +256,7 @@ impl std::default::Default for Terminator {
 }
 
 impl Terminator {
-    pub fn args(&self) -> Vec<Operand> {
+    pub fn args(&self) -> Vec<Value> {
         match self {
             Terminator::Br { target } => target.args.clone(),
             Terminator::CondBr {

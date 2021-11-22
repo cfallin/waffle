@@ -9,7 +9,6 @@ pub use wasmparser;
 
 mod backend;
 mod cfg;
-mod dataflow;
 mod frontend;
 mod ir;
 mod op_traits;

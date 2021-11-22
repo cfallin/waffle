@@ -1,6 +1,6 @@
 //! Metadata on operators.
 
-use crate::ir::{Module, SignatureId, ValueId};
+use crate::ir::{Module, SignatureId, Value};
 use anyhow::{bail, Result};
 use wasmparser::{Operator, Type};
 
@@ -8,7 +8,7 @@ pub fn op_inputs(
     module: &Module,
     my_sig: SignatureId,
     my_locals: &[Type],
-    op_stack: &[(Type, ValueId)],
+    op_stack: &[(Type, Value)],
     op: &Operator<'_>,
 ) -> Result<Vec<Type>> {
     match op {
@@ -228,7 +228,7 @@ pub fn op_inputs(
 pub fn op_outputs(
     module: &Module,
     my_locals: &[Type],
-    op_stack: &[(Type, ValueId)],
+    op_stack: &[(Type, Value)],
     op: &Operator<'_>,
 ) -> Result<Vec<Type>> {
     match op {

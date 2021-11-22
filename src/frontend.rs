@@ -143,11 +143,8 @@ fn parse_body<'a, 'b>(
 
     for (arg_idx, &arg_ty) in module.signatures[my_sig].params.iter().enumerate() {
         let local_idx = arg_idx as LocalId;
-        let value = builder.body.values.len() as ValueId;
-        builder.body.values.push(ValueDef {
-            kind: ValueKind::Arg(arg_idx),
-            ty: arg_ty,
-        });
+        let value = Value::arg(arg_idx);
+        builder.body.types.insert(value, arg_ty);
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.insert(local_idx, (arg_ty, value));
     }
@@ -174,8 +171,8 @@ struct FunctionBodyBuilder<'a, 'b> {
     body: &'b mut FunctionBody<'a>,
     cur_block: Option<BlockId>,
     ctrl_stack: Vec<Frame>,
-    op_stack: Vec<(Type, ValueId)>,
-    locals: FxHashMap<LocalId, (Type, ValueId)>,
+    op_stack: Vec<(Type, Value)>,
+    locals: FxHashMap<LocalId, (Type, Value)>,
     block_param_locals: FxHashMap<BlockId, Vec<LocalId>>,
 }
 
@@ -198,7 +195,7 @@ enum Frame {
         start_depth: usize,
         out: BlockId,
         el: BlockId,
-        param_values: Vec<(Type, ValueId)>,
+        param_values: Vec<(Type, Value)>,
         params: Vec<Type>,
         results: Vec<Type>,
     },
@@ -278,7 +275,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         self.body.blocks[block].params.extend_from_slice(tys);
     }
 
-    fn pop_n(&mut self, n: usize) -> Vec<ValueId> {
+    fn pop_n(&mut self, n: usize) -> Vec<Value> {
         let new_top = self.op_stack.len() - n;
         let ret = self.op_stack[new_top..]
             .iter()
@@ -288,7 +285,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         ret
     }
 
-    fn pop_1(&mut self) -> ValueId {
+    fn pop_1(&mut self) -> Value {
         self.op_stack.pop().unwrap().1
     }
 
@@ -327,14 +324,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             })
                             .unwrap();
                             self.op_stack.pop();
-                            let value = self.body.values.len() as ValueId;
-                            self.body.values.push(ValueDef {
-                                ty,
-                                kind: ValueKind::Inst(block, inst, 0),
-                            });
-                            value
+                            Value::inst(block, inst, 0)
                         } else {
-                            NO_VALUE
+                            Value::undef()
                         }
                     });
                 self.op_stack.push((ty, value));
@@ -786,7 +778,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         &self.ctrl_stack[self.ctrl_stack.len() - 1 - relative_depth as usize]
     }
 
-    fn fill_block_params_with_locals(&mut self, target: BlockId, args: &mut Vec<Operand>) {
+    fn fill_block_params_with_locals(&mut self, target: BlockId, args: &mut Vec<Value>) {
         if !self.block_param_locals.contains_key(&target) {
             let mut keys: Vec<LocalId> = self.locals.keys().cloned().collect();
             keys.sort();
@@ -799,13 +791,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         let block_param_locals = self.block_param_locals.get(&target).unwrap();
         for local in block_param_locals {
             let local_value = self.locals.get(local).unwrap();
-            args.push(Operand::value(local_value.1));
+            args.push(local_value.1);
         }
     }
 
-    fn emit_branch(&mut self, target: BlockId, args: &[ValueId]) {
+    fn emit_branch(&mut self, target: BlockId, args: &[Value]) {
         if let Some(block) = self.cur_block {
-            let mut args: Vec<Operand> = args.iter().map(|&val| Operand::value(val)).collect();
+            let mut args = args.to_vec();
             self.fill_block_params_with_locals(target, &mut args);
             let target = BlockTarget {
                 block: target,
@@ -817,25 +809,19 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn emit_cond_branch(
         &mut self,
-        cond: ValueId,
+        cond: Value,
         if_true: BlockId,
-        if_true_args: &[ValueId],
+        if_true_args: &[Value],
         if_false: BlockId,
-        if_false_args: &[ValueId],
+        if_false_args: &[Value],
     ) {
         if let Some(block) = self.cur_block {
-            let mut if_true_args = if_true_args
-                .iter()
-                .map(|&val| Operand::value(val))
-                .collect();
-            let mut if_false_args = if_false_args
-                .iter()
-                .map(|&val| Operand::value(val))
-                .collect();
+            let mut if_true_args = if_true_args.to_vec();
+            let mut if_false_args = if_false_args.to_vec();
             self.fill_block_params_with_locals(if_true, &mut if_true_args);
             self.fill_block_params_with_locals(if_false, &mut if_false_args);
             self.body.blocks[block].terminator = Terminator::CondBr {
-                cond: Operand::value(cond),
+                cond,
                 if_true: BlockTarget {
                     block: if_true,
                     args: if_true_args,
@@ -850,13 +836,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn emit_br_table(
         &mut self,
-        index: ValueId,
+        index: Value,
         default_target: BlockId,
         indexed_targets: &[BlockId],
-        args: &[ValueId],
+        args: &[Value],
     ) {
         if let Some(block) = self.cur_block {
-            let args: Vec<Operand> = args.iter().map(|&arg| Operand::value(arg)).collect();
+            let args = args.to_vec();
             let targets = indexed_targets
                 .iter()
                 .map(|&block| {
@@ -873,16 +859,16 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 args: default_args,
             };
             self.body.blocks[block].terminator = Terminator::Select {
-                value: Operand::value(index),
+                value: index,
                 targets,
                 default,
             };
         }
     }
 
-    fn emit_ret(&mut self, vals: &[ValueId]) {
+    fn emit_ret(&mut self, values: &[Value]) {
         if let Some(block) = self.cur_block {
-            let values = vals.iter().map(|&value| Operand::value(value)).collect();
+            let values = values.to_vec();
             self.body.blocks[block].terminator = Terminator::Return { values };
         }
     }
@@ -899,12 +885,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
         let mut block_param_num = 0;
         for &ty in wasm_stack_val_tys.iter() {
-            let value_id = self.body.values.len() as ValueId;
-            self.body.values.push(ValueDef {
-                kind: ValueKind::BlockParam(block, block_param_num),
-                ty,
-            });
-            self.op_stack.push((ty, value_id));
+            let value = Value::blockparam(block, block_param_num);
+            self.op_stack.push((ty, value));
             block_param_num += 1;
         }
 
@@ -913,13 +895,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 .iter()
                 .zip(block_param_locals.iter())
             {
-                let value_id = self.body.values.len() as ValueId;
-                self.body.values.push(ValueDef {
-                    kind: ValueKind::BlockParam(block, block_param_num),
-                    ty,
-                });
+                let value = Value::blockparam(block, block_param_num);
                 block_param_num += 1;
-                self.locals.insert(local_id, (ty, value_id));
+                self.locals.insert(local_id, (ty, value));
             }
         }
     }
@@ -941,30 +919,24 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             for input in inputs.into_iter().rev() {
                 let (stack_top_ty, stack_top) = self.op_stack.pop().unwrap();
                 assert_eq!(stack_top_ty, input);
-                input_operands.push(Operand::value(stack_top));
+                input_operands.push(stack_top);
             }
             input_operands.reverse();
 
-            let mut output_operands = vec![];
+            let n_outputs = outputs.len();
             for (i, output_ty) in outputs.into_iter().enumerate() {
-                let val = self.body.values.len() as ValueId;
-                output_operands.push(val);
-                self.body.values.push(ValueDef {
-                    kind: ValueKind::Inst(block, inst, i),
-                    ty: output_ty,
-                });
-                self.op_stack.push((output_ty, val));
+                self.op_stack.push((output_ty, Value::inst(block, inst, i)));
             }
 
             self.body.blocks[block].insts.push(Inst {
                 operator: op,
-                outputs: output_operands,
+                n_outputs,
                 inputs: input_operands,
             });
         } else {
             let _ = self.pop_n(inputs.len());
             for ty in outputs {
-                self.op_stack.push((ty, NO_VALUE));
+                self.op_stack.push((ty, Value::undef()));
             }
         }
 
