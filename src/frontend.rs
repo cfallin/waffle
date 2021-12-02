@@ -2,23 +2,6 @@
 
 #![allow(dead_code)]
 
-/*
-
-- TODO: better local-variable handling:
-  - pre-pass to scan for locations of definitions of all locals. for
-    each frame, record set of vars that are def'd.
-  - during main pass:
-    - for an if/else, add blockparams to join block for all vars def'd
-      in either side.
-    - for a block, add blockparams to out-block for all vars def'd in
-      body of block.
-    - for a loop, add blockparams to header block for all vars def'd
-      in body.
-    - when generating a branch to any block, just emit current values
-      for every local in blockparams.
-
- */
-
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use anyhow::{bail, Result};

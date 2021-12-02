@@ -7,12 +7,10 @@
 pub use wasm_encoder;
 pub use wasmparser;
 
-mod analysis;
 mod backend;
 mod cfg;
 mod frontend;
 mod ir;
 mod op_traits;
-mod pass;
 
 pub use ir::*;
