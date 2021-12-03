@@ -166,39 +166,27 @@ pub enum ValueDef {
 impl ValueDef {
     pub fn visit_uses<F: FnMut(Value)>(&self, mut f: F) {
         match self {
-            &ValueDef::Parameter { .. } => {}
+            &ValueDef::Arg { .. } => {}
+            &ValueDef::BlockParam { .. } => {}
             &ValueDef::Operator { ref args, .. } => {
                 for &arg in args {
                     f(arg);
                 }
             }
             &ValueDef::PickOutput { from, .. } => f(from),
-            &ValueDef::Phi { ref inputs, .. } => {
-                for &input in inputs {
-                    f(input);
-                }
-            }
-            &ValueDef::LocalGet { .. } => {}
-            &ValueDef::LocalSet { value, .. } => f(value),
         }
     }
 
     pub fn update_uses<F: FnMut(&mut Value)>(&mut self, mut f: F) {
         match self {
-            &mut ValueDef::Parameter { .. } => {}
+            &mut ValueDef::Arg { .. } => {}
+            &mut ValueDef::BlockParam { .. } => {}
             &mut ValueDef::Operator { ref mut args, .. } => {
-                for &mut arg in args {
+                for arg in args {
                     f(arg);
                 }
             }
             &mut ValueDef::PickOutput { ref mut from, .. } => f(from),
-            &mut ValueDef::Phi { ref mut inputs, .. } => {
-                for &mut input in inputs {
-                    f(input);
-                }
-            }
-            &mut ValueDef::LocalGet { .. } => {}
-            &mut ValueDef::LocalSet { ref mut value, .. } => f(value),
         }
     }
 }
@@ -234,12 +222,12 @@ impl Terminator {
     pub fn visit_successors<F: FnMut(BlockId)>(&self, mut f: F) {
         match self {
             Terminator::Return { .. } => {}
-            Terminator::Br { target, .. } => f(target),
+            Terminator::Br { target, .. } => f(*target),
             Terminator::CondBr {
                 if_true, if_false, ..
             } => {
-                f(if_true);
-                f(if_false);
+                f(*if_true);
+                f(*if_false);
             }
             Terminator::Select {
                 ref targets,
@@ -249,7 +237,7 @@ impl Terminator {
                 for &target in targets {
                     f(target);
                 }
-                f(default);
+                f(*default);
             }
             Terminator::None => {}
         }
