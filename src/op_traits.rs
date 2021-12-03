@@ -1,15 +1,16 @@
 //! Metadata on operators.
 
 use crate::ir::{Module, SignatureId, Value};
+use crate::Operator;
 use anyhow::{bail, Result};
-use wasmparser::{Operator, Type};
+use wasmparser::Type;
 
 pub fn op_inputs(
     module: &Module,
     my_sig: SignatureId,
     my_locals: &[Type],
     op_stack: &[(Type, Value)],
-    op: &Operator<'_>,
+    op: &Operator,
 ) -> Result<Vec<Type>> {
     match op {
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
@@ -229,7 +230,7 @@ pub fn op_outputs(
     module: &Module,
     my_locals: &[Type],
     op_stack: &[(Type, Value)],
-    op: &Operator<'_>,
+    op: &Operator,
 ) -> Result<Vec<Type>> {
     match op {
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
@@ -452,7 +453,7 @@ pub enum SideEffect {
     All,
 }
 
-pub fn op_effects(op: &Operator<'_>) -> Result<Vec<SideEffect>> {
+pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
     use SideEffect::*;
 
     match op {

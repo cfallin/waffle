@@ -12,5 +12,7 @@ mod cfg;
 mod frontend;
 mod ir;
 mod op_traits;
+mod ops;
 
 pub use ir::*;
+pub use ops::Operator;

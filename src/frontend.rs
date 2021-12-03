@@ -156,7 +156,6 @@ struct FunctionBodyBuilder<'a, 'b> {
     ctrl_stack: Vec<Frame>,
     op_stack: Vec<(Type, Value)>,
     locals: FxHashMap<LocalId, (Type, Value)>,
-    block_param_locals: FxHashMap<BlockId, Vec<LocalId>>,
 }
 
 #[derive(Clone, Debug)]
@@ -238,13 +237,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             op_stack: vec![],
             cur_block: Some(0),
             locals: FxHashMap::default(),
-            block_param_locals: FxHashMap::default(),
         };
 
         // Push initial implicit Block.
         let results = module.signatures[my_sig].returns.to_vec();
         let out = ret.create_block();
-        ret.add_block_params(out, &results[..]);
         ret.ctrl_stack.push(Frame::Block {
             start_depth: 0,
             out,
@@ -252,10 +249,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             results,
         });
         ret
-    }
-
-    fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
-        self.body.blocks[block].params.extend_from_slice(tys);
     }
 
     fn pop_n(&mut self, n: usize) -> Vec<Value> {
@@ -735,13 +728,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
 
         Ok(())
-    }
-
-    fn create_block(&mut self) -> BlockId {
-        let id = self.body.blocks.len() as BlockId;
-        self.body.blocks.push(Block::default());
-        self.body.blocks[id].id = id;
-        id
     }
 
     fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
