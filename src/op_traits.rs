@@ -2,7 +2,7 @@
 
 use crate::ir::{Module, SignatureId, Value};
 use crate::Operator;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use wasmparser::Type;
 
 pub fn op_inputs(
@@ -221,8 +221,6 @@ pub fn op_inputs(
         Operator::TableSize { .. } => Ok(vec![]),
         Operator::MemorySize { .. } => Ok(vec![]),
         Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
-
-        _ => bail!("Unknown operator in op_inputs(): {:?}", op),
     }
 }
 
@@ -433,8 +431,6 @@ pub fn op_outputs(
         Operator::TableSize { .. } => Ok(vec![Type::I32]),
         Operator::MemorySize { .. } => Ok(vec![Type::I32]),
         Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
-
-        _ => bail!("Unknown operator in op_outputs(): {:?}", op),
     }
 }
 
@@ -652,7 +648,5 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         Operator::TableSize { table, .. } => Ok(vec![ReadTable(*table as usize)]),
         Operator::MemorySize { .. } => Ok(vec![ReadMem]),
         Operator::MemoryGrow { .. } => Ok(vec![WriteMem, Trap]),
-
-        _ => bail!("Unknown operator in op_outputs(): {:?}", op),
     }
 }

@@ -2,14 +2,16 @@
 
 #![allow(dead_code)]
 
+use std::convert::TryFrom;
+
 use crate::ir::*;
-use crate::op_traits::{op_inputs, op_outputs};
+use crate::op_traits::{op_effects, op_inputs, op_outputs};
+use crate::ops::Operator;
 use anyhow::{bail, Result};
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
 use wasmparser::{
-    Ieee32, Ieee64, ImportSectionEntryType, Operator, Parser, Payload, Type, TypeDef,
-    TypeOrFuncType,
+    Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, Type, TypeDef, TypeOrFuncType,
 };
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
@@ -115,6 +117,7 @@ fn parse_body<'a>(
             ret.locals.push(ty);
         }
     }
+    let locals = ret.locals.clone();
 
     trace!(
         "Parsing function body: locals = {:?} sig = {:?}",
@@ -123,13 +126,21 @@ fn parse_body<'a>(
     );
 
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
+    builder.locals.seal_block_preds(0, &mut builder.body);
+    builder.locals.start_block(0);
 
     for (arg_idx, &arg_ty) in module.signatures[my_sig].params.iter().enumerate() {
         let local_idx = arg_idx as LocalId;
-        let value = Value::arg(arg_idx);
-        builder.body.types.insert(value, arg_ty);
+        let value = builder.body.add_value(ValueDef::Arg(arg_idx), Some(arg_ty));
         trace!("defining local {} to value {}", local_idx, value);
-        builder.locals.insert(local_idx, (arg_ty, value));
+        builder.locals.declare(local_idx, arg_ty);
+        builder.locals.set(local_idx, value);
+    }
+
+    let n_args = module.signatures[my_sig].params.len();
+    for (offset, local_ty) in locals.into_iter().enumerate() {
+        let local_idx = (n_args + offset) as u32;
+        builder.locals.declare(local_idx, local_ty);
     }
 
     let ops = body.get_operators_reader()?;
@@ -139,7 +150,7 @@ fn parse_body<'a>(
     }
 
     if builder.cur_block.is_some() {
-        builder.handle_op(Operator::Return)?;
+        builder.handle_op(wasmparser::Operator::Return)?;
     }
 
     trace!("Final function body:{:?}", ret);
@@ -147,15 +158,221 @@ fn parse_body<'a>(
     Ok(ret)
 }
 
+#[derive(Debug, Clone, Default)]
+struct LocalTracker {
+    /// Types of locals, as declared.
+    types: FxHashMap<LocalId, Type>,
+    /// The current block.
+    cur_block: Option<BlockId>,
+    /// Is the given block sealed?
+    block_sealed: FxHashSet<BlockId>,
+    /// Block predecessors.
+    block_preds: FxHashMap<BlockId, Vec<BlockId>>,
+    /// The local-to-value mapping at the start of a block.
+    block_start: FxHashMap<BlockId, FxHashMap<LocalId, Value>>,
+    /// The local-to-value mapping at the end of a block.
+    block_end: FxHashMap<BlockId, FxHashMap<LocalId, Value>>,
+    in_cur_block: FxHashMap<LocalId, Value>,
+    incomplete_phis: FxHashMap<BlockId, Vec<(LocalId, Value)>>,
+}
+
+impl LocalTracker {
+    pub fn declare(&mut self, local: LocalId, ty: Type) {
+        let was_present = self.types.insert(local, ty).is_some();
+        assert!(!was_present);
+    }
+
+    pub fn add_pred(&mut self, block: BlockId, pred: BlockId) {
+        assert!(!self.block_sealed.contains(&block));
+        self.block_preds
+            .entry(block)
+            .or_insert_with(|| vec![])
+            .push(pred);
+    }
+
+    pub fn start_block(&mut self, block: BlockId) {
+        self.finish_block();
+        self.cur_block = Some(block);
+    }
+
+    pub fn finish_block(&mut self) {
+        if let Some(block) = self.cur_block {
+            let mapping = std::mem::take(&mut self.in_cur_block);
+            self.block_end.insert(block, mapping);
+        }
+        self.cur_block = None;
+    }
+
+    pub fn seal_block_preds(&mut self, block: BlockId, body: &mut FunctionBody) {
+        let not_sealed = self.block_sealed.insert(block);
+        assert!(not_sealed);
+        for (local, phi_value) in self
+            .incomplete_phis
+            .remove(&block)
+            .unwrap_or_else(|| vec![])
+        {
+            self.compute_blockparam(body, block, local, phi_value);
+        }
+    }
+
+    fn is_sealed(&self, block: BlockId) -> bool {
+        self.block_sealed.contains(&block)
+    }
+
+    pub fn set(&mut self, local: LocalId, value: Value) {
+        assert!(self.cur_block.is_some());
+        debug_assert!(self.is_sealed(self.cur_block.unwrap()));
+        self.in_cur_block.insert(local, value);
+    }
+
+    fn get_in_block(
+        &mut self,
+        body: &mut FunctionBody,
+        at_block: BlockId,
+        local: LocalId,
+    ) -> Value {
+        let ty = body.locals[local as usize];
+
+        if self.cur_block.unwrap() == at_block {
+            if let Some(&value) = self.in_cur_block.get(&local) {
+                return value;
+            }
+        }
+
+        if self.is_sealed(at_block) {
+            if let Some(end_mapping) = self.block_end.get(&at_block) {
+                if let Some(&value) = end_mapping.get(&local) {
+                    return value;
+                }
+            }
+
+            if self
+                .block_preds
+                .get(&at_block)
+                .map(|preds| preds.is_empty())
+                .unwrap_or(true)
+            {
+                return self.create_default_value(body, ty);
+            }
+
+            let placeholder = body.add_placeholder(ty);
+            self.block_end
+                .entry(at_block)
+                .or_insert_with(|| FxHashMap::default())
+                .insert(local, placeholder);
+            self.compute_blockparam(body, at_block, local, placeholder);
+            placeholder
+        } else {
+            let placeholder = body.add_placeholder(ty);
+            self.block_end
+                .entry(at_block)
+                .or_insert_with(|| FxHashMap::default())
+                .insert(local, placeholder);
+            self.incomplete_phis
+                .entry(at_block)
+                .or_insert_with(|| vec![])
+                .push((local, placeholder));
+
+            placeholder
+        }
+    }
+
+    pub fn get(&mut self, body: &mut FunctionBody, local: LocalId) -> Value {
+        assert!(self.cur_block.is_some());
+        debug_assert!(self.is_sealed(self.cur_block.unwrap()));
+        let block = self.cur_block.unwrap();
+        assert!((local as usize) < body.locals.len());
+        self.get_in_block(body, block, local)
+    }
+
+    fn create_default_value(&mut self, body: &mut FunctionBody, ty: Type) -> Value {
+        match ty {
+            Type::I32 => body.add_value(
+                ValueDef::Operator(Operator::I32Const { value: 0 }, vec![]),
+                Some(ty),
+            ),
+            Type::I64 => body.add_value(
+                ValueDef::Operator(Operator::I64Const { value: 0 }, vec![]),
+                Some(ty),
+            ),
+            Type::F32 => body.add_value(
+                ValueDef::Operator(
+                    Operator::F32Const {
+                        value: Ieee32::from_bits(0),
+                    },
+                    vec![],
+                ),
+                Some(ty),
+            ),
+            Type::F64 => body.add_value(
+                ValueDef::Operator(
+                    Operator::F64Const {
+                        value: Ieee64::from_bits(0),
+                    },
+                    vec![],
+                ),
+                Some(ty),
+            ),
+            _ => todo!("unsupported type: {:?}", ty),
+        }
+    }
+
+    fn compute_blockparam(
+        &mut self,
+        body: &mut FunctionBody,
+        block: BlockId,
+        local: LocalId,
+        value: Value,
+    ) {
+        let mut results: Vec<Value> = vec![];
+        let preds = self
+            .block_preds
+            .get(&block)
+            .cloned()
+            .unwrap_or_else(|| vec![]);
+        for pred in preds {
+            let pred_value = self.get_in_block(body, pred, local);
+            results.push(pred_value);
+        }
+
+        let mut non_self = results.iter().filter(|&&v| v != value);
+        let trivial_alias = match non_self.next() {
+            None => None,
+            Some(&first) if non_self.all(|&v| v == first) => Some(first),
+            Some(_) => None,
+        };
+
+        if let Some(v) = trivial_alias {
+            body.set_alias(value, v);
+        } else {
+            body.replace_placeholder_with_blockparam(block, value);
+            for (i, (pred, result)) in self
+                .block_preds
+                .get(&block)
+                .cloned()
+                .unwrap_or_else(|| vec![])
+                .into_iter()
+                .zip(results.into_iter())
+                .enumerate()
+            {
+                let index = body.blocks[block].pos_in_pred_succ[i];
+                body.blocks[pred].terminator.update_target(index, |target| {
+                    target.args.push(result);
+                });
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 struct FunctionBodyBuilder<'a, 'b> {
     module: &'b Module<'a>,
     my_sig: SignatureId,
     body: &'b mut FunctionBody,
+    locals: LocalTracker,
     cur_block: Option<BlockId>,
     ctrl_stack: Vec<Frame>,
     op_stack: Vec<(Type, Value)>,
-    locals: FxHashMap<LocalId, (Type, Value)>,
 }
 
 #[derive(Clone, Debug)]
@@ -224,6 +441,24 @@ impl Frame {
             | Frame::Else { out, .. } => *out,
         }
     }
+
+    fn params(&self) -> &[Type] {
+        match self {
+            Frame::Block { params, .. }
+            | Frame::Loop { params, .. }
+            | Frame::If { params, .. }
+            | Frame::Else { params, .. } => &params[..],
+        }
+    }
+
+    fn results(&self) -> &[Type] {
+        match self {
+            Frame::Block { results, .. }
+            | Frame::Loop { results, .. }
+            | Frame::If { results, .. }
+            | Frame::Else { results, .. } => &results[..],
+        }
+    }
 }
 
 impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
@@ -236,12 +471,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             ctrl_stack: vec![],
             op_stack: vec![],
             cur_block: Some(0),
-            locals: FxHashMap::default(),
+            locals: LocalTracker::default(),
         };
 
         // Push initial implicit Block.
         let results = module.signatures[my_sig].returns.to_vec();
-        let out = ret.create_block();
+        let out = ret.body.add_block();
         ret.ctrl_stack.push(Frame::Block {
             start_depth: 0,
             out,
@@ -265,291 +500,280 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         self.op_stack.pop().unwrap().1
     }
 
-    fn handle_op(&mut self, op: Operator<'a>) -> Result<()> {
+    fn handle_op(&mut self, op: wasmparser::Operator<'a>) -> Result<()> {
         trace!("handle_op: {:?}", op);
         trace!("op_stack = {:?}", self.op_stack);
         trace!("ctrl_stack = {:?}", self.ctrl_stack);
         trace!("locals = {:?}", self.locals);
         match &op {
-            Operator::Unreachable => {
+            wasmparser::Operator::Unreachable => {
                 if let Some(block) = self.cur_block {
                     self.body.blocks[block].terminator = Terminator::None;
+                    self.locals.finish_block();
                 }
                 self.cur_block = None;
             }
 
-            Operator::LocalGet { local_index } => {
+            wasmparser::Operator::LocalGet { local_index } => {
                 let ty = self.body.locals[*local_index as usize];
-                let value = self
-                    .locals
-                    .get(local_index)
-                    .map(|(_ty, value)| *value)
-                    .unwrap_or_else(|| {
-                        if let Some(block) = self.cur_block {
-                            let inst = self.body.blocks[block].insts.len() as InstId;
-                            self.emit(match ty {
-                                Type::I32 => Operator::I32Const { value: 0 },
-                                Type::I64 => Operator::I64Const { value: 0 },
-                                Type::F32 => Operator::F32Const {
-                                    value: Ieee32::from_bits(0),
-                                },
-                                Type::F64 => Operator::F64Const {
-                                    value: Ieee64::from_bits(0),
-                                },
-                                _ => panic!("Unknown type for default value for local: {:?}", ty),
-                            })
-                            .unwrap();
-                            self.op_stack.pop();
-                            Value::inst(block, inst, 0)
-                        } else {
-                            Value::undef()
-                        }
-                    });
+                let value = self.locals.get(&mut self.body, *local_index);
                 self.op_stack.push((ty, value));
             }
 
-            Operator::LocalSet { local_index } => {
-                let (ty, value) = self.op_stack.pop().unwrap();
-                self.locals.insert(*local_index, (ty, value));
+            wasmparser::Operator::LocalSet { local_index } => {
+                let (_, value) = self.op_stack.pop().unwrap();
+                self.locals.set(*local_index, value);
             }
 
-            Operator::LocalTee { local_index } => {
-                let value = *self.op_stack.last().unwrap();
-                self.locals.insert(*local_index, value);
+            wasmparser::Operator::LocalTee { local_index } => {
+                let (_ty, value) = *self.op_stack.last().unwrap();
+                self.locals.set(*local_index, value);
             }
 
-            Operator::Call { .. }
-            | Operator::CallIndirect { .. }
-            | Operator::Select
-            | Operator::TypedSelect { .. }
-            | Operator::GlobalGet { .. }
-            | Operator::GlobalSet { .. }
-            | Operator::I32Load { .. }
-            | Operator::I64Load { .. }
-            | Operator::F32Load { .. }
-            | Operator::F64Load { .. }
-            | Operator::I32Load8S { .. }
-            | Operator::I32Load8U { .. }
-            | Operator::I32Load16S { .. }
-            | Operator::I32Load16U { .. }
-            | Operator::I64Load8S { .. }
-            | Operator::I64Load8U { .. }
-            | Operator::I64Load16S { .. }
-            | Operator::I64Load16U { .. }
-            | Operator::I64Load32S { .. }
-            | Operator::I64Load32U { .. }
-            | Operator::I32Store { .. }
-            | Operator::I64Store { .. }
-            | Operator::F32Store { .. }
-            | Operator::F64Store { .. }
-            | Operator::I32Store8 { .. }
-            | Operator::I32Store16 { .. }
-            | Operator::I64Store8 { .. }
-            | Operator::I64Store16 { .. }
-            | Operator::I64Store32 { .. }
-            | Operator::MemorySize { .. }
-            | Operator::MemoryGrow { .. }
-            | Operator::I32Const { .. }
-            | Operator::I64Const { .. }
-            | Operator::F32Const { .. }
-            | Operator::F64Const { .. }
-            | Operator::I32Eqz
-            | Operator::I32Eq
-            | Operator::I32Ne
-            | Operator::I32LtS
-            | Operator::I32LtU
-            | Operator::I32GtS
-            | Operator::I32GtU
-            | Operator::I32LeS
-            | Operator::I32LeU
-            | Operator::I32GeS
-            | Operator::I32GeU
-            | Operator::I64Eqz
-            | Operator::I64Eq
-            | Operator::I64Ne
-            | Operator::I64LtS
-            | Operator::I64LtU
-            | Operator::I64GtU
-            | Operator::I64GtS
-            | Operator::I64LeS
-            | Operator::I64LeU
-            | Operator::I64GeS
-            | Operator::I64GeU
-            | Operator::F32Eq
-            | Operator::F32Ne
-            | Operator::F32Lt
-            | Operator::F32Gt
-            | Operator::F32Le
-            | Operator::F32Ge
-            | Operator::F64Eq
-            | Operator::F64Ne
-            | Operator::F64Lt
-            | Operator::F64Gt
-            | Operator::F64Le
-            | Operator::F64Ge
-            | Operator::I32Clz
-            | Operator::I32Ctz
-            | Operator::I32Popcnt
-            | Operator::I32Add
-            | Operator::I32Sub
-            | Operator::I32Mul
-            | Operator::I32DivS
-            | Operator::I32DivU
-            | Operator::I32RemS
-            | Operator::I32RemU
-            | Operator::I32And
-            | Operator::I32Or
-            | Operator::I32Xor
-            | Operator::I32Shl
-            | Operator::I32ShrS
-            | Operator::I32ShrU
-            | Operator::I32Rotl
-            | Operator::I32Rotr
-            | Operator::I64Clz
-            | Operator::I64Ctz
-            | Operator::I64Popcnt
-            | Operator::I64Add
-            | Operator::I64Sub
-            | Operator::I64Mul
-            | Operator::I64DivS
-            | Operator::I64DivU
-            | Operator::I64RemS
-            | Operator::I64RemU
-            | Operator::I64And
-            | Operator::I64Or
-            | Operator::I64Xor
-            | Operator::I64Shl
-            | Operator::I64ShrS
-            | Operator::I64ShrU
-            | Operator::I64Rotl
-            | Operator::I64Rotr
-            | Operator::F32Abs
-            | Operator::F32Neg
-            | Operator::F32Ceil
-            | Operator::F32Floor
-            | Operator::F32Trunc
-            | Operator::F32Nearest
-            | Operator::F32Sqrt
-            | Operator::F32Add
-            | Operator::F32Sub
-            | Operator::F32Mul
-            | Operator::F32Div
-            | Operator::F32Min
-            | Operator::F32Max
-            | Operator::F32Copysign
-            | Operator::F64Abs
-            | Operator::F64Neg
-            | Operator::F64Ceil
-            | Operator::F64Floor
-            | Operator::F64Trunc
-            | Operator::F64Nearest
-            | Operator::F64Sqrt
-            | Operator::F64Add
-            | Operator::F64Sub
-            | Operator::F64Mul
-            | Operator::F64Div
-            | Operator::F64Min
-            | Operator::F64Max
-            | Operator::F64Copysign
-            | Operator::I32WrapI64
-            | Operator::I32TruncF32S
-            | Operator::I32TruncF32U
-            | Operator::I32TruncF64S
-            | Operator::I32TruncF64U
-            | Operator::I64ExtendI32S
-            | Operator::I64ExtendI32U
-            | Operator::I64TruncF32S
-            | Operator::I64TruncF32U
-            | Operator::I64TruncF64S
-            | Operator::I64TruncF64U
-            | Operator::F32ConvertI32S
-            | Operator::F32ConvertI32U
-            | Operator::F32ConvertI64S
-            | Operator::F32ConvertI64U
-            | Operator::F32DemoteF64
-            | Operator::F64ConvertI32S
-            | Operator::F64ConvertI32U
-            | Operator::F64ConvertI64S
-            | Operator::F64ConvertI64U
-            | Operator::F64PromoteF32
-            | Operator::I32Extend8S
-            | Operator::I32Extend16S
-            | Operator::I64Extend8S
-            | Operator::I64Extend16S
-            | Operator::I64Extend32S
-            | Operator::I32TruncSatF32S
-            | Operator::I32TruncSatF32U
-            | Operator::I32TruncSatF64S
-            | Operator::I32TruncSatF64U
-            | Operator::I64TruncSatF32S
-            | Operator::I64TruncSatF32U
-            | Operator::I64TruncSatF64S
-            | Operator::I64TruncSatF64U
-            | Operator::F32ReinterpretI32
-            | Operator::F64ReinterpretI64
-            | Operator::I32ReinterpretF32
-            | Operator::I64ReinterpretF64
-            | Operator::TableGet { .. }
-            | Operator::TableSet { .. }
-            | Operator::TableGrow { .. }
-            | Operator::TableSize { .. } => self.emit(op.clone())?,
+            wasmparser::Operator::Call { .. }
+            | wasmparser::Operator::CallIndirect { .. }
+            | wasmparser::Operator::Select
+            | wasmparser::Operator::TypedSelect { .. }
+            | wasmparser::Operator::GlobalGet { .. }
+            | wasmparser::Operator::GlobalSet { .. }
+            | wasmparser::Operator::I32Load { .. }
+            | wasmparser::Operator::I64Load { .. }
+            | wasmparser::Operator::F32Load { .. }
+            | wasmparser::Operator::F64Load { .. }
+            | wasmparser::Operator::I32Load8S { .. }
+            | wasmparser::Operator::I32Load8U { .. }
+            | wasmparser::Operator::I32Load16S { .. }
+            | wasmparser::Operator::I32Load16U { .. }
+            | wasmparser::Operator::I64Load8S { .. }
+            | wasmparser::Operator::I64Load8U { .. }
+            | wasmparser::Operator::I64Load16S { .. }
+            | wasmparser::Operator::I64Load16U { .. }
+            | wasmparser::Operator::I64Load32S { .. }
+            | wasmparser::Operator::I64Load32U { .. }
+            | wasmparser::Operator::I32Store { .. }
+            | wasmparser::Operator::I64Store { .. }
+            | wasmparser::Operator::F32Store { .. }
+            | wasmparser::Operator::F64Store { .. }
+            | wasmparser::Operator::I32Store8 { .. }
+            | wasmparser::Operator::I32Store16 { .. }
+            | wasmparser::Operator::I64Store8 { .. }
+            | wasmparser::Operator::I64Store16 { .. }
+            | wasmparser::Operator::I64Store32 { .. }
+            | wasmparser::Operator::MemorySize { .. }
+            | wasmparser::Operator::MemoryGrow { .. }
+            | wasmparser::Operator::I32Const { .. }
+            | wasmparser::Operator::I64Const { .. }
+            | wasmparser::Operator::F32Const { .. }
+            | wasmparser::Operator::F64Const { .. }
+            | wasmparser::Operator::I32Eqz
+            | wasmparser::Operator::I32Eq
+            | wasmparser::Operator::I32Ne
+            | wasmparser::Operator::I32LtS
+            | wasmparser::Operator::I32LtU
+            | wasmparser::Operator::I32GtS
+            | wasmparser::Operator::I32GtU
+            | wasmparser::Operator::I32LeS
+            | wasmparser::Operator::I32LeU
+            | wasmparser::Operator::I32GeS
+            | wasmparser::Operator::I32GeU
+            | wasmparser::Operator::I64Eqz
+            | wasmparser::Operator::I64Eq
+            | wasmparser::Operator::I64Ne
+            | wasmparser::Operator::I64LtS
+            | wasmparser::Operator::I64LtU
+            | wasmparser::Operator::I64GtU
+            | wasmparser::Operator::I64GtS
+            | wasmparser::Operator::I64LeS
+            | wasmparser::Operator::I64LeU
+            | wasmparser::Operator::I64GeS
+            | wasmparser::Operator::I64GeU
+            | wasmparser::Operator::F32Eq
+            | wasmparser::Operator::F32Ne
+            | wasmparser::Operator::F32Lt
+            | wasmparser::Operator::F32Gt
+            | wasmparser::Operator::F32Le
+            | wasmparser::Operator::F32Ge
+            | wasmparser::Operator::F64Eq
+            | wasmparser::Operator::F64Ne
+            | wasmparser::Operator::F64Lt
+            | wasmparser::Operator::F64Gt
+            | wasmparser::Operator::F64Le
+            | wasmparser::Operator::F64Ge
+            | wasmparser::Operator::I32Clz
+            | wasmparser::Operator::I32Ctz
+            | wasmparser::Operator::I32Popcnt
+            | wasmparser::Operator::I32Add
+            | wasmparser::Operator::I32Sub
+            | wasmparser::Operator::I32Mul
+            | wasmparser::Operator::I32DivS
+            | wasmparser::Operator::I32DivU
+            | wasmparser::Operator::I32RemS
+            | wasmparser::Operator::I32RemU
+            | wasmparser::Operator::I32And
+            | wasmparser::Operator::I32Or
+            | wasmparser::Operator::I32Xor
+            | wasmparser::Operator::I32Shl
+            | wasmparser::Operator::I32ShrS
+            | wasmparser::Operator::I32ShrU
+            | wasmparser::Operator::I32Rotl
+            | wasmparser::Operator::I32Rotr
+            | wasmparser::Operator::I64Clz
+            | wasmparser::Operator::I64Ctz
+            | wasmparser::Operator::I64Popcnt
+            | wasmparser::Operator::I64Add
+            | wasmparser::Operator::I64Sub
+            | wasmparser::Operator::I64Mul
+            | wasmparser::Operator::I64DivS
+            | wasmparser::Operator::I64DivU
+            | wasmparser::Operator::I64RemS
+            | wasmparser::Operator::I64RemU
+            | wasmparser::Operator::I64And
+            | wasmparser::Operator::I64Or
+            | wasmparser::Operator::I64Xor
+            | wasmparser::Operator::I64Shl
+            | wasmparser::Operator::I64ShrS
+            | wasmparser::Operator::I64ShrU
+            | wasmparser::Operator::I64Rotl
+            | wasmparser::Operator::I64Rotr
+            | wasmparser::Operator::F32Abs
+            | wasmparser::Operator::F32Neg
+            | wasmparser::Operator::F32Ceil
+            | wasmparser::Operator::F32Floor
+            | wasmparser::Operator::F32Trunc
+            | wasmparser::Operator::F32Nearest
+            | wasmparser::Operator::F32Sqrt
+            | wasmparser::Operator::F32Add
+            | wasmparser::Operator::F32Sub
+            | wasmparser::Operator::F32Mul
+            | wasmparser::Operator::F32Div
+            | wasmparser::Operator::F32Min
+            | wasmparser::Operator::F32Max
+            | wasmparser::Operator::F32Copysign
+            | wasmparser::Operator::F64Abs
+            | wasmparser::Operator::F64Neg
+            | wasmparser::Operator::F64Ceil
+            | wasmparser::Operator::F64Floor
+            | wasmparser::Operator::F64Trunc
+            | wasmparser::Operator::F64Nearest
+            | wasmparser::Operator::F64Sqrt
+            | wasmparser::Operator::F64Add
+            | wasmparser::Operator::F64Sub
+            | wasmparser::Operator::F64Mul
+            | wasmparser::Operator::F64Div
+            | wasmparser::Operator::F64Min
+            | wasmparser::Operator::F64Max
+            | wasmparser::Operator::F64Copysign
+            | wasmparser::Operator::I32WrapI64
+            | wasmparser::Operator::I32TruncF32S
+            | wasmparser::Operator::I32TruncF32U
+            | wasmparser::Operator::I32TruncF64S
+            | wasmparser::Operator::I32TruncF64U
+            | wasmparser::Operator::I64ExtendI32S
+            | wasmparser::Operator::I64ExtendI32U
+            | wasmparser::Operator::I64TruncF32S
+            | wasmparser::Operator::I64TruncF32U
+            | wasmparser::Operator::I64TruncF64S
+            | wasmparser::Operator::I64TruncF64U
+            | wasmparser::Operator::F32ConvertI32S
+            | wasmparser::Operator::F32ConvertI32U
+            | wasmparser::Operator::F32ConvertI64S
+            | wasmparser::Operator::F32ConvertI64U
+            | wasmparser::Operator::F32DemoteF64
+            | wasmparser::Operator::F64ConvertI32S
+            | wasmparser::Operator::F64ConvertI32U
+            | wasmparser::Operator::F64ConvertI64S
+            | wasmparser::Operator::F64ConvertI64U
+            | wasmparser::Operator::F64PromoteF32
+            | wasmparser::Operator::I32Extend8S
+            | wasmparser::Operator::I32Extend16S
+            | wasmparser::Operator::I64Extend8S
+            | wasmparser::Operator::I64Extend16S
+            | wasmparser::Operator::I64Extend32S
+            | wasmparser::Operator::I32TruncSatF32S
+            | wasmparser::Operator::I32TruncSatF32U
+            | wasmparser::Operator::I32TruncSatF64S
+            | wasmparser::Operator::I32TruncSatF64U
+            | wasmparser::Operator::I64TruncSatF32S
+            | wasmparser::Operator::I64TruncSatF32U
+            | wasmparser::Operator::I64TruncSatF64S
+            | wasmparser::Operator::I64TruncSatF64U
+            | wasmparser::Operator::F32ReinterpretI32
+            | wasmparser::Operator::F64ReinterpretI64
+            | wasmparser::Operator::I32ReinterpretF32
+            | wasmparser::Operator::I64ReinterpretF64
+            | wasmparser::Operator::TableGet { .. }
+            | wasmparser::Operator::TableSet { .. }
+            | wasmparser::Operator::TableGrow { .. }
+            | wasmparser::Operator::TableSize { .. } => {
+                self.emit(Operator::try_from(&op).unwrap())?
+            }
 
-            Operator::Nop => {}
+            wasmparser::Operator::Nop => {}
 
-            Operator::Drop => {
+            wasmparser::Operator::Drop => {
                 let _ = self.pop_1();
             }
 
-            Operator::End if self.cur_block.is_none() => {
+            wasmparser::Operator::End if self.cur_block.is_none() => {
                 let frame = self.ctrl_stack.pop().unwrap();
                 self.op_stack.truncate(frame.start_depth());
                 self.cur_block = Some(frame.out());
-                self.push_block_params();
+                self.push_block_params(frame.results().len());
+                self.locals.start_block(frame.out());
             }
 
-            Operator::End => {
+            wasmparser::Operator::End => {
                 let frame = self.ctrl_stack.pop();
-                match frame {
+                match &frame {
                     None => {
                         self.emit(Operator::Return)?;
                     }
                     Some(Frame::Block {
                         start_depth,
                         out,
-                        results,
+                        ref results,
                         ..
                     })
                     | Some(Frame::Loop {
                         start_depth,
                         out,
-                        results,
+                        ref results,
                         ..
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
                         if self.cur_block.is_some() {
                             let result_values = self.pop_n(results.len());
-                            self.emit_branch(out, &result_values[..]);
+                            self.emit_branch(*out, &result_values[..]);
                         }
-                        self.op_stack.truncate(start_depth);
-                        self.cur_block = Some(out);
-                        self.push_block_params();
+                        self.op_stack.truncate(*start_depth);
+                        self.locals.finish_block();
+                        // Seal the out-block: no more edges will be
+                        // added to it. Also, if we're ending a loop,
+                        // seal thea header: no more back-edges will
+                        // be added to it.
+                        self.locals.seal_block_preds(*out, &mut self.body);
+                        if let Some(Frame::Loop { header, .. }) = &frame {
+                            self.locals.seal_block_preds(*header, &mut self.body);
+                        }
+                        self.cur_block = Some(*out);
+                        self.locals.start_block(*out);
+                        self.push_block_params(results.len());
                     }
                     Some(Frame::If {
                         start_depth,
                         out,
                         el,
-                        param_values,
-                        results,
+                        ref param_values,
+                        ref results,
                         ..
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        if self.cur_block.is_some() {
-                            let result_values = self.pop_n(results.len());
-                            self.emit_branch(out, &result_values[..]);
-                        }
-                        self.op_stack.truncate(start_depth);
+                        let result_values = self.pop_n(results.len());
+                        self.emit_branch(*out, &result_values[..]);
+                        self.locals.finish_block();
+                        self.op_stack.truncate(*start_depth);
                         // No `else`, so we need to generate a trivial
                         // branch in the else-block. If the if-block-type
                         // has results, they must be exactly the params.
@@ -559,33 +783,38 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .iter()
                             .map(|(_ty, value)| *value)
                             .collect::<Vec<_>>();
-                        self.emit_branch(el, &else_result_values[..]);
-                        assert_eq!(self.op_stack.len(), start_depth);
-                        self.cur_block = Some(out);
-                        self.push_block_params();
+                        self.locals.start_block(*el);
+                        self.locals.finish_block();
+                        self.emit_branch(*el, &else_result_values[..]);
+                        assert_eq!(self.op_stack.len(), *start_depth);
+                        self.cur_block = Some(*out);
+                        self.locals.seal_block_preds(*out, &mut self.body);
+                        self.locals.start_block(*out);
+                        self.push_block_params(results.len());
                     }
                     Some(Frame::Else {
                         out,
-                        results,
+                        ref results,
                         start_depth,
                         ..
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        if self.cur_block.is_some() {
-                            let result_values = self.pop_n(results.len());
-                            self.emit_branch(out, &result_values[..]);
-                        }
-                        self.op_stack.truncate(start_depth);
-                        self.cur_block = Some(out);
-                        self.push_block_params();
+                        let result_values = self.pop_n(results.len());
+                        self.emit_branch(*out, &result_values[..]);
+                        self.locals.finish_block();
+                        self.op_stack.truncate(*start_depth);
+                        self.cur_block = Some(*out);
+                        self.locals.seal_block_preds(*out, &mut self.body);
+                        self.locals.start_block(*out);
+                        self.push_block_params(results.len());
                     }
                 }
             }
 
-            Operator::Block { ty } => {
+            wasmparser::Operator::Block { ty } => {
                 let (params, results) = self.block_params_and_results(*ty);
-                let out = self.create_block();
+                let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
                 let start_depth = self.op_stack.len() - params.len();
                 self.ctrl_stack.push(Frame::Block {
@@ -596,16 +825,17 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 });
             }
 
-            Operator::Loop { ty } => {
+            wasmparser::Operator::Loop { ty } => {
                 let (params, results) = self.block_params_and_results(*ty);
-                let header = self.create_block();
+                let header = self.body.add_block();
                 self.add_block_params(header, &params[..]);
                 let initial_args = self.pop_n(params.len());
                 let start_depth = self.op_stack.len();
                 self.emit_branch(header, &initial_args[..]);
                 self.cur_block = Some(header);
-                self.push_block_params();
-                let out = self.create_block();
+                self.locals.start_block(header);
+                self.push_block_params(params.len());
+                let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
                 self.ctrl_stack.push(Frame::Loop {
                     start_depth,
@@ -616,11 +846,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 });
             }
 
-            Operator::If { ty } => {
+            wasmparser::Operator::If { ty } => {
                 let (params, results) = self.block_params_and_results(*ty);
-                let if_true = self.create_block();
-                let if_false = self.create_block();
-                let join = self.create_block();
+                let if_true = self.body.add_block();
+                let if_false = self.body.add_block();
+                let join = self.body.add_block();
                 self.add_block_params(join, &results[..]);
                 let cond = self.pop_1();
                 let param_values = self.op_stack[self.op_stack.len() - params.len()..].to_vec();
@@ -633,11 +863,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     params,
                     results,
                 });
-                self.cur_block = Some(if_true);
                 self.emit_cond_branch(cond, if_true, &[], if_false, &[]);
+                self.locals.seal_block_preds(if_true, &mut self.body);
+                self.locals.seal_block_preds(if_false, &mut self.body);
+                self.cur_block = Some(if_true);
+                self.locals.start_block(if_true);
             }
 
-            Operator::Else => {
+            wasmparser::Operator::Else => {
                 if let Frame::If {
                     start_depth,
                     out,
@@ -660,15 +893,17 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         results,
                     });
                     self.cur_block = Some(el);
+                    self.locals.start_block(el);
                 } else {
                     bail!("Else without If on top of frame stack");
                 }
             }
 
-            Operator::Br { relative_depth } | Operator::BrIf { relative_depth } => {
+            wasmparser::Operator::Br { relative_depth }
+            | wasmparser::Operator::BrIf { relative_depth } => {
                 let cond = match &op {
-                    Operator::Br { .. } => None,
-                    Operator::BrIf { .. } => Some(self.pop_1()),
+                    wasmparser::Operator::Br { .. } => None,
+                    wasmparser::Operator::BrIf { .. } => Some(self.pop_1()),
                     _ => unreachable!(),
                 };
                 // Get the frame we're branching to.
@@ -679,10 +914,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         // Get the args off the stack unconditionally.
                         let args = self.pop_n(frame.br_args().len());
                         self.emit_branch(frame.br_target(), &args[..]);
+                        self.locals.finish_block();
                         self.cur_block = None;
                     }
                     Some(cond) => {
-                        let cont = self.create_block();
+                        let cont = self.body.add_block();
                         // Get the args off the stack but leave for the fallthrough.
                         let args = self.op_stack[self.op_stack.len() - frame.br_args().len()..]
                             .iter()
@@ -690,11 +926,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .collect::<Vec<_>>();
                         self.emit_cond_branch(cond, frame.br_target(), &args[..], cont, &[]);
                         self.cur_block = Some(cont);
+                        self.locals.start_block(cont);
                     }
                 }
             }
 
-            Operator::BrTable { table } => {
+            wasmparser::Operator::BrTable { table } => {
                 // Get the selector index.
                 let index = self.pop_1();
                 // Get the signature of the default frame; this tells
@@ -715,12 +952,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     term_targets.push(block);
                 }
                 self.emit_br_table(index, default_term_target, &term_targets[..], &args[..]);
+                self.locals.finish_block();
                 self.cur_block = None;
             }
 
-            Operator::Return => {
+            wasmparser::Operator::Return => {
                 let retvals = self.pop_n(self.module.signatures[self.my_sig].returns.len());
                 self.emit_ret(&retvals[..]);
+                self.locals.finish_block();
                 self.cur_block = None;
             }
 
@@ -728,6 +967,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
 
         Ok(())
+    }
+
+    fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
+        for &ty in tys {
+            self.body.add_blockparam(block, ty);
+        }
     }
 
     fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
@@ -748,27 +993,10 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         &self.ctrl_stack[self.ctrl_stack.len() - 1 - relative_depth as usize]
     }
 
-    fn fill_block_params_with_locals(&mut self, target: BlockId, args: &mut Vec<Value>) {
-        if !self.block_param_locals.contains_key(&target) {
-            let mut keys: Vec<LocalId> = self.locals.keys().cloned().collect();
-            keys.sort();
-            for &local_id in &keys {
-                let ty = self.body.locals[local_id as usize];
-                self.body.blocks[target].params.push(ty);
-            }
-            self.block_param_locals.insert(target, keys);
-        }
-        let block_param_locals = self.block_param_locals.get(&target).unwrap();
-        for local in block_param_locals {
-            let local_value = self.locals.get(local).unwrap();
-            args.push(local_value.1);
-        }
-    }
-
     fn emit_branch(&mut self, target: BlockId, args: &[Value]) {
         if let Some(block) = self.cur_block {
-            let mut args = args.to_vec();
-            self.fill_block_params_with_locals(target, &mut args);
+            let args = args.to_vec();
+            self.locals.add_pred(target, block);
             let target = BlockTarget {
                 block: target,
                 args,
@@ -786,10 +1014,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if_false_args: &[Value],
     ) {
         if let Some(block) = self.cur_block {
-            let mut if_true_args = if_true_args.to_vec();
-            let mut if_false_args = if_false_args.to_vec();
-            self.fill_block_params_with_locals(if_true, &mut if_true_args);
-            self.fill_block_params_with_locals(if_false, &mut if_false_args);
+            let if_true_args = if_true_args.to_vec();
+            let if_false_args = if_false_args.to_vec();
             self.body.blocks[block].terminator = Terminator::CondBr {
                 cond,
                 if_true: BlockTarget {
@@ -801,6 +1027,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     args: if_false_args,
                 },
             };
+            self.locals.add_pred(if_true, block);
+            self.locals.add_pred(if_false, block);
         }
     }
 
@@ -816,18 +1044,22 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             let targets = indexed_targets
                 .iter()
                 .map(|&block| {
-                    let mut args = args.clone();
-                    self.fill_block_params_with_locals(block, &mut args);
+                    let args = args.clone();
                     BlockTarget { block, args }
                 })
                 .collect();
 
-            let mut default_args = args;
-            self.fill_block_params_with_locals(default_target, &mut default_args);
+            let default_args = args;
             let default = BlockTarget {
                 block: default_target,
                 args: default_args,
             };
+
+            for &target in indexed_targets {
+                self.locals.add_pred(target, block);
+            }
+            self.locals.add_pred(default_target, block);
+
             self.body.blocks[block].terminator = Terminator::Select {
                 value: index,
                 targets,
@@ -843,36 +1075,18 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn push_block_params(&mut self) {
+    fn push_block_params(&mut self, num_params: usize) {
         let block = self.cur_block.unwrap();
-        let tys = &self.body.blocks[block].params[..];
-        let num_local_params = self
-            .block_param_locals
-            .get(&block)
-            .map(|l| l.len())
-            .unwrap_or(0);
-        let wasm_stack_val_tys = &tys[0..(tys.len() - num_local_params)];
-
-        let mut block_param_num = 0;
-        for &ty in wasm_stack_val_tys.iter() {
-            let value = Value::blockparam(block, block_param_num);
+        for i in 0..num_params {
+            let ty = self.body.blocks[block].params[i];
+            let value = self
+                .body
+                .add_value(ValueDef::BlockParam(block, i), Some(ty));
             self.op_stack.push((ty, value));
-            block_param_num += 1;
-        }
-
-        if let Some(block_param_locals) = self.block_param_locals.get(&block) {
-            for (&ty, &local_id) in tys[tys.len() - num_local_params..]
-                .iter()
-                .zip(block_param_locals.iter())
-            {
-                let value = Value::blockparam(block, block_param_num);
-                block_param_num += 1;
-                self.locals.insert(local_id, (ty, value));
-            }
         }
     }
 
-    fn emit(&mut self, op: Operator<'a>) -> Result<()> {
+    fn emit(&mut self, op: Operator) -> Result<()> {
         let inputs = op_inputs(
             self.module,
             self.my_sig,
@@ -883,7 +1097,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         let outputs = op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?;
 
         if let Some(block) = self.cur_block {
-            let inst = self.body.blocks[block].insts.len() as InstId;
+            let n_outputs = outputs.len();
 
             let mut input_operands = vec![];
             for input in inputs.into_iter().rev() {
@@ -893,14 +1107,29 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             }
             input_operands.reverse();
 
-            let n_outputs = outputs.len();
-            for (i, output_ty) in outputs.into_iter().enumerate() {
-                self.op_stack.push((output_ty, Value::inst(block, inst, i)));
+            let ty = if n_outputs == 1 {
+                Some(outputs[0])
+            } else {
+                None
+            };
+            let value = self
+                .body
+                .add_value(ValueDef::Operator(op, input_operands), ty);
+            if !op_effects(&op).unwrap().is_empty() {
+                self.body.blocks[block].insts.push(value);
             }
 
-            self.body.blocks[block]
-                .insts
-                .push(Inst::make(&op, n_outputs, input_operands));
+            if n_outputs == 1 {
+                let output_ty = outputs[0];
+                self.op_stack.push((output_ty, value));
+            } else {
+                for (i, output_ty) in outputs.into_iter().enumerate() {
+                    let pick = self
+                        .body
+                        .add_value(ValueDef::PickOutput(value, i), Some(output_ty));
+                    self.op_stack.push((output_ty, pick));
+                }
+            }
         } else {
             let _ = self.pop_n(inputs.len());
             for ty in outputs {

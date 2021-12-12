@@ -30,10 +30,10 @@ impl CFGInfo {
         let mut block_preds = vec![SmallVec::new(); f.blocks.len()];
         let mut block_succs = vec![SmallVec::new(); f.blocks.len()];
         for block in 0..f.blocks.len() {
-            for succ in f.blocks[block].successors() {
+            f.blocks[block].terminator.visit_successors(|succ| {
                 block_preds[succ].push(block);
                 block_succs[block].push(succ);
-            }
+            });
         }
 
         let mut return_blocks = vec![];
