@@ -836,8 +836,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .map(|(_ty, value)| *value)
                             .collect::<Vec<_>>();
                         self.locals.start_block(*el);
-                        self.locals.finish_block();
+                        self.cur_block = Some(*el);
                         self.emit_branch(*out, &else_result_values[..]);
+                        self.locals.finish_block();
                         assert_eq!(self.op_stack.len(), *start_depth);
                         self.cur_block = Some(*out);
                         self.locals.seal_block_preds(*out, &mut self.body);

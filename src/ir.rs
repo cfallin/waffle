@@ -414,7 +414,7 @@ impl Terminator {
             ) if i <= targets.len() => {
                 f(&mut targets[i - 1]);
             }
-            _ => panic!("out of bounds"),
+            (i, this) => panic!("out of bounds: index {} term {:?}", i, this),
         }
     }
 
