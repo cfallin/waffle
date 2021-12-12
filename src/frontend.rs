@@ -559,18 +559,26 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
             wasmparser::Operator::LocalGet { local_index } => {
                 let ty = self.body.locals[*local_index as usize];
-                let value = self.locals.get(&mut self.body, *local_index);
-                self.op_stack.push((ty, value));
+                if self.cur_block.is_some() {
+                    let value = self.locals.get(&mut self.body, *local_index);
+                    self.op_stack.push((ty, value));
+                } else {
+                    self.op_stack.push((ty, Value::undef()));
+                }
             }
 
             wasmparser::Operator::LocalSet { local_index } => {
                 let (_, value) = self.op_stack.pop().unwrap();
-                self.locals.set(*local_index, value);
+                if self.cur_block.is_some() {
+                    self.locals.set(*local_index, value);
+                }
             }
 
             wasmparser::Operator::LocalTee { local_index } => {
                 let (_ty, value) = *self.op_stack.last().unwrap();
-                self.locals.set(*local_index, value);
+                if self.cur_block.is_some() {
+                    self.locals.set(*local_index, value);
+                }
             }
 
             wasmparser::Operator::Call { .. }
@@ -978,9 +986,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .map(|(_ty, value)| *value)
                             .collect::<Vec<_>>();
                         self.emit_cond_branch(cond, frame.br_target(), &args[..], cont, &[]);
-                        self.cur_block = Some(cont);
                         self.locals.seal_block_preds(cont, &mut self.body);
-                        self.locals.start_block(cont);
+                        if self.cur_block.is_some() {
+                            self.cur_block = Some(cont);
+                            self.locals.start_block(cont);
+                        }
                     }
                 }
             }

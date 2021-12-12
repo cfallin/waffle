@@ -87,6 +87,7 @@ impl FunctionBody {
     }
 
     pub fn set_alias(&mut self, value: Value, to: Value) {
+        assert_ne!(to, Value::undef());
         log::trace!("set_alias: value {:?} to {:?}", value, to);
         // Resolve the `to` value through all existing aliases.
         let to = self.resolve_alias(to);
@@ -116,8 +117,15 @@ impl FunctionBody {
         value
     }
 
-    pub fn add_blockparam(&mut self, block: BlockId, ty: Type) {
+    pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> usize {
+        let index = self.blocks[block].params.len();
         self.blocks[block].params.push(ty);
+        index
+    }
+
+    pub fn add_blockparam_value(&mut self, block: BlockId, ty: Type) -> Value {
+        let index = self.add_blockparam(block, ty);
+        self.add_value(ValueDef::BlockParam(block, index), Some(ty))
     }
 
     pub fn add_placeholder(&mut self, ty: Type) -> Value {
