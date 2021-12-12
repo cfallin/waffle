@@ -171,8 +171,6 @@ struct LocalTracker {
     cur_block: Option<BlockId>,
     /// Is the given block sealed?
     block_sealed: FxHashSet<BlockId>,
-    /// Block predecessors.
-    block_preds: FxHashMap<BlockId, Vec<BlockId>>,
     /// The local-to-value mapping at the start of a block.
     block_start: FxHashMap<BlockId, FxHashMap<LocalId, Value>>,
     /// The local-to-value mapping at the end of a block.
@@ -185,15 +183,6 @@ impl LocalTracker {
     pub fn declare(&mut self, local: LocalId, ty: Type) {
         let was_present = self.types.insert(local, ty).is_some();
         assert!(!was_present);
-    }
-
-    pub fn add_pred(&mut self, block: BlockId, pred: BlockId) {
-        assert!(!self.block_sealed.contains(&block));
-        log::trace!("add_pred: block {} pred {}", block, pred);
-        self.block_preds
-            .entry(block)
-            .or_insert_with(|| vec![])
-            .push(pred);
     }
 
     pub fn start_block(&mut self, block: BlockId) {
@@ -233,7 +222,6 @@ impl LocalTracker {
             return;
         }
 
-        debug_assert!(self.is_sealed(self.cur_block.unwrap()));
         log::trace!("set: local {} value {:?}", local, value);
         self.in_cur_block.insert(local, value);
     }
@@ -262,12 +250,7 @@ impl LocalTracker {
                 }
             }
 
-            if self
-                .block_preds
-                .get(&at_block)
-                .map(|preds| preds.is_empty())
-                .unwrap_or(true)
-            {
+            if body.blocks[at_block].preds.is_empty() {
                 let value = self.create_default_value(body, ty);
                 log::trace!(" -> created default: {:?}", value);
                 return value;
@@ -356,11 +339,7 @@ impl LocalTracker {
             value
         );
         let mut results: Vec<Value> = vec![];
-        let preds = self
-            .block_preds
-            .get(&block)
-            .cloned()
-            .unwrap_or_else(|| vec![]);
+        let preds = body.blocks[block].preds.clone();
         for pred in preds {
             let pred_value = self.get_in_block(body, pred, local);
             log::trace!(
@@ -398,12 +377,10 @@ impl LocalTracker {
                 value,
             );
             body.replace_placeholder_with_blockparam(block, value);
-            for (i, (pred, result)) in self
-                .block_preds
-                .get(&block)
-                .cloned()
-                .unwrap_or_else(|| vec![])
-                .into_iter()
+            for (i, (&pred, result)) in body.blocks[block]
+                .preds
+                .clone()
+                .iter()
                 .zip(results.into_iter())
                 .enumerate()
             {
@@ -996,6 +973,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .collect::<Vec<_>>();
                         self.emit_cond_branch(cond, frame.br_target(), &args[..], cont, &[]);
                         self.cur_block = Some(cont);
+                        self.locals.seal_block_preds(cont, &mut self.body);
                         self.locals.start_block(cont);
                     }
                 }
@@ -1073,7 +1051,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         );
         if let Some(block) = self.cur_block {
             let args = args.to_vec();
-            self.locals.add_pred(target, block);
+            self.body.add_edge(block, target);
             let target = BlockTarget {
                 block: target,
                 args,
@@ -1112,8 +1090,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     args: if_false_args,
                 },
             };
-            self.locals.add_pred(if_true, block);
-            self.locals.add_pred(if_false, block);
+            self.body.add_edge(block, if_true);
+            self.body.add_edge(block, if_false);
         }
     }
 
@@ -1149,9 +1127,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             };
 
             for &target in indexed_targets {
-                self.locals.add_pred(target, block);
+                self.body.add_edge(block, target);
             }
-            self.locals.add_pred(default_target, block);
+            self.body.add_edge(block, default_target);
 
             self.body.blocks[block].terminator = Terminator::Select {
                 value: index,
