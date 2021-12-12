@@ -356,7 +356,9 @@ impl LocalTracker {
         let mut non_self = results.iter().filter(|&&v| v != value);
         let trivial_alias = match non_self.next() {
             None => None,
-            Some(&first) if non_self.all(|&v| v == first) => Some(first),
+            Some(&first) if non_self.all(|&v| v == first) && body.resolve_alias(first) != value => {
+                Some(first)
+            }
             Some(_) => None,
         };
 
