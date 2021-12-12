@@ -157,6 +157,9 @@ fn parse_body<'a>(
         log::trace!("checking if block is sealed: {}", block);
         assert!(builder.locals.is_sealed(block));
     }
+    for value in &builder.body.values {
+        assert!(value != &ValueDef::Placeholder);
+    }
 
     trace!("Final function body:{:?}", ret);
 
