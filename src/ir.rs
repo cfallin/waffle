@@ -57,6 +57,7 @@ impl FunctionBody {
         let id = self.blocks.len();
         self.blocks.push(Block::default());
         self.blocks[id].id = id;
+        log::trace!("add_block: block {}", id);
         id
     }
 
@@ -67,22 +68,26 @@ impl FunctionBody {
         self.blocks[to].preds.push(from);
         self.blocks[from].pos_in_succ_pred.push(pred_pos);
         self.blocks[to].pos_in_pred_succ.push(succ_pos);
+        log::trace!("add_edge: from {} to {}", from, to);
     }
 
     pub fn add_value(&mut self, value: ValueDef, ty: Option<Type>) -> Value {
-        match self.value_dedup.entry(value.clone()) {
+        let id = match self.value_dedup.entry(value.clone()) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
                 let id = Value(self.values.len() as u32);
-                self.values.push(value);
+                self.values.push(value.clone());
                 self.types.push(ty);
                 v.insert(id);
                 id
             }
-        }
+        };
+        log::trace!("add_value: def {:?} ty {:?} -> {:?}", value, ty, id);
+        id
     }
 
     pub fn set_alias(&mut self, value: Value, to: Value) {
+        log::trace!("set_alias: value {:?} to {:?}", value, to);
         // Resolve the `to` value through all existing aliases.
         let to = self.resolve_alias(to);
         // Disallow cycles.

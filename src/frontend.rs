@@ -153,6 +153,11 @@ fn parse_body<'a>(
         builder.handle_op(wasmparser::Operator::Return)?;
     }
 
+    for block in 0..builder.body.blocks.len() {
+        log::trace!("checking if block is sealed: {}", block);
+        assert!(builder.locals.is_sealed(block));
+    }
+
     trace!("Final function body:{:?}", ret);
 
     Ok(ret)
@@ -184,6 +189,7 @@ impl LocalTracker {
 
     pub fn add_pred(&mut self, block: BlockId, pred: BlockId) {
         assert!(!self.block_sealed.contains(&block));
+        log::trace!("add_pred: block {} pred {}", block, pred);
         self.block_preds
             .entry(block)
             .or_insert_with(|| vec![])
@@ -192,10 +198,12 @@ impl LocalTracker {
 
     pub fn start_block(&mut self, block: BlockId) {
         self.finish_block();
+        log::trace!("start_block: block {}", block);
         self.cur_block = Some(block);
     }
 
     pub fn finish_block(&mut self) {
+        log::trace!("finish_block: block {:?}", self.cur_block);
         if let Some(block) = self.cur_block {
             let mapping = std::mem::take(&mut self.in_cur_block);
             self.block_end.insert(block, mapping);
@@ -204,6 +212,7 @@ impl LocalTracker {
     }
 
     pub fn seal_block_preds(&mut self, block: BlockId, body: &mut FunctionBody) {
+        log::trace!("seal_block_preds: block {}", block);
         let not_sealed = self.block_sealed.insert(block);
         assert!(not_sealed);
         for (local, phi_value) in self
@@ -220,8 +229,12 @@ impl LocalTracker {
     }
 
     pub fn set(&mut self, local: LocalId, value: Value) {
-        assert!(self.cur_block.is_some());
+        if self.cur_block.is_none() {
+            return;
+        }
+
         debug_assert!(self.is_sealed(self.cur_block.unwrap()));
+        log::trace!("set: local {} value {:?}", local, value);
         self.in_cur_block.insert(local, value);
     }
 
@@ -231,10 +244,12 @@ impl LocalTracker {
         at_block: BlockId,
         local: LocalId,
     ) -> Value {
+        log::trace!("get_in_block: at_block {} local {}", at_block, local);
         let ty = body.locals[local as usize];
 
-        if self.cur_block.unwrap() == at_block {
+        if self.cur_block == Some(at_block) {
             if let Some(&value) = self.in_cur_block.get(&local) {
+                log::trace!(" -> {:?}", value);
                 return value;
             }
         }
@@ -242,6 +257,7 @@ impl LocalTracker {
         if self.is_sealed(at_block) {
             if let Some(end_mapping) = self.block_end.get(&at_block) {
                 if let Some(&value) = end_mapping.get(&local) {
+                    log::trace!(" -> {:?}", value);
                     return value;
                 }
             }
@@ -252,7 +268,9 @@ impl LocalTracker {
                 .map(|preds| preds.is_empty())
                 .unwrap_or(true)
             {
-                return self.create_default_value(body, ty);
+                let value = self.create_default_value(body, ty);
+                log::trace!(" -> created default: {:?}", value);
+                return value;
             }
 
             let placeholder = body.add_placeholder(ty);
@@ -260,6 +278,7 @@ impl LocalTracker {
                 .entry(at_block)
                 .or_insert_with(|| FxHashMap::default())
                 .insert(local, placeholder);
+            log::trace!(" -> created placeholder: {:?}", placeholder);
             self.compute_blockparam(body, at_block, local, placeholder);
             placeholder
         } else {
@@ -268,6 +287,10 @@ impl LocalTracker {
                 .entry(at_block)
                 .or_insert_with(|| FxHashMap::default())
                 .insert(local, placeholder);
+            log::trace!(
+                " -> created placeholder and added as incomplete phi: {:?}",
+                placeholder
+            );
             self.incomplete_phis
                 .entry(at_block)
                 .or_insert_with(|| vec![])
@@ -278,8 +301,10 @@ impl LocalTracker {
     }
 
     pub fn get(&mut self, body: &mut FunctionBody, local: LocalId) -> Value {
-        assert!(self.cur_block.is_some());
-        debug_assert!(self.is_sealed(self.cur_block.unwrap()));
+        if self.cur_block.is_none() {
+            return Value::undef();
+        }
+
         let block = self.cur_block.unwrap();
         assert!((local as usize) < body.locals.len());
         self.get_in_block(body, block, local)
@@ -324,6 +349,12 @@ impl LocalTracker {
         local: LocalId,
         value: Value,
     ) {
+        log::trace!(
+            "compute_blockparam: block {} local {} value {:?}",
+            block,
+            local,
+            value
+        );
         let mut results: Vec<Value> = vec![];
         let preds = self
             .block_preds
@@ -332,6 +363,14 @@ impl LocalTracker {
             .unwrap_or_else(|| vec![]);
         for pred in preds {
             let pred_value = self.get_in_block(body, pred, local);
+            log::trace!(
+                "compute_blockparam: block {} local {} value {:?}: pred {} -> {:?}",
+                block,
+                local,
+                value,
+                pred,
+                pred_value
+            );
             results.push(pred_value);
         }
 
@@ -343,8 +382,21 @@ impl LocalTracker {
         };
 
         if let Some(v) = trivial_alias {
+            log::trace!(
+                "compute_blockparam: block {} local {} value {:?}: alias to {:?}",
+                block,
+                local,
+                value,
+                v
+            );
             body.set_alias(value, v);
         } else {
+            log::trace!(
+                "compute_blockparam: block {} local {} value {:?}: making blockparam",
+                block,
+                local,
+                value,
+            );
             body.replace_placeholder_with_blockparam(block, value);
             for (i, (pred, result)) in self
                 .block_preds
@@ -357,6 +409,14 @@ impl LocalTracker {
             {
                 let index = body.blocks[block].pos_in_pred_succ[i];
                 body.blocks[pred].terminator.update_target(index, |target| {
+                    log::trace!(
+                        "compute_blockparam: block {} local {} value {:?}: in pred {}, adding branch arg {:?}",
+                        block,
+                        local,
+                        value,
+                        pred,
+                        result,
+                    );
                     target.args.push(result);
                 });
             }
@@ -477,6 +537,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         // Push initial implicit Block.
         let results = module.signatures[my_sig].returns.to_vec();
         let out = ret.body.add_block();
+        ret.add_block_params(out, &results[..]);
         ret.ctrl_stack.push(Frame::Block {
             start_depth: 0,
             out,
@@ -717,6 +778,15 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             wasmparser::Operator::End if self.cur_block.is_none() => {
                 let frame = self.ctrl_stack.pop().unwrap();
                 self.op_stack.truncate(frame.start_depth());
+                match frame {
+                    Frame::Block { out, .. } | Frame::If { out, .. } | Frame::Else { out, .. } => {
+                        self.locals.seal_block_preds(out, &mut self.body);
+                    }
+                    Frame::Loop { out, header, .. } => {
+                        self.locals.seal_block_preds(out, &mut self.body);
+                        self.locals.seal_block_preds(header, &mut self.body);
+                    }
+                }
                 self.cur_block = Some(frame.out());
                 self.push_block_params(frame.results().len());
                 self.locals.start_block(frame.out());
@@ -785,7 +855,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             .collect::<Vec<_>>();
                         self.locals.start_block(*el);
                         self.locals.finish_block();
-                        self.emit_branch(*el, &else_result_values[..]);
+                        self.emit_branch(*out, &else_result_values[..]);
                         assert_eq!(self.op_stack.len(), *start_depth);
                         self.cur_block = Some(*out);
                         self.locals.seal_block_preds(*out, &mut self.body);
@@ -970,6 +1040,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
+        log::trace!("add_block_params: block {} tys {:?}", block, tys);
         for &ty in tys {
             self.body.add_blockparam(block, ty);
         }
@@ -994,6 +1065,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn emit_branch(&mut self, target: BlockId, args: &[Value]) {
+        log::trace!(
+            "emit_branch: cur_block {:?} target {} args {:?}",
+            self.cur_block,
+            target,
+            args
+        );
         if let Some(block) = self.cur_block {
             let args = args.to_vec();
             self.locals.add_pred(target, block);
@@ -1013,6 +1090,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if_false: BlockId,
         if_false_args: &[Value],
     ) {
+        log::trace!(
+            "emit_cond_branch: cur_block {:?} if_true {} args {:?} if_false {} args {:?}",
+            self.cur_block,
+            if_true,
+            if_true_args,
+            if_false,
+            if_false_args
+        );
         if let Some(block) = self.cur_block {
             let if_true_args = if_true_args.to_vec();
             let if_false_args = if_false_args.to_vec();
@@ -1039,6 +1124,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         indexed_targets: &[BlockId],
         args: &[Value],
     ) {
+        log::trace!(
+            "emit_br_table: cur_block {:?} index {:?} default {} indexed {:?} args {:?}",
+            self.cur_block,
+            index,
+            default_target,
+            indexed_targets,
+            args,
+        );
         if let Some(block) = self.cur_block {
             let args = args.to_vec();
             let targets = indexed_targets
@@ -1076,12 +1169,18 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn push_block_params(&mut self, num_params: usize) {
+        log::trace!(
+            "push_block_params: cur_block {:?}, {} params",
+            self.cur_block,
+            num_params
+        );
         let block = self.cur_block.unwrap();
         for i in 0..num_params {
             let ty = self.body.blocks[block].params[i];
             let value = self
                 .body
                 .add_value(ValueDef::BlockParam(block, i), Some(ty));
+            log::trace!(" -> push {:?} ty {:?}", value, ty);
             self.op_stack.push((ty, value));
         }
     }
@@ -1096,6 +1195,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         )?;
         let outputs = op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?;
 
+        log::trace!(
+            "emit into block {:?}: op {:?} inputs {:?}",
+            self.cur_block,
+            op,
+            inputs
+        );
+
         if let Some(block) = self.cur_block {
             let n_outputs = outputs.len();
 
@@ -1106,6 +1212,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 input_operands.push(stack_top);
             }
             input_operands.reverse();
+            log::trace!(" -> operands: {:?}", input_operands);
 
             let ty = if n_outputs == 1 {
                 Some(outputs[0])
@@ -1115,6 +1222,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             let value = self
                 .body
                 .add_value(ValueDef::Operator(op, input_operands), ty);
+            log::trace!(" -> value: {:?} ty {:?}", value, ty);
+
             if !op_effects(&op).unwrap().is_empty() {
                 self.body.blocks[block].insts.push(value);
             }
@@ -1128,6 +1237,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         .body
                         .add_value(ValueDef::PickOutput(value, i), Some(output_ty));
                     self.op_stack.push((output_ty, pick));
+                    log::trace!(" -> pick {}: {:?} ty {:?}", i, pick, output_ty);
                 }
             }
         } else {
