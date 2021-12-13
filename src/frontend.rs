@@ -554,7 +554,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         match &op {
             wasmparser::Operator::Unreachable => {
                 if let Some(block) = self.cur_block {
-                    self.body.blocks[block].terminator = Terminator::None;
+                    self.body.end_block(block, Terminator::None);
                     self.locals.finish_block();
                 }
                 self.cur_block = None;
@@ -1033,12 +1033,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         );
         if let Some(block) = self.cur_block {
             let args = args.to_vec();
-            self.body.add_edge(block, target);
             let target = BlockTarget {
                 block: target,
                 args,
             };
-            self.body.blocks[block].terminator = Terminator::Br { target };
+            self.body.end_block(block, Terminator::Br { target });
             self.cur_block = None;
             self.locals.finish_block();
         }
@@ -1063,19 +1062,20 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if let Some(block) = self.cur_block {
             let if_true_args = if_true_args.to_vec();
             let if_false_args = if_false_args.to_vec();
-            self.body.blocks[block].terminator = Terminator::CondBr {
-                cond,
-                if_true: BlockTarget {
-                    block: if_true,
-                    args: if_true_args,
+            self.body.end_block(
+                block,
+                Terminator::CondBr {
+                    cond,
+                    if_true: BlockTarget {
+                        block: if_true,
+                        args: if_true_args,
+                    },
+                    if_false: BlockTarget {
+                        block: if_false,
+                        args: if_false_args,
+                    },
                 },
-                if_false: BlockTarget {
-                    block: if_false,
-                    args: if_false_args,
-                },
-            };
-            self.body.add_edge(block, if_true);
-            self.body.add_edge(block, if_false);
+            );
             self.cur_block = None;
             self.locals.finish_block();
         }
@@ -1112,16 +1112,14 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 args: default_args,
             };
 
-            for &target in indexed_targets {
-                self.body.add_edge(block, target);
-            }
-            self.body.add_edge(block, default_target);
-
-            self.body.blocks[block].terminator = Terminator::Select {
-                value: index,
-                targets,
-                default,
-            };
+            self.body.end_block(
+                block,
+                Terminator::Select {
+                    value: index,
+                    targets,
+                    default,
+                },
+            );
             self.cur_block = None;
             self.locals.finish_block();
         }
@@ -1130,7 +1128,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn emit_ret(&mut self, values: &[Value]) {
         if let Some(block) = self.cur_block {
             let values = values.to_vec();
-            self.body.blocks[block].terminator = Terminator::Return { values };
+            self.body.end_block(block, Terminator::Return { values });
         }
     }
 

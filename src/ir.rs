@@ -90,7 +90,7 @@ impl FunctionBody {
         assert_ne!(to, Value::undef());
         log::trace!("set_alias: value {:?} to {:?}", value, to);
         // Resolve the `to` value through all existing aliases.
-        let to = self.resolve_alias(to);
+        let to = self.resolve_and_update_alias(to);
         // Disallow cycles.
         if to == value {
             panic!("Cannot create an alias cycle");
