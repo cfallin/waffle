@@ -211,5 +211,3 @@ impl Shape {
         Shape::None
     }
 }
-
-

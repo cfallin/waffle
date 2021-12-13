@@ -917,7 +917,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     results,
                 } = self.ctrl_stack.pop().unwrap()
                 {
-                    let if_results = self.pop_n(results.len());
+                    let if_results = self.block_results(results.len(), start_depth);
                     self.emit_branch(out, &if_results[..]);
                     self.op_stack.truncate(start_depth);
                     self.op_stack.extend(param_values);
