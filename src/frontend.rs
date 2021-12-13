@@ -224,6 +224,7 @@ impl LocalTracker {
         if self.cur_block.is_none() {
             return;
         }
+        assert_ne!(value, Value::undef());
 
         log::trace!("set: local {} value {:?}", local, value);
         self.in_cur_block.insert(local, value);
@@ -248,7 +249,7 @@ impl LocalTracker {
         if self.is_sealed(at_block) {
             if let Some(end_mapping) = self.block_end.get(&at_block) {
                 if let Some(&value) = end_mapping.get(&local) {
-                    log::trace!(" -> {:?}", value);
+                    log::trace!(" -> from end_mapping: {:?}", value);
                     return value;
                 }
             }
