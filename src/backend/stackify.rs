@@ -2,13 +2,12 @@
 //! control flow out of a CFG.
 
 use crate::{cfg::CFGInfo, ir::*};
-use log::debug;
 
 #[derive(Clone, Debug)]
 pub enum Shape {
     Block { head: BlockId, children: Vec<Shape> },
     Loop { head: BlockId, children: Vec<Shape> },
-    Leaf { block: BlockId, succs: Vec<BlockId> },
+    Leaf { block: BlockId },
     None,
 }
 
@@ -59,6 +58,69 @@ enum BlockPoint {
     End,
 }
 
+impl Shape {
+    /// Finds the next shape in the sequence, returning the shape and
+    /// the remaining starting block ID / region list.
+    fn get_one_shape<'a>(
+        start: OrderedBlockId,
+        order: &[BlockId],
+        regions: &'a [Region],
+    ) -> Option<(Shape, OrderedBlockId, &'a [Region])> {
+        log::trace!("get_one_shape: start {} regions {:?}", start, regions);
+        if start >= order.len() {
+            None
+        } else if regions.is_empty() || start < regions[0].start().block {
+            Some((
+                Shape::Leaf {
+                    block: order[start],
+                },
+                start + 1,
+                &regions,
+            ))
+        } else {
+            assert_eq!(start, regions[0].start().block);
+            let end = regions[0].end();
+            let region_end = regions
+                .iter()
+                .position(|region| region.start() > end)
+                .unwrap_or(regions.len());
+            let subregions = &regions[1..region_end];
+            let (children, next_start) = Self::get_shapes(start, end.block, order, subregions);
+            let shape = if let Region::Forward(..) = &regions[0] {
+                Shape::Block {
+                    head: order[start],
+                    children,
+                }
+            } else {
+                Shape::Loop {
+                    head: order[start],
+                    children,
+                }
+            };
+            Some((shape, next_start, &regions[region_end..]))
+        }
+    }
+
+    fn get_shapes<'a>(
+        start: OrderedBlockId,
+        end: OrderedBlockId,
+        order: &[BlockId],
+        mut regions: &'a [Region],
+    ) -> (Vec<Shape>, OrderedBlockId) {
+        log::trace!("get_shapes: start {} regions {:?}", start, regions);
+        let mut shapes = vec![];
+        let mut block = start;
+        while block < end {
+            let (shape, next_start, next_regions) =
+                Self::get_one_shape(block, order, regions).unwrap();
+            shapes.push(shape);
+            block = next_start;
+            regions = next_regions;
+        }
+        (shapes, block)
+    }
+}
+
 impl Region {
     fn start(&self) -> RegionEndpoint {
         match self {
@@ -87,10 +149,10 @@ impl Shape {
     pub fn compute(f: &FunctionBody, cfg: &CFGInfo) -> Self {
         // Process all non-contiguous edges in RPO block order. For
         // forward and backward edges, emit Regions.
-        debug!("f = {:?}", f);
-        debug!("cfg = {:?}", cfg);
+        log::trace!("f = {:?}", f);
+        log::trace!("cfg = {:?}", cfg);
         let order = cfg.rpo();
-        debug!("rpo = {:?}", order);
+        log::trace!("rpo = {:?}", order);
 
         assert_eq!(order[0], 0); // Entry block should come first.
         let mut regions = vec![];
@@ -112,95 +174,112 @@ impl Shape {
         // regions where necessary and duplicating where we find
         // irreducible control flow.
         regions.sort_by_key(|r| r.start());
-        debug!("regions = {:?}", regions);
+        log::trace!("regions = {:?}", regions);
 
         // Examine each region in the sequence, determining whether it
         // is properly nested with respect to all overlapping regions.
         let mut i = 0;
-        while i + 1 < regions.len() {
-            i += 1;
-            let prev = regions[i - 1];
-            let this = regions[i];
-            debug!("examining: {:?} -> {:?}", prev, this);
+        while i < regions.len() {
+            let this_i = i;
+            for prev_i in 0..i {
+                let prev = regions[prev_i];
+                let this = regions[i];
+                log::trace!("examining: {:?} -> {:?}", prev, this);
 
-            if !prev.overlaps(&this) {
-                debug!(" -> no overlap");
-                continue;
+                if !prev.overlaps(&this) {
+                    log::trace!(" -> no overlap");
+                    continue;
+                }
+
+                // Important invariant: none of these
+                // merging/extension operations alter the sorted
+                // order, because at worst they "pull back" the start
+                // of the second region (`this`) to the start of the
+                // first (`prev`). If the list was sorted by
+                // region-start before, it will be after this edit.
+                let did_edit = match (prev, this) {
+                    (a, b) if a == b => {
+                        regions.remove(i);
+                        true
+                    }
+                    (Region::Backward(a, b), Region::Backward(c, d)) if a == c => {
+                        // Merge by extending end.
+                        regions[prev_i] = Region::Backward(a, std::cmp::max(b, d));
+                        regions.remove(i);
+                        true
+                    }
+                    (Region::Backward(a, b), Region::Backward(c, d))
+                        if a < c && c <= b && b < d =>
+                    {
+                        // Extend outer Backward to nest the inner one.
+                        regions[prev_i] = Region::Backward(a, d);
+                        true
+                    }
+                    (Region::Backward(a, b), Region::Forward(c, d)) if a <= c && c <= b => {
+                        // Put the Forward before the Backward (extend its
+                        // start) to ensure proper nesting.
+                        regions[prev_i] = Region::Forward(a, d);
+                        regions.remove(i);
+                        regions.insert(prev_i + 1, Region::Backward(a, b));
+                        true
+                    }
+                    (Region::Forward(a, b), Region::Backward(c, d)) if b > c && b <= d && a < c => {
+                        panic!("Irreducible CFG");
+                    }
+                    (Region::Forward(a, b), Region::Forward(c, d)) if b == d => {
+                        // Merge.
+                        regions[prev_i] = Region::Forward(std::cmp::min(a, c), b);
+                        regions.remove(i);
+                        true
+                    }
+                    (Region::Forward(a, b), Region::Forward(c, d)) if a <= c && b < d => {
+                        regions[prev_i] = Region::Forward(a, d);
+                        regions.remove(i);
+                        regions.insert(prev_i + 1, Region::Forward(a, b));
+                        true
+                    }
+                    _ => false,
+                };
+
+                if did_edit {
+                    // Back up to re-examine at prev_i.
+                    i = prev_i;
+                    break;
+                }
             }
 
-            // Important invariant: none of these merging/extension
-            // operations alter the sorted order, because at worst
-            // they "pull back" the start of the second region
-            // (`this`) to the start of the first (`prev`). If the
-            // list was sorted by region-start before, it will be
-            // after this edit.
-            let did_edit = match (prev, this) {
-                (a, b) if a == b => {
-                    regions.remove(i);
-                    true
-                }
-                (Region::Backward(a, b), Region::Backward(c, d)) if a == c => {
-                    // Merge by extending end.
-                    regions[i - 1] = Region::Backward(a, std::cmp::max(b, d));
-                    regions.remove(i);
-                    true
-                }
-                (Region::Backward(a, b), Region::Backward(c, d)) if a < c && c <= b && b < d => {
-                    // Extend outer Backward to nest the inner one.
-                    regions[i - 1] = Region::Backward(a, d);
-                    true
-                }
-                (Region::Backward(a, b), Region::Forward(c, d)) if a <= c && c <= b => {
-                    // Put the Forward before the Backward (extend its
-                    // start) to ensure proper nesting.
-                    regions[i - 1] = Region::Forward(a, d);
-                    regions[i] = Region::Backward(a, b);
-                    true
-                }
-                (Region::Forward(a, b), Region::Backward(c, d)) if b > c && b <= d && a < c => {
-                    panic!("Irreducible CFG");
-                }
-                (Region::Forward(a, b), Region::Forward(c, d)) if b == d => {
-                    // Merge.
-                    regions[i - 1] = Region::Forward(std::cmp::min(a, c), b);
-                    regions.remove(i);
-                    true
-                }
-                (Region::Forward(a, b), Region::Forward(c, d)) if a <= c && b < d => {
-                    regions[i - 1] = Region::Forward(a, d);
-                    regions[i] = Region::Forward(a, b);
-                    true
-                }
-                _ => false,
-            };
-
-            if did_edit {
-                // Back up to re-examine i-1 vs i-2, unless we
-                // were examining i=0 vs i=1 already.
-                i = std::cmp::max(2, i) - 2;
+            if i == this_i {
+                i += 1;
             }
         }
 
-        debug!("after stackifying: {:?}", regions);
+        log::trace!("after stackifying: {:?}", regions);
 
         // Ensure the regions properly nest.
-        let mut stack: Vec<Region> = vec![];
-        for region in &regions {
-            while let Some(top) = stack.last() {
-                if top.contains(region) {
-                    stack.push(region.clone());
-                    break;
-                } else if region.contains(top) {
-                    stack.pop();
-                } else if region.overlaps(top) {
-                    panic!(
-                        "Non-nested region: {:?} in nest: {:?} (overall: {:?})",
-                        region, stack, regions
-                    );
+        #[cfg(debug_assertions)]
+        {
+            let mut stack: Vec<Region> = vec![];
+            for region in &regions {
+                log::trace!("checking region nest: {:?} (stack = {:?})", region, stack);
+                while let Some(top) = stack.last() {
+                    log::trace!(" -> top = {:?}", top);
+                    if top.contains(region) {
+                        stack.push(region.clone());
+                        log::trace!(" -> push");
+                        break;
+                    } else if region.overlaps(top) {
+                        panic!(
+                            "Non-nested region: {:?} (overlaps {:?}) in nest: {:?} (overall: {:?})",
+                            region, top, stack, regions
+                        );
+                    } else {
+                        log::trace!(" -> pop");
+                        stack.pop();
+                    }
                 }
-            }
-            if stack.is_empty() {
-                stack.push(region.clone());
+                if stack.is_empty() {
+                    stack.push(region.clone());
+                }
             }
         }
 
@@ -208,6 +287,17 @@ impl Shape {
         // as we compute the RPO. Track the current nesting, and
         // traverse more than once if needed.
 
-        Shape::None
+        // Build the final shape description.
+        let (shapes, _) = Shape::get_shapes(0, order.len(), &order[..], &regions[..]);
+        let root = if shapes.len() == 1 {
+            shapes.into_iter().next().unwrap()
+        } else {
+            Shape::Block {
+                head: 0,
+                children: shapes,
+            }
+        };
+        log::trace!("shape: {:?}", root);
+        root
     }
 }
