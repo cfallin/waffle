@@ -72,6 +72,7 @@ impl Shape {
         if start >= order.len() {
             None
         } else if regions.is_empty() || start < regions[0].start().block {
+            log::trace!(" -> leaf");
             Some((
                 Shape::Leaf {
                     block: order[start],
@@ -84,7 +85,7 @@ impl Shape {
             let end = regions[0].end();
             let region_end = regions
                 .iter()
-                .position(|region| region.start() > end)
+                .position(|region| region.start() >= end)
                 .unwrap_or(regions.len());
             let subregions = &regions[1..region_end];
             let (children, next_start) = Self::get_shapes(start, end.block, order, subregions);
@@ -109,16 +110,24 @@ impl Shape {
         order: &[BlockId],
         mut regions: &'a [Region],
     ) -> (Vec<Shape>, OrderedBlockId) {
-        log::trace!("get_shapes: start {} regions {:?}", start, regions);
+        log::trace!(
+            "get_shapes: start {} end {} regions {:?}",
+            start,
+            end,
+            regions
+        );
         let mut shapes = vec![];
         let mut block = start;
         while block < end {
+            log::trace!("get_shapes: now at {}, regions {:?}", block, regions);
             let (shape, next_start, next_regions) =
                 Self::get_one_shape(block, order, regions).unwrap();
             shapes.push(shape);
             block = next_start;
+            log::trace!(" -> next_regions = {:?}", next_regions);
             regions = next_regions;
         }
+        log::trace!("get_shapes: returning {:?}", shapes);
         (shapes, block)
     }
 }
@@ -145,7 +154,7 @@ impl Region {
     }
 
     fn overlaps(&self, other: &Region) -> bool {
-        self.end() >= other.start() && other.end() >= self.start()
+        self.end() > other.start() && other.end() > self.start()
     }
 
     fn is_forward(&self) -> bool {
@@ -303,15 +312,33 @@ impl Shape {
         // Fix up contiguous runs of `Forward` regions: when we have
         // overlap, make them properly nest. We need to scan backward
         // to do this.
-        for i in (0..(regions.len() - 1)).rev() {
-            let a = regions[i];
-            let b = regions[i + 1];
-            if a.is_forward() && b.is_forward() && a.overlaps(&b) && !a.contains(&b) {
-                assert!(a.start() < b.start());
-                assert!(b.start() <= a.end());
-                assert!(a.end() < b.end());
-                regions[i] = Region::Forward(a.start().block, b.end().block);
-                regions[i + 1] = Region::Forward(a.start().block, a.end().block);
+        log::trace!("before forward-edge re-nesting: {:?}", regions);
+        let mut stack: Vec<usize> = vec![];
+        for i in (0..regions.len()).rev() {
+            if !regions[i].is_forward() {
+                continue;
+            }
+            log::trace!("cleaning up forward edges: looking at {:?}", regions[i]);
+
+            while let Some(&top_idx) = stack.last() {
+                if regions[i].end() <= regions[top_idx].start() {
+                    stack.pop();
+                } else {
+                    break;
+                }
+            }
+            stack.push(i);
+
+            for &stack_idx in &stack {
+                log::trace!(" -> examining against {:?}", regions[stack_idx]);
+                if regions[i].start() < regions[stack_idx].start() {
+                    let inner =
+                        Region::Forward(regions[i].start().block, regions[stack_idx].end().block);
+                    let outer = Region::Forward(regions[i].start().block, regions[i].end().block);
+                    regions[stack_idx] = outer;
+                    regions[i] = inner;
+                    log::trace!(" -> re-nest");
+                }
             }
         }
 
