@@ -300,6 +300,21 @@ impl Shape {
             }
         }
 
+        // Fix up contiguous runs of `Forward` regions: when we have
+        // overlap, make them properly nest. We need to scan backward
+        // to do this.
+        for i in (0..(regions.len() - 1)).rev() {
+            let a = regions[i];
+            let b = regions[i + 1];
+            if a.is_forward() && b.is_forward() && a.overlaps(&b) && !a.contains(&b) {
+                assert!(a.start() < b.start());
+                assert!(b.start() <= a.end());
+                assert!(a.end() < b.end());
+                regions[i] = Region::Forward(a.start().block, b.end().block);
+                regions[i + 1] = Region::Forward(a.start().block, a.end().block);
+            }
+        }
+
         log::trace!("after stackifying: {:?}", regions);
 
         // Ensure the regions properly nest.
@@ -307,12 +322,9 @@ impl Shape {
         {
             let mut stack: Vec<Region> = vec![];
             for region in &regions {
-                log::trace!("checking region nest: {:?} (stack = {:?})", region, stack);
                 while let Some(top) = stack.last() {
-                    log::trace!(" -> top = {:?}", top);
                     if top.contains(region) {
                         stack.push(region.clone());
-                        log::trace!(" -> push");
                         break;
                     } else if region.overlaps(top) {
                         panic!(
@@ -320,7 +332,6 @@ impl Shape {
                             region, top, stack, regions
                         );
                     } else {
-                        log::trace!(" -> pop");
                         stack.pop();
                     }
                 }
