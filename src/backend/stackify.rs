@@ -1,6 +1,10 @@
 //! Stackifier-like algorithm to recover (or create) structured
 //! control flow out of a CFG.
 
+use std::collections::BTreeSet;
+
+use fxhash::{FxHashMap, FxHashSet};
+
 use crate::{cfg::CFGInfo, ir::*};
 
 #[derive(Clone, Debug)]
@@ -124,15 +128,20 @@ impl Shape {
 impl Region {
     fn start(&self) -> RegionEndpoint {
         match self {
-            &Region::Forward(a, _) => RegionEndpoint::end(a),
-            &Region::Backward(a, _) => RegionEndpoint::start(a),
+            &Region::Forward(a, _) | &Region::Backward(a, _) => RegionEndpoint::end(a),
         }
     }
 
     fn end(&self) -> RegionEndpoint {
         match self {
-            &Region::Forward(_, b) => RegionEndpoint::start(b),
-            &Region::Backward(_, b) => RegionEndpoint::end(b),
+            &Region::Forward(_, b) | &Region::Backward(_, b) => RegionEndpoint::start(b),
+        }
+    }
+
+    fn key(&self) -> RegionEndpoint {
+        match self {
+            &Region::Forward(..) => self.end(),
+            &Region::Backward(..) => self.start(),
         }
     }
 
@@ -140,8 +149,101 @@ impl Region {
         self.start() <= other.start() && self.end() >= other.end()
     }
 
+    fn contains_endpoint(&self, pt: RegionEndpoint) -> bool {
+        self.start() <= pt && pt <= self.end()
+    }
+
     fn overlaps(&self, other: &Region) -> bool {
         self.end() >= other.start() && other.end() >= self.start()
+    }
+
+    fn is_forward(&self) -> bool {
+        match self {
+            &Region::Forward(..) => true,
+            _ => false,
+        }
+    }
+
+    fn is_backward(&self) -> bool {
+        match self {
+            &Region::Backward(..) => true,
+            _ => false,
+        }
+    }
+
+    fn adjust_nesting(&mut self, outer: &mut Region) -> bool {
+        let key1 = std::cmp::min(self.key(), outer.key());
+        let key2 = std::cmp::max(self.key(), outer.key());
+        let self_key = self.key();
+
+        let swapped = self.adjust_nesting_impl(outer);
+
+        assert!(outer.contains(self));
+        assert_eq!(key1, std::cmp::min(self.key(), outer.key()));
+        assert_eq!(key2, std::cmp::max(self.key(), outer.key()));
+        assert!(self_key <= self.key());
+
+        swapped
+    }
+
+    /// Returns `true` if regions were swapped.
+    fn adjust_nesting_impl(&mut self, outer: &mut Region) -> bool {
+        match (outer, self) {
+            (
+                &mut Region::Forward(ref mut a, ref mut b),
+                &mut Region::Forward(ref mut c, ref mut d),
+            ) => {
+                assert!(*b <= *d); // scan order
+                if *c <= *a {
+                    std::mem::swap(a, c);
+                    std::mem::swap(b, d);
+                    true
+                } else if *c < *b {
+                    *a = *c;
+                    std::mem::swap(b, d);
+                    true
+                } else {
+                    false
+                }
+            }
+            (&mut Region::Forward(_, b), &mut Region::Backward(c, _)) => {
+                assert!(b <= c); // scan order
+
+                // nothing to do: no overlap possible.
+                false
+            }
+            (outer @ &mut Region::Backward(..), inner @ &mut Region::Forward(..)) => {
+                let a = outer.start().block;
+                let b = outer.end().block;
+                let c = inner.start().block;
+                let d = inner.end().block;
+
+                assert!(a <= d); // scan order
+
+                if b < d {
+                    let new_outer = Region::Forward(a, d);
+                    let new_inner = Region::Backward(a, b);
+                    *outer = new_outer;
+                    *inner = new_inner;
+                    true
+                } else {
+                    false
+                }
+            }
+            (
+                &mut Region::Backward(ref mut a, ref mut b),
+                &mut Region::Backward(ref mut c, ref mut d),
+            ) => {
+                assert!(*a <= *c); // scan order
+
+                if *b < *d {
+                    *b = *d;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
     }
 }
 
@@ -169,87 +271,76 @@ impl Shape {
             }
         }
 
-        // Initially sort regions by start pos to get them in rough
-        // order; we'll resolve exact ordering below by extending
-        // regions where necessary and duplicating where we find
-        // irreducible control flow.
-        regions.sort_by_key(|r| r.start());
+        // Look for irreducible edges. TODO: handle these by
+        // introducing label variables, then editing the region to
+        // refer to the canonical header block. Take care when jumping
+        // into multiple nested loops.
+        let backedge_targets = regions
+            .iter()
+            .filter(|r| r.is_backward())
+            .map(|r| r.start().block)
+            .collect::<BTreeSet<_>>();
+
+        for region in &regions {
+            if let &Region::Forward(from, to) = region {
+                if let Some(&header_block) = backedge_targets.range((from + 1)..to).next() {
+                    panic!(
+                        "Irreducible edge from block {} to block {}: jumps into loop with header block {}",
+                        order[from], order[to], order[header_block]
+                    );
+                }
+            }
+        }
+
+        // Sort regions by either their "target": either their start
+        // (for backward regions) or end (for forward regions). This
+        // will be the final order of the regions; we can extend the
+        // "source" (the opposite endpoint) as needed to ensure proper
+        // nesting.
+        regions.sort_by_key(|r| r.key());
         log::trace!("regions = {:?}", regions);
 
-        // Examine each region in the sequence, determining whether it
-        // is properly nested with respect to all overlapping regions.
-        let mut i = 0;
-        while i < regions.len() {
-            let this_i = i;
-            for prev_i in 0..i {
-                let prev = regions[prev_i];
-                let this = regions[i];
-                log::trace!("examining: {:?} -> {:?}", prev, this);
-
-                if !prev.overlaps(&this) {
-                    log::trace!(" -> no overlap");
-                    continue;
-                }
-
-                // Important invariant: none of these
-                // merging/extension operations alter the sorted
-                // order, because at worst they "pull back" the start
-                // of the second region (`this`) to the start of the
-                // first (`prev`). If the list was sorted by
-                // region-start before, it will be after this edit.
-                let did_edit = match (prev, this) {
-                    (a, b) if a == b => {
-                        regions.remove(i);
-                        true
-                    }
-                    (Region::Backward(a, b), Region::Backward(c, d)) if a == c => {
-                        // Merge by extending end.
-                        regions[prev_i] = Region::Backward(a, std::cmp::max(b, d));
-                        regions.remove(i);
-                        true
-                    }
-                    (Region::Backward(a, b), Region::Backward(c, d))
-                        if a < c && c <= b && b < d =>
-                    {
-                        // Extend outer Backward to nest the inner one.
-                        regions[prev_i] = Region::Backward(a, d);
-                        true
-                    }
-                    (Region::Backward(a, b), Region::Forward(c, d)) if a <= c && c <= b => {
-                        // Put the Forward before the Backward (extend its
-                        // start) to ensure proper nesting.
-                        regions[prev_i] = Region::Forward(a, d);
-                        regions.remove(i);
-                        regions.insert(prev_i + 1, Region::Backward(a, b));
-                        true
-                    }
-                    (Region::Forward(a, b), Region::Backward(c, d)) if b > c && b <= d && a < c => {
-                        panic!("Irreducible CFG");
-                    }
-                    (Region::Forward(a, b), Region::Forward(c, d)) if b == d => {
-                        // Merge.
-                        regions[prev_i] = Region::Forward(std::cmp::min(a, c), b);
-                        regions.remove(i);
-                        true
-                    }
-                    (Region::Forward(a, b), Region::Forward(c, d)) if a <= c && b < d => {
-                        regions[prev_i] = Region::Forward(a, d);
-                        regions.remove(i);
-                        regions.insert(prev_i + 1, Region::Forward(a, b));
-                        true
-                    }
-                    _ => false,
-                };
-
-                if did_edit {
-                    // Back up to re-examine at prev_i.
-                    i = prev_i;
+        // Now scan the regions, tracking the stack as we go; where we
+        // encounter a region that overlaps region(s) on the stack,
+        // find the largest enclosing region, and adjust the region to
+        // enclose it, inserting it in the stack at that point.
+        //
+        // [    ...)
+        //   (...       ]
+        //       (...   ]
+        //                [    ...)
+        //                  [        ...)
+        // We scan by "sorting key", which is the branch target; it is
+        // the start of backward regions and end of forward regions.
+        //
+        // We maintain the invariant that `stack` always contains all
+        // regions that contain the scan point (at the start of the
+        // loop body, up to the previous scan point; after loop body,
+        // updated wrt the current scan point).
+        let mut stack: Vec<usize> = vec![];
+        for i in 0..regions.len() {
+            // Pop from the stack any regions that no longer contain the target.
+            while let Some(&top_idx) = stack.last() {
+                if !regions[top_idx].contains_endpoint(regions[i].key()) {
+                    stack.pop();
+                } else {
                     break;
                 }
             }
 
-            if i == this_i {
-                i += 1;
+            // Push the current region.
+            stack.push(i);
+
+            // Go up the stack, extending all applicable regions.
+            for i in (0..(stack.len() - 1)).rev() {
+                let mut outer = regions[stack[i]];
+                let mut inner = regions[stack[i + 1]];
+                let swapped = inner.adjust_nesting(&mut outer);
+                regions[stack[i]] = outer;
+                regions[stack[i + 1]] = inner;
+                if swapped {
+                    stack.swap(i, i + 1);
+                }
             }
         }
 
