@@ -34,27 +34,6 @@ enum Region {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct RegionEndpoint {
-    block: OrderedBlockId,
-    pt: BlockPoint,
-}
-
-impl RegionEndpoint {
-    fn start(block: OrderedBlockId) -> Self {
-        RegionEndpoint {
-            block,
-            pt: BlockPoint::Start,
-        }
-    }
-    fn end(block: OrderedBlockId) -> Self {
-        RegionEndpoint {
-            block,
-            pt: BlockPoint::Start,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum BlockPoint {
     Start,
     End,
@@ -71,7 +50,7 @@ impl Shape {
         log::trace!("get_one_shape: start {} regions {:?}", start, regions);
         if start >= order.len() {
             None
-        } else if regions.is_empty() || start < regions[0].start().block {
+        } else if regions.is_empty() || start < regions[0].start() {
             log::trace!(" -> leaf");
             Some((
                 Shape::Leaf {
@@ -81,14 +60,14 @@ impl Shape {
                 &regions,
             ))
         } else {
-            assert_eq!(start, regions[0].start().block);
+            assert_eq!(start, regions[0].start());
             let end = regions[0].end();
             let region_end = regions
                 .iter()
                 .position(|region| region.start() >= end)
                 .unwrap_or(regions.len());
             let subregions = &regions[1..region_end];
-            let (children, next_start) = Self::get_shapes(start, end.block, order, subregions);
+            let (children, next_start) = Self::get_shapes(start, end, order, subregions);
             let shape = if let Region::Forward(..) = &regions[0] {
                 Shape::Block {
                     head: order[start],
@@ -133,15 +112,15 @@ impl Shape {
 }
 
 impl Region {
-    fn start(&self) -> RegionEndpoint {
+    fn start(&self) -> OrderedBlockId {
         match self {
-            &Region::Forward(a, _) | &Region::Backward(a, _) => RegionEndpoint::end(a),
+            &Region::Forward(a, _) | &Region::Backward(a, _) => a,
         }
     }
 
-    fn end(&self) -> RegionEndpoint {
+    fn end(&self) -> OrderedBlockId {
         match self {
-            &Region::Forward(_, b) | &Region::Backward(_, b) => RegionEndpoint::start(b),
+            &Region::Forward(_, b) | &Region::Backward(_, b) => b,
         }
     }
 
@@ -149,7 +128,7 @@ impl Region {
         self.start() <= other.start() && self.end() >= other.end()
     }
 
-    fn contains_endpoint(&self, pt: RegionEndpoint) -> bool {
+    fn contains_endpoint(&self, pt: OrderedBlockId) -> bool {
         self.start() <= pt && pt <= self.end()
     }
 
@@ -201,6 +180,8 @@ impl Shape {
                 if succ_pos < block_pos {
                     let end = loop_header_to_end[succ_pos].unwrap_or(block_pos);
                     let end = std::cmp::max(end, block_pos);
+                    log::trace!("loop backedge: header RPO {} latch RPO {} (header block {} latch block {})",
+                                succ_pos, block_pos, order[succ_pos], order[block_pos]);
                     loop_header_to_end[succ_pos] = Some(end);
                 } else if succ_pos > block_pos + 1 {
                     forward_edges.push((block_pos, succ_pos));
@@ -306,15 +287,20 @@ impl Shape {
         log::trace!("block_starts = {:?}", block_starts);
         log::trace!("block_end_to_start = {:?}", block_end_to_start);
 
+        // We can't have a loop header at block 0; otherwise there is
+        // no way to express a forward edge outside the outermost loop
+        // nest.
+        assert!(loop_header_to_end[0].is_none());
+
         // Now generate the region list which we use to produce the "shape".
         let mut regions = vec![];
 
         for block in 0..order.len() {
-            for &block_end in block_starts[block].iter().rev() {
-                regions.push(Region::Forward(block, block_end));
-            }
             if let Some(loop_end) = loop_header_to_end[block] {
                 regions.push(Region::Backward(block, loop_end));
+            }
+            for &block_end in block_starts[block].iter().rev() {
+                regions.push(Region::Forward(block, block_end));
             }
         }
 
