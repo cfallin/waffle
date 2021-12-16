@@ -17,6 +17,7 @@ pub fn calculate<'a, SuccFn: Fn(BlockId) -> &'a [BlockId]>(
     let mut visited = vec![];
     visited.resize(num_blocks, false);
 
+    #[derive(Debug)]
     struct State<'a> {
         block: BlockId,
         succs: &'a [BlockId],
@@ -32,11 +33,14 @@ pub fn calculate<'a, SuccFn: Fn(BlockId) -> &'a [BlockId]>(
     });
 
     while let Some(ref mut state) = stack.last_mut() {
+        log::trace!("postorder: TOS is {:?}", state);
         // Perform one action: push to new succ, skip an already-visited succ, or pop.
         if state.next_succ < state.succs.len() {
             let succ = state.succs[state.next_succ];
+            log::trace!(" -> succ {}", succ);
             state.next_succ += 1;
             if !visited[succ] {
+                log::trace!(" -> visiting");
                 visited[succ] = true;
                 stack.push(State {
                     block: succ,
@@ -45,6 +49,7 @@ pub fn calculate<'a, SuccFn: Fn(BlockId) -> &'a [BlockId]>(
                 });
             }
         } else {
+            log::trace!("retreating from {}", state.block);
             ret.push(state.block);
             stack.pop();
         }

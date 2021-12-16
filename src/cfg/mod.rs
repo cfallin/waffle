@@ -8,6 +8,7 @@ use smallvec::SmallVec;
 
 pub mod domtree;
 pub mod postorder;
+pub mod structured;
 
 #[derive(Clone, Debug)]
 pub struct CFGInfo {
@@ -65,6 +66,10 @@ impl CFGInfo {
             postorder_pos,
             domtree,
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.block_succs.len()
     }
 
     pub fn dominates(&self, a: BlockId, b: BlockId) -> bool {

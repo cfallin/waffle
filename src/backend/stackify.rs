@@ -1,8 +1,6 @@
 //! Stackifier-like algorithm to recover (or create) structured
 //! control flow out of a CFG.
 
-use std::collections::BTreeSet;
-
 use crate::{cfg::CFGInfo, ir::*};
 
 #[derive(Clone, Debug)]

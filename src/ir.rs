@@ -2,7 +2,13 @@
 
 use std::collections::hash_map::Entry;
 
-use crate::{backend::Shape, cfg::CFGInfo, frontend, Operator};
+use crate::{
+    cfg::{
+        structured::{LoopNest, WasmRegion},
+        CFGInfo,
+    },
+    frontend, Operator,
+};
 use anyhow::Result;
 use fxhash::FxHashMap;
 use wasmparser::{FuncType, Type};
@@ -477,7 +483,8 @@ impl<'a> Module<'a> {
             match func {
                 &FuncDecl::Body(_, ref body) => {
                     let cfg = CFGInfo::new(body);
-                    let _shape = Shape::compute(body, &cfg);
+                    let loopnest = LoopNest::compute(&cfg);
+                    let _regions = WasmRegion::compute(&cfg, &loopnest);
                 }
                 _ => {}
             }
