@@ -281,13 +281,22 @@ impl Shape {
                 // those loops.
                 let start_loopnest = &loop_nest[start];
                 let end_loopnest = &loop_nest[block];
-                let extra_loops = start_loopnest
-                    .strip_prefix(&end_loopnest[..])
-                    .expect("Irreducible control flow");
-                let start = if extra_loops.len() > 0 {
-                    extra_loops[0].0
+                // Find common prefix of loopnests at start and end
+                // points, and put a block start at the top of that
+                // loop. In other words, we put the block around the
+                // innermost loop that surrounds the whole forward
+                // edge (or around the whole body if not). As long as
+                // control flow is reducible, this will not result in
+                // an edge into a loop.
+                let start_idx = start_loopnest
+                    .iter()
+                    .zip(end_loopnest.iter())
+                    .take_while(|(a, b)| a == b)
+                    .count();
+                let start = if start_idx > 0 {
+                    start_loopnest[start_idx - 1].0
                 } else {
-                    start
+                    0
                 };
 
                 block_starts[start].push(block);
@@ -306,39 +315,6 @@ impl Shape {
             }
             if let Some(loop_end) = loop_header_to_end[block] {
                 regions.push(Region::Backward(block, loop_end));
-            }
-        }
-
-        // Fix up contiguous runs of `Forward` regions: when we have
-        // overlap, make them properly nest. We need to scan backward
-        // to do this.
-        log::trace!("before forward-edge re-nesting: {:?}", regions);
-        let mut stack: Vec<usize> = vec![];
-        for i in (0..regions.len()).rev() {
-            if !regions[i].is_forward() {
-                continue;
-            }
-            log::trace!("cleaning up forward edges: looking at {:?}", regions[i]);
-
-            while let Some(&top_idx) = stack.last() {
-                if regions[i].end() <= regions[top_idx].start() {
-                    stack.pop();
-                } else {
-                    break;
-                }
-            }
-            stack.push(i);
-
-            for &stack_idx in &stack {
-                log::trace!(" -> examining against {:?}", regions[stack_idx]);
-                if regions[i].start() < regions[stack_idx].start() {
-                    let inner =
-                        Region::Forward(regions[i].start().block, regions[stack_idx].end().block);
-                    let outer = Region::Forward(regions[i].start().block, regions[i].end().block);
-                    regions[stack_idx] = outer;
-                    regions[i] = inner;
-                    log::trace!(" -> re-nest");
-                }
             }
         }
 
