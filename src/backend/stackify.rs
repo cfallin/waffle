@@ -184,6 +184,13 @@ impl Shape {
                                 succ_pos, block_pos, order[succ_pos], order[block_pos]);
                     loop_header_to_end[succ_pos] = Some(end);
                 } else if succ_pos > block_pos + 1 {
+                    log::trace!(
+                        "forward edge: to RPO {} from RPO {} (to block {} from block {})",
+                        succ_pos,
+                        block_pos,
+                        order[succ_pos],
+                        order[block_pos]
+                    );
                     forward_edges.push((block_pos, succ_pos));
                 }
             }
@@ -216,27 +223,24 @@ impl Shape {
         log::trace!("loop_header_to_end = {:?}", loop_header_to_end);
         log::trace!("loop_nest = {:?}", loop_nest);
 
-        // Look for irreducible edges. TODO: handle these by
-        // introducing label variables, then editing the region to
-        // refer to the canonical header block. Take care when jumping
-        // into multiple nested loops.
-        let loop_headers = loop_header_to_end
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.is_some())
-            .map(|(header, _)| header)
-            .collect::<BTreeSet<_>>();
-
+        // Look for irreducible edges.
         for &(from, to) in &forward_edges {
-            if let Some(&header_block) = loop_headers.range((from + 1)..to).next() {
-                panic!(
-                        "Irreducible edge from block {} to block {}: jumps into loop with header block {}",
-                        order[from], order[to], order[header_block]
-                    );
+            let from_loop_nest = &loop_nest[from];
+            let to_loop_nest = &loop_nest[to];
+            for i in 0..to_loop_nest.len() {
+                if i >= from_loop_nest.len() || from_loop_nest[i] != to_loop_nest[i] {
+                    // Entering a loop; the `to` must be the header.
+                    let header_block = to_loop_nest[i].0;
+                    if to != header_block {
+                        panic!(
+                            "Irreducible edge from RPO {} block {} to RPO {} block {}: jumps into loop with header RPO {} block {}",
+                            from, order[from], to, order[to], header_block, order[header_block]
+                        );
+                    }
+                }
             }
         }
 
-        log::trace!("loop_headers = {:?}", loop_headers);
         log::trace!("forward_edges = {:?}", forward_edges);
 
         // Process forward edges: add "block-start count" to
