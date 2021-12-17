@@ -4,7 +4,7 @@ use std::collections::hash_map::Entry;
 
 use crate::{
     cfg::{
-        structured::{LoopNest, WasmRegion},
+        structured::{BlockOrder, LoopNest, WasmRegion},
         CFGInfo,
     },
     frontend, Operator,
@@ -484,7 +484,8 @@ impl<'a> Module<'a> {
                 &FuncDecl::Body(_, ref body) => {
                     let cfg = CFGInfo::new(body);
                     let loopnest = LoopNest::compute(&cfg);
-                    let _regions = WasmRegion::compute(&cfg, &loopnest);
+                    let regions = WasmRegion::compute(&cfg, &loopnest);
+                    let _blockorder = BlockOrder::compute(body, &cfg, &regions);
                 }
                 _ => {}
             }

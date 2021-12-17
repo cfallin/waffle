@@ -4,7 +4,7 @@
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::{cfg::CFGInfo, BlockId};
+use crate::{cfg::CFGInfo, BlockId, FunctionBody};
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -137,13 +137,47 @@ impl LoopNest {
     }
 }
 
-fn compute_forward_edge_targets(cfg: &CFGInfo) -> FxHashSet<BlockId> {
+fn compute_linear_block_pos(cfg: &CFGInfo, nest: &LoopNest) -> Vec<Option<usize>> {
+    let mut next = 0;
+    let mut positions = vec![None; cfg.len()];
+    for node in &nest.nodes {
+        compute_linear_block_pos_for_node(node, &mut next, &mut positions);
+    }
+    positions
+}
+
+fn compute_linear_block_pos_for_node(
+    node: &Node,
+    next: &mut usize,
+    positions: &mut Vec<Option<usize>>,
+) {
+    match node {
+        &Node::Loop(_, ref subnodes) => {
+            for subnode in subnodes {
+                compute_linear_block_pos_for_node(subnode, next, positions);
+            }
+        }
+        &Node::Leaf(block) => {
+            let linear_index = *next;
+            *next += 1;
+            positions[block] = Some(linear_index);
+        }
+    }
+}
+
+fn compute_forward_edge_targets(
+    cfg: &CFGInfo,
+    linear_block_pos: &[Option<usize>],
+) -> FxHashSet<BlockId> {
     let mut ret = FxHashSet::default();
-    for (block_rpo, &block) in cfg.postorder.iter().rev().enumerate() {
+    for block in 0..cfg.len() {
+        if linear_block_pos[block].is_none() {
+            continue;
+        }
+        let block_pos = linear_block_pos[block].unwrap();
         for &succ in &cfg.block_succs[block] {
-            let succ_po = cfg.postorder_pos[succ].unwrap();
-            let succ_rpo = cfg.postorder.len() - 1 - succ_po;
-            if succ_rpo > block_rpo {
+            let succ_pos = linear_block_pos[succ].unwrap();
+            if succ_pos > block_pos + 1 {
                 ret.insert(succ);
             }
         }
@@ -176,7 +210,8 @@ impl WasmRegion {
         assert!(!loop_nest.nodes.is_empty());
         assert!(loop_nest.nodes[0].header() == 0);
 
-        let forward_targets = compute_forward_edge_targets(cfg);
+        let linear_pos = compute_linear_block_pos(cfg, loop_nest);
+        let forward_targets = compute_forward_edge_targets(cfg, &linear_pos);
         log::trace!(
             "WasmRegion::compute: forward_targets = {:?}",
             forward_targets
@@ -241,26 +276,111 @@ impl WasmRegion {
 
 #[derive(Clone, Debug)]
 pub struct BlockOrder {
-    pub blocks: Vec<BlockOrderEntry>,
+    pub entries: Vec<BlockOrderEntry>,
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockOrderEntry {
-    StartBlock,
-    EndBlock,
-    StartLoop,
-    EndLoop,
-    Block(BlockId, Vec<BlockOrderTarget>),
+    StartBlock(Vec<wasmparser::Type>),
+    StartLoop(Vec<wasmparser::Type>),
+    End,
+    BasicBlock(BlockId, Vec<BlockOrderTarget>),
 }
 
 #[derive(Clone, Debug)]
 pub struct BlockOrderTarget {
     pub target: BlockId,
-    pub relative_branch: usize,
+    /// `None` means fallthrough.
+    pub relative_branch: Option<usize>,
 }
 
 impl BlockOrder {
-    pub fn compute(cfg: &CFGInfo, wasm_region: &WasmRegion) -> BlockOrder {
-        todo!()
+    pub fn compute(f: &FunctionBody, cfg: &CFGInfo, wasm_region: &WasmRegion) -> BlockOrder {
+        let mut target_stack = vec![];
+        let mut entries = vec![];
+        Self::generate_region(f, cfg, &mut target_stack, &mut entries, wasm_region, None);
+        log::trace!("entries: {:?}", entries);
+        BlockOrder { entries }
+    }
+
+    fn generate_region(
+        f: &FunctionBody,
+        cfg: &CFGInfo,
+        target_stack: &mut Vec<BlockId>,
+        entries: &mut Vec<BlockOrderEntry>,
+        region: &WasmRegion,
+        fallthrough: Option<BlockId>,
+    ) {
+        log::trace!(
+            "BlockOrder::generate_region: stack {:?} region {:?} fallthrough {:?}",
+            target_stack,
+            region,
+            fallthrough,
+        );
+        match region {
+            &WasmRegion::Block(header, _, ref subregions, ..)
+            | &WasmRegion::Loop(header, ref subregions) => {
+                let (target, is_loop) = match region {
+                    &WasmRegion::Block(_, out, ..) => {
+                        assert!(out.is_some() || target_stack.is_empty());
+                        (out, false)
+                    }
+                    &WasmRegion::Loop(header, ..) => (Some(header), true),
+                    _ => unreachable!(),
+                };
+
+                if let Some(target) = target {
+                    target_stack.push(target);
+                }
+                let params = f.blocks[header].params.clone();
+                if is_loop {
+                    entries.push(BlockOrderEntry::StartLoop(params));
+                } else {
+                    entries.push(BlockOrderEntry::StartBlock(params));
+                }
+
+                for i in 0..subregions.len() {
+                    let subregion = &subregions[i];
+                    let fallthrough = if i == subregions.len() - 1 {
+                        fallthrough
+                    } else {
+                        Some(subregions[i + 1].header())
+                    };
+                    Self::generate_region(f, cfg, target_stack, entries, subregion, fallthrough);
+                }
+
+                entries.push(BlockOrderEntry::End);
+                if target.is_some() {
+                    target_stack.pop();
+                }
+            }
+
+            &WasmRegion::Leaf(block) => {
+                let mut targets = vec![];
+                for &succ in &cfg.block_succs[block] {
+                    log::trace!(
+                        "BlockOrder::generate_region: looking for succ {} in stack {:?} fallthrough {:?}",
+                        succ,
+                        target_stack,
+                        fallthrough,
+                    );
+                    let relative_branch = if Some(succ) == fallthrough {
+                        None
+                    } else {
+                        let pos = target_stack
+                            .iter()
+                            .position(|entry| *entry == succ)
+                            .expect("Malformed Wasm structured control flow");
+                        Some(target_stack.len() - 1 - pos)
+                    };
+                    targets.push(BlockOrderTarget {
+                        target: succ,
+                        relative_branch,
+                    });
+                }
+                entries.push(BlockOrderEntry::BasicBlock(block, targets));
+            }
+        }
+        log::trace!("BlockOrder::generate_region: done with region {:?}", region);
     }
 }
