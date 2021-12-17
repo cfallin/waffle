@@ -238,3 +238,29 @@ impl WasmRegion {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct BlockOrder {
+    pub blocks: Vec<BlockOrderEntry>,
+}
+
+#[derive(Clone, Debug)]
+pub enum BlockOrderEntry {
+    StartBlock,
+    EndBlock,
+    StartLoop,
+    EndLoop,
+    Block(BlockId, Vec<BlockOrderTarget>),
+}
+
+#[derive(Clone, Debug)]
+pub struct BlockOrderTarget {
+    pub target: BlockId,
+    pub relative_branch: usize,
+}
+
+impl BlockOrder {
+    pub fn compute(cfg: &CFGInfo, wasm_region: &WasmRegion) -> BlockOrder {
+        todo!()
+    }
+}
