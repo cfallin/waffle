@@ -217,15 +217,18 @@ impl WasmRegion {
             forward_targets
         );
 
-        let top = WasmRegion::Block(
-            0,
-            None,
-            loop_nest
-                .nodes
-                .iter()
-                .map(|node| Self::compute_for_node(cfg, &forward_targets, node))
-                .collect::<Vec<_>>(),
+        // Enclose loop nest in a virtual loop, to handle forward
+        // edges in a unified way even outside any loop.
+        let top = Self::compute_for_node(
+            cfg,
+            &forward_targets,
+            &Node::Loop(BlockId::MAX, loop_nest.nodes.clone()),
         );
+        let subregions = match top {
+            WasmRegion::Loop(_, subregions) => subregions,
+            _ => unreachable!(),
+        };
+        let top = WasmRegion::Block(0, None, subregions);
 
         log::trace!("Wasm region: {:?}", top);
         top
