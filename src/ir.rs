@@ -123,15 +123,11 @@ impl FunctionBody {
         value
     }
 
-    pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> usize {
+    pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
-        self.blocks[block].params.push(ty);
-        index
-    }
-
-    pub fn add_blockparam_value(&mut self, block: BlockId, ty: Type) -> Value {
-        let index = self.add_blockparam(block, ty);
-        self.add_value(ValueDef::BlockParam(block, index), Some(ty))
+        let value = self.add_value(ValueDef::BlockParam(block, index), Some(ty));
+        self.blocks[block].params.push((ty, value));
+        value
     }
 
     pub fn add_placeholder(&mut self, ty: Type) -> Value {
@@ -142,7 +138,7 @@ impl FunctionBody {
         assert!(self.values[value.index()] == ValueDef::Placeholder);
         let ty = self.types[value.index()].unwrap();
         let index = self.blocks[block].params.len();
-        self.blocks[block].params.push(ty);
+        self.blocks[block].params.push((ty, value));
         self.values[value.index()] = ValueDef::BlockParam(block, index);
     }
 
@@ -213,8 +209,8 @@ pub struct Block {
     pub preds: Vec<BlockId>,
     /// For each predecessor block, our index in its `succs` array.
     pub pos_in_pred_succ: Vec<usize>,
-    /// Type of each blockparam.
-    pub params: Vec<Type>,
+    /// Type and Value for each blockparam.
+    pub params: Vec<(Type, Value)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

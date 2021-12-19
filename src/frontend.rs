@@ -1140,10 +1140,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         );
         let block = self.cur_block.unwrap();
         for i in 0..num_params {
-            let ty = self.body.blocks[block].params[i];
-            let value = self
-                .body
-                .add_value(ValueDef::BlockParam(block, i), Some(ty));
+            let (ty, value) = self.body.blocks[block].params[i];
             log::trace!(" -> push {:?} ty {:?}", value, ty);
             self.op_stack.push((ty, value));
         }

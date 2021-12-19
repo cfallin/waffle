@@ -4,7 +4,7 @@
 
 use fxhash::{FxHashMap, FxHashSet};
 
-use crate::{cfg::CFGInfo, BlockId, FunctionBody};
+use crate::{cfg::CFGInfo, BlockId, FunctionBody, Value};
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -284,8 +284,8 @@ pub struct BlockOrder {
 
 #[derive(Clone, Debug)]
 pub enum BlockOrderEntry {
-    StartBlock(Vec<wasmparser::Type>),
-    StartLoop(Vec<wasmparser::Type>),
+    StartBlock(BlockId, Vec<(wasmparser::Type, Value)>),
+    StartLoop(BlockId, Vec<(wasmparser::Type, Value)>),
     End,
     BasicBlock(BlockId, Vec<BlockOrderTarget>),
 }
@@ -337,9 +337,9 @@ impl BlockOrder {
                 }
                 let params = f.blocks[header].params.clone();
                 if is_loop {
-                    entries.push(BlockOrderEntry::StartLoop(params));
+                    entries.push(BlockOrderEntry::StartLoop(header, params));
                 } else {
-                    entries.push(BlockOrderEntry::StartBlock(params));
+                    entries.push(BlockOrderEntry::StartBlock(header, params));
                 }
 
                 for i in 0..subregions.len() {
