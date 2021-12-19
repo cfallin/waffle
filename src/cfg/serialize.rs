@@ -24,11 +24,11 @@ pub enum SerializedBlockTarget {
 pub enum SerializedOperator {
     StartBlock {
         header: BlockId,
-        params: Vec<(Value, wasmparser::Type)>,
+        params: Vec<(wasmparser::Type, Value)>,
     },
     StartLoop {
         header: BlockId,
-        param: Vec<(Value, wasmparser::Type)>,
+        param: Vec<(wasmparser::Type, Value)>,
     },
     Br(SerializedBlockTarget),
     BrIf {
@@ -61,10 +61,22 @@ impl SerializedBody {
         operators: &mut Vec<SerializedOperator>,
     ) {
         match entry {
-            &BlockOrderEntry::StartBlock(header, ref param_tys) => {
-                todo!()
+            &BlockOrderEntry::StartBlock(header, ref params) => {
+                operators.push(SerializedOperator::StartBlock {
+                    header,
+                    params: params.clone(),
+                });
             }
-            _ => {
+            &BlockOrderEntry::StartLoop(header, ref params) => {
+                operators.push(SerializedOperator::StartBlock {
+                    header,
+                    params: params.clone(),
+                });
+            }
+            &BlockOrderEntry::End => {
+                operators.push(SerializedOperator::End);
+            }
+            &BlockOrderEntry::BasicBlock(block, ref targets) => {
                 todo!()
             }
         }

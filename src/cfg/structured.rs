@@ -295,6 +295,7 @@ pub struct BlockOrderTarget {
     pub target: BlockId,
     /// `None` means fallthrough.
     pub relative_branch: Option<usize>,
+    pub args: Vec<Value>,
 }
 
 impl BlockOrder {
@@ -360,27 +361,28 @@ impl BlockOrder {
 
             &WasmRegion::Leaf(block) => {
                 let mut targets = vec![];
-                for &succ in &cfg.block_succs[block] {
+                f.blocks[block].terminator.visit_targets(|target| {
                     log::trace!(
                         "BlockOrder::generate_region: looking for succ {} in stack {:?} fallthrough {:?}",
-                        succ,
+                        target.block,
                         target_stack,
                         fallthrough,
                     );
-                    let relative_branch = if Some(succ) == fallthrough {
+                    let relative_branch = if Some(target.block) == fallthrough {
                         None
                     } else {
                         let pos = target_stack
                             .iter()
-                            .position(|entry| *entry == succ)
+                            .position(|entry| *entry == target.block)
                             .expect("Malformed Wasm structured control flow");
                         Some(target_stack.len() - 1 - pos)
                     };
                     targets.push(BlockOrderTarget {
-                        target: succ,
+                        target: target.block,
                         relative_branch,
+                        args: target.args.clone(),
                     });
-                }
+                });
                 entries.push(BlockOrderEntry::BasicBlock(block, targets));
             }
         }
