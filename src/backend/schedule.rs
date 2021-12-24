@@ -89,17 +89,25 @@ impl Schedule {
                         }
                     } else {
                         log::trace!("v{} waiting on {:?}", value.index(), operands);
-                        ctx.remaining_inputs.insert(value, operands.len());
+                        let mut remaining = 0;
                         for &input in operands {
                             if input == Value::undef() {
                                 continue;
                             }
                             let input = f.resolve_alias(input);
+                            if let &ValueDef::Operator(ref op, ..) = &f.values[input.index()] {
+                                if op_rematerialize(op) {
+                                    continue;
+                                }
+                            }
+
                             ctx.waiting_on_value
                                 .entry(input)
                                 .or_insert_with(|| vec![])
                                 .push(value);
+                            remaining += 1;
                         }
+                        ctx.remaining_inputs.insert(value, remaining);
                     }
                 }
                 &ValueDef::Alias(v) | &ValueDef::PickOutput(v, _) => {
