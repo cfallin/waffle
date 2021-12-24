@@ -12,9 +12,17 @@ pub struct Locations {
     pub new_locals: Vec<wasmparser::Type>,
 }
 
+#[derive(Debug)]
+struct Frame {
+    is_loop: bool,
+    start_loc: usize,
+    use_at_end: Vec<(Value, usize)>,
+}
+
 pub struct Allocator<'a> {
     locations: &'a mut Locations,
     f: &'a FunctionBody,
+    active_frames: Vec<Frame>,
     spans: FxHashMap<(Value, usize), ValueSpan>,
     starts: Vec<ValueSpan>,
     ends: Vec<ValueSpan>,
@@ -46,6 +54,7 @@ impl Locations {
         let mut allocator = Allocator {
             locations: &mut locations,
             f,
+            active_frames: vec![],
             freelist: FxHashMap::default(),
             spans: FxHashMap::default(),
             starts: vec![],
@@ -62,6 +71,31 @@ impl<'a> Allocator<'a> {
     fn handle_op(&mut self, location: usize, op: &SerializedOperator) {
         let mut reads = vec![];
         let mut writes = vec![];
+
+        match op {
+            &SerializedOperator::StartBlock { .. } => {
+                self.active_frames.push(Frame {
+                    is_loop: false,
+                    start_loc: location,
+                    use_at_end: vec![],
+                });
+            }
+            &SerializedOperator::StartLoop { .. } => {
+                self.active_frames.push(Frame {
+                    is_loop: true,
+                    start_loc: location,
+                    use_at_end: vec![],
+                });
+            }
+            &SerializedOperator::End { .. } => {
+                let frame = self.active_frames.pop().unwrap();
+                if frame.is_loop {
+                    reads.extend(frame.use_at_end);
+                }
+            }
+            _ => {}
+        }
+
         op.visit_value_locals(
             &mut |value, index| {
                 reads.push((value, index));
@@ -88,6 +122,12 @@ impl<'a> Allocator<'a> {
             };
             span.end = location + 1;
             log::trace!(" -> span for {}: {:?}", value, span);
+
+            for frame in &mut self.active_frames {
+                if frame.is_loop && span.start < frame.start_loc {
+                    frame.use_at_end.push((value, index));
+                }
+            }
         }
 
         for (value, index) in writes {
