@@ -8,8 +8,6 @@ use smallvec::SmallVec;
 
 pub mod domtree;
 pub mod postorder;
-pub mod serialize;
-pub mod structured;
 
 #[derive(Clone, Debug)]
 pub struct CFGInfo {

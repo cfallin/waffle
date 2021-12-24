@@ -3,11 +3,8 @@
 use std::collections::hash_map::Entry;
 
 use crate::{
-    cfg::{
-        serialize::SerializedBody,
-        structured::{BlockOrder, LoopNest, WasmRegion},
-        CFGInfo,
-    },
+    backend::{BlockOrder, LoopNest, SerializedBody, WasmRegion},
+    cfg::CFGInfo,
     frontend, Operator,
 };
 use anyhow::Result;
