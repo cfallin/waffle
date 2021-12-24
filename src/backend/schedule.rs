@@ -94,10 +94,15 @@ impl Schedule {
                                 continue;
                             }
                             let input = f.resolve_alias(input);
-                            if let &ValueDef::Operator(ref op, ..) = &f.values[input.index()] {
-                                if op_rematerialize(op) {
+
+                            match &f.values[input.index()] {
+                                &ValueDef::Operator(ref op, ..) if op_rematerialize(op) => {
                                     continue;
                                 }
+                                &ValueDef::Arg(..) => {
+                                    continue;
+                                }
+                                _ => {}
                             }
 
                             log::trace!("v{} waiting on v{}", value.index(), input.index());
