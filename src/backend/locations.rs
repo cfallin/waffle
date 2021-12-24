@@ -21,7 +21,7 @@ pub struct Allocator<'a> {
     freelist: FxHashMap<wasmparser::Type, Vec<LocalId>>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct ValueSpan {
     value: Value,
     multi_value_index: usize,

@@ -100,7 +100,6 @@ impl FunctionBody {
     }
 
     pub fn set_alias(&mut self, value: Value, to: Value) {
-        assert_ne!(to, Value::undef());
         log::trace!("set_alias: value {:?} to {:?}", value, to);
         // Resolve the `to` value through all existing aliases.
         let to = self.resolve_and_update_alias(to);
@@ -112,7 +111,6 @@ impl FunctionBody {
     }
 
     pub fn resolve_alias(&self, value: Value) -> Value {
-        assert_ne!(value, Value::undef());
         let mut result = value;
         loop {
             if let &ValueDef::Alias(to) = &self.values[result.index()] {
@@ -238,22 +236,12 @@ impl std::fmt::Display for Value {
 }
 
 impl Value {
-    pub fn undef() -> Self {
-        Value(u32::MAX)
-    }
-
     pub fn index(self) -> usize {
         self.0 as usize
     }
 
     pub fn from_index(value: usize) -> Value {
         Self(value as u32)
-    }
-}
-
-impl std::default::Default for Value {
-    fn default() -> Self {
-        Value::undef()
     }
 }
 

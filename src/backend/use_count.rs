@@ -23,22 +23,18 @@ impl UseCountAnalysis {
         let mut workqueue_set = FxHashSet::default();
         for block in 0..f.blocks.len() {
             for &value in &f.blocks[block].insts {
-                if value != Value::undef() {
-                    let value = f.resolve_alias(value);
-                    counts.add(value);
-                    if workqueue_set.insert(value) {
-                        workqueue.push_back(value);
-                    }
-                    counts.toplevel.insert(value);
+                let value = f.resolve_alias(value);
+                counts.add(value);
+                if workqueue_set.insert(value) {
+                    workqueue.push_back(value);
                 }
+                counts.toplevel.insert(value);
             }
             f.blocks[block].terminator.visit_uses(|value| {
-                if value != Value::undef() {
-                    let value = f.resolve_alias(value);
-                    counts.add(value);
-                    if workqueue_set.insert(value) {
-                        workqueue.push_back(value);
-                    }
+                let value = f.resolve_alias(value);
+                counts.add(value);
+                if workqueue_set.insert(value) {
+                    workqueue.push_back(value);
                 }
             });
 
@@ -48,9 +44,6 @@ impl UseCountAnalysis {
                     &ValueDef::Alias(..) | &ValueDef::Arg(..) | &ValueDef::BlockParam(..) => {}
                     &ValueDef::Operator(_op, ref args) => {
                         for &arg in args {
-                            if arg == Value::undef() {
-                                continue;
-                            }
                             let arg = f.resolve_alias(arg);
                             counts.add(arg);
                             if counts.use_count[arg.index()] == 1 {
@@ -61,9 +54,6 @@ impl UseCountAnalysis {
                         }
                     }
                     &ValueDef::PickOutput(value, _) => {
-                        if value == Value::undef() {
-                            continue;
-                        }
                         let value = f.resolve_alias(value);
                         counts.add(value);
                         if counts.use_count[value.index()] == 1 {

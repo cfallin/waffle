@@ -169,11 +169,6 @@ pub fn produce_func_wasm<FT: FuncTypeSink>(
     for operator in &body.operators {
         ctx.translate(operator, locations);
     }
-    
-    // Fixup: add unreachable just before last `end`; there must be an explicit return.
-//    assert!(matches!(wasm.operators.pop(), Some(wasm_encoder::Instruction::End)));
-//    wasm.operators.push(wasm_encoder::Instruction::Unreachable);
-//    wasm.operators.push(wasm_encoder::Instruction::End);
 
     wasm
 }

@@ -82,10 +82,6 @@ impl Schedule {
             }
             match value_def {
                 &ValueDef::Operator(op, ref operands) => {
-                    if operands.iter().any(|&value| value == Value::undef()) {
-                        continue;
-                    }
-
                     if operands.len() == 0 {
                         if !op_rematerialize(&op) {
                             log::trace!("immediately ready: v{}", value.index());

@@ -290,7 +290,8 @@ impl LocalTracker {
             assert!((local as usize) < body.locals.len());
             self.get_in_block(body, block, local)
         } else {
-            Value::undef()
+            let ty = body.locals[local as usize];
+            self.create_default_value(body, ty)
         }
     }
 
@@ -541,11 +542,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         self.op_stack.pop().unwrap().1
     }
 
-    fn block_results(&mut self, n: usize, start_depth: usize) -> Vec<Value> {
-        if self.op_stack.len() < start_depth + n {
-            vec![Value::undef(); n]
+    fn block_results(&mut self, tys: &[Type], start_depth: usize) -> Vec<Value> {
+        if self.op_stack.len() < start_depth + tys.len() {
+            tys.iter()
+                .map(|&ty| self.locals.create_default_value(&mut self.body, ty))
+                .collect()
         } else {
-            self.pop_n(n)
+            self.pop_n(tys.len())
         }
     }
 
@@ -571,16 +574,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
             wasmparser::Operator::LocalSet { local_index } => {
                 let (_, value) = self.op_stack.pop().unwrap();
-                if value != Value::undef() {
-                    self.locals.set(*local_index, value);
-                }
+                self.locals.set(*local_index, value);
             }
 
             wasmparser::Operator::LocalTee { local_index } => {
                 let (_ty, value) = *self.op_stack.last().unwrap();
-                if value != Value::undef() {
-                    self.locals.set(*local_index, value);
-                }
+                self.locals.set(*local_index, value);
             }
 
             wasmparser::Operator::Call { .. }
@@ -787,7 +786,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(results.len(), *start_depth);
+                        let result_values = self.block_results(&results[..], *start_depth);
                         self.emit_branch(*out, &result_values[..]);
                         self.op_stack.truncate(*start_depth);
                         // Seal the out-block: no more edges will be
@@ -812,7 +811,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(results.len(), *start_depth);
+                        let result_values = self.block_results(&results[..], *start_depth);
                         self.emit_branch(*out, &result_values[..]);
                         self.op_stack.truncate(*start_depth);
                         // No `else`, so we need to generate a trivial
@@ -841,7 +840,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(results.len(), *start_depth);
+                        let result_values = self.block_results(&results[..], *start_depth);
                         self.emit_branch(*out, &result_values[..]);
                         self.op_stack.truncate(*start_depth);
                         self.cur_block = Some(*out);
@@ -920,7 +919,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     results,
                 } = self.ctrl_stack.pop().unwrap()
                 {
-                    let if_results = self.block_results(results.len(), start_depth);
+                    let if_results = self.block_results(&results[..], start_depth);
                     self.emit_branch(out, &if_results[..]);
                     self.op_stack.truncate(start_depth);
                     self.op_stack.extend(param_values);
