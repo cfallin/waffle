@@ -2,7 +2,7 @@
 
 use std::collections::VecDeque;
 
-use crate::{Value, FunctionBody, ValueDef};
+use crate::{FunctionBody, Value, ValueDef};
 use fxhash::FxHashSet;
 
 #[derive(Clone, Debug)]
@@ -23,16 +23,20 @@ impl UseCountAnalysis {
         let mut workqueue_set = FxHashSet::default();
         for block in 0..f.blocks.len() {
             for &value in &f.blocks[block].insts {
-                let value = f.resolve_alias(value);
-                if workqueue_set.insert(value) {
-                    workqueue.push_back(value);
+                if value != Value::undef() {
+                    let value = f.resolve_alias(value);
+                    if workqueue_set.insert(value) {
+                        workqueue.push_back(value);
+                    }
+                    counts.toplevel.insert(value);
                 }
-                counts.toplevel.insert(value);
             }
             f.blocks[block].terminator.visit_uses(|value| {
-                let value = f.resolve_alias(value);
-                if workqueue_set.insert(value) {
-                    workqueue.push_back(value);
+                if value != Value::undef() {
+                    let value = f.resolve_alias(value);
+                    if workqueue_set.insert(value) {
+                        workqueue.push_back(value);
+                    }
                 }
             });
 
@@ -43,6 +47,9 @@ impl UseCountAnalysis {
                     &ValueDef::Alias(..) | &ValueDef::Arg(..) | &ValueDef::BlockParam(..) => {}
                     &ValueDef::Operator(_op, ref args) => {
                         for &arg in args {
+                            if arg == Value::undef() {
+                                continue;
+                            }
                             let arg = f.resolve_alias(arg);
                             if counts.use_count[arg.index()] == 0 {
                                 if workqueue_set.insert(arg) {
@@ -52,6 +59,9 @@ impl UseCountAnalysis {
                         }
                     }
                     &ValueDef::PickOutput(value, _) => {
+                        if value == Value::undef() {
+                            continue;
+                        }
                         let value = f.resolve_alias(value);
                         if counts.use_count[value.index()] == 0 {
                             if workqueue_set.insert(value) {

@@ -106,6 +106,7 @@ impl FunctionBody {
     }
 
     pub fn resolve_alias(&self, value: Value) -> Value {
+        assert_ne!(value, Value::undef());
         let mut result = value;
         loop {
             if let &ValueDef::Alias(to) = &self.values[result.index()] {

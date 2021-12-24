@@ -91,6 +91,9 @@ impl Schedule {
                         log::trace!("v{} waiting on {:?}", value.index(), operands);
                         ctx.remaining_inputs.insert(value, operands.len());
                         for &input in operands {
+                            if input == Value::undef() {
+                                continue;
+                            }
                             let input = f.resolve_alias(input);
                             ctx.waiting_on_value
                                 .entry(input)
