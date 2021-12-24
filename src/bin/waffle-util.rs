@@ -23,6 +23,13 @@ enum Command {
         #[structopt(help = "Wasm file to parse")]
         wasm: PathBuf,
     },
+    #[structopt(name = "roundtrip", about = "Round-trip Wasm through IR")]
+    RoundTrip {
+        #[structopt(help = "Wasm file to parse", short = "i")]
+        input: PathBuf,
+        #[structopt(help = "Wasm file to produce", short = "o")]
+        output: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -40,6 +47,13 @@ fn main() -> Result<()> {
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let module = Module::from_wasm_bytes(&bytes[..])?;
             println!("{:?}", module);
+        }
+        Command::RoundTrip { input, output } => {
+            let bytes = std::fs::read(input)?;
+            debug!("Loaded {} bytes of Wasm data", bytes.len());
+            let module = Module::from_wasm_bytes(&bytes[..])?;
+            let produced = module.to_wasm_bytes();
+            std::fs::write(output, &produced[..])?;
         }
     }
 
