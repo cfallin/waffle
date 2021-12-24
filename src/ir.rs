@@ -4,6 +4,7 @@ use std::collections::hash_map::Entry;
 
 use crate::{
     cfg::{
+        serialize::SerializedBody,
         structured::{BlockOrder, LoopNest, WasmRegion},
         CFGInfo,
     },
@@ -55,7 +56,9 @@ pub struct FunctionBody {
     /// Sea-of-nodes representation.
     pub values: Vec<ValueDef>,
     value_dedup: FxHashMap<ValueDef, Value>,
-    pub types: Vec</* Value, */ Option<Type>>,
+    /// A single value can have multiple types if multi-value (e.g. a
+    /// call).
+    pub types: Vec</* Value, */ Vec<Type>>,
 }
 
 impl FunctionBody {
@@ -77,18 +80,19 @@ impl FunctionBody {
         log::trace!("add_edge: from {} to {}", from, to);
     }
 
-    pub fn add_value(&mut self, value: ValueDef, ty: Option<Type>) -> Value {
+    pub fn add_value(&mut self, value: ValueDef, tys: Vec<Type>) -> Value {
+        log::trace!("add_value: def {:?} ty {:?}", value, tys);
         let id = match self.value_dedup.entry(value.clone()) {
             Entry::Occupied(o) => *o.get(),
             Entry::Vacant(v) => {
                 let id = Value(self.values.len() as u32);
                 self.values.push(value.clone());
-                self.types.push(ty);
+                self.types.push(tys);
                 v.insert(id);
                 id
             }
         };
-        log::trace!("add_value: def {:?} ty {:?} -> {:?}", value, ty, id);
+        log::trace!(" -> value {:?}", id);
         id
     }
 
@@ -116,27 +120,27 @@ impl FunctionBody {
         result
     }
 
-    pub fn add_mutable_inst(&mut self, ty: Option<Type>, def: ValueDef) -> Value {
+    pub fn add_mutable_inst(&mut self, tys: Vec<Type>, def: ValueDef) -> Value {
         let value = Value(self.values.len() as u32);
-        self.types.push(ty);
+        self.types.push(tys);
         self.values.push(def);
         value
     }
 
     pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
-        let value = self.add_value(ValueDef::BlockParam(block, index), Some(ty));
+        let value = self.add_value(ValueDef::BlockParam(block, index), vec![ty]);
         self.blocks[block].params.push((ty, value));
         value
     }
 
     pub fn add_placeholder(&mut self, ty: Type) -> Value {
-        self.add_mutable_inst(Some(ty), ValueDef::Placeholder)
+        self.add_mutable_inst(vec![ty], ValueDef::Placeholder)
     }
 
     pub fn replace_placeholder_with_blockparam(&mut self, block: BlockId, value: Value) {
         assert!(self.values[value.index()] == ValueDef::Placeholder);
-        let ty = self.types[value.index()].unwrap();
+        let ty = self.types[value.index()].get(0).cloned().unwrap();
         let index = self.blocks[block].params.len();
         self.blocks[block].params.push((ty, value));
         self.values[value.index()] = ValueDef::BlockParam(block, index);
@@ -168,6 +172,13 @@ impl FunctionBody {
         let id = self.locals.len() as LocalId;
         self.locals.push(ty);
         id
+    }
+
+    pub fn values<'a>(&'a self) -> impl Iterator<Item = (Value, &'a ValueDef)> + 'a {
+        self.values
+            .iter()
+            .enumerate()
+            .map(|(idx, value_def)| (Value(idx as u32), value_def))
     }
 }
 
@@ -481,7 +492,9 @@ impl<'a> Module<'a> {
                     let cfg = CFGInfo::new(body);
                     let loopnest = LoopNest::compute(&cfg);
                     let regions = WasmRegion::compute(&cfg, &loopnest);
-                    let _blockorder = BlockOrder::compute(body, &cfg, &regions);
+                    let blockorder = BlockOrder::compute(body, &cfg, &regions);
+                    let serialized = SerializedBody::compute(body, &cfg, &blockorder);
+                    log::trace!("serialized:{:?}", serialized);
                 }
                 _ => {}
             }

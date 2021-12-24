@@ -131,7 +131,7 @@ fn parse_body<'a>(
 
     for (arg_idx, &arg_ty) in module.signatures[my_sig].params.iter().enumerate() {
         let local_idx = arg_idx as LocalId;
-        let value = builder.body.add_value(ValueDef::Arg(arg_idx), Some(arg_ty));
+        let value = builder.body.add_value(ValueDef::Arg(arg_idx), vec![arg_ty]);
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.declare(local_idx, arg_ty);
         builder.locals.set(local_idx, value);
@@ -295,11 +295,11 @@ impl LocalTracker {
         match ty {
             Type::I32 => body.add_value(
                 ValueDef::Operator(Operator::I32Const { value: 0 }, vec![]),
-                Some(ty),
+                vec![ty],
             ),
             Type::I64 => body.add_value(
                 ValueDef::Operator(Operator::I64Const { value: 0 }, vec![]),
-                Some(ty),
+                vec![ty],
             ),
             Type::F32 => body.add_value(
                 ValueDef::Operator(
@@ -308,7 +308,7 @@ impl LocalTracker {
                     },
                     vec![],
                 ),
-                Some(ty),
+                vec![ty],
             ),
             Type::F64 => body.add_value(
                 ValueDef::Operator(
@@ -317,7 +317,7 @@ impl LocalTracker {
                     },
                     vec![],
                 ),
-                Some(ty),
+                vec![ty],
             ),
             _ => todo!("unsupported type: {:?}", ty),
         }
@@ -1173,16 +1173,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
         input_operands.reverse();
         log::trace!(" -> operands: {:?}", input_operands);
+        log::trace!(" -> ty {:?}", outputs);
 
-        let ty = if n_outputs == 1 {
-            Some(outputs[0])
-        } else {
-            None
-        };
         let value = self
             .body
-            .add_value(ValueDef::Operator(op, input_operands), ty);
-        log::trace!(" -> value: {:?} ty {:?}", value, ty);
+            .add_value(ValueDef::Operator(op, input_operands), outputs.clone());
+        log::trace!(" -> value: {:?}", value);
 
         if let Some(block) = self.cur_block {
             if !op_effects(&op).unwrap().is_empty() {
@@ -1197,7 +1193,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             for (i, output_ty) in outputs.into_iter().enumerate() {
                 let pick = self
                     .body
-                    .add_value(ValueDef::PickOutput(value, i), Some(output_ty));
+                    .add_value(ValueDef::PickOutput(value, i), vec![output_ty]);
                 self.op_stack.push((output_ty, pick));
                 log::trace!(" -> pick {}: {:?} ty {:?}", i, pick, output_ty);
             }
