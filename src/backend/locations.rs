@@ -9,7 +9,6 @@ use super::{SerializedBody, SerializedOperator};
 #[derive(Debug)]
 pub struct Locations {
     pub locations: FxHashMap<(Value, usize), LocalId>,
-    pub delete: Vec<usize>,
     pub new_locals: Vec<wasmparser::Type>,
 }
 
@@ -42,7 +41,6 @@ impl Locations {
     pub fn compute(f: &FunctionBody, body: &SerializedBody) -> Locations {
         let mut locations = Locations {
             locations: FxHashMap::default(),
-            delete: vec![],
             new_locals: vec![],
         };
         let mut allocator = Allocator {
@@ -54,7 +52,7 @@ impl Locations {
             ends: vec![],
         };
 
-        allocator.compute_spans_and_deleted_ops(&body.operators[..]);
+        allocator.compute_spans(&body.operators[..]);
 
         locations
     }
@@ -73,6 +71,14 @@ impl<'a> Allocator<'a> {
             },
         );
 
+        log::trace!(
+            "handle_op: at location {} op {:?} reads {:?} writes {:?}",
+            location,
+            op,
+            reads,
+            writes
+        );
+
         for (value, index) in reads {
             let span = match self.spans.get_mut(&(value, index)) {
                 Some(span) => span,
@@ -81,64 +87,24 @@ impl<'a> Allocator<'a> {
                 }
             };
             span.end = location + 1;
+            log::trace!(" -> span for {}: {:?}", value, span);
         }
 
         for (value, index) in writes {
-            self.spans
-                .entry((value, index))
-                .or_insert(ValueSpan {
-                    value,
-                    multi_value_index: index,
-                    start: location,
-                    end: location + 1,
-                })
-                .end = location + 1;
+            let span = self.spans.entry((value, index)).or_insert(ValueSpan {
+                value,
+                multi_value_index: index,
+                start: location,
+                end: location + 1,
+            });
+            span.end = location + 1;
+            log::trace!(" -> span for {}: {:?}", value, span);
         }
     }
 
-    fn compute_spans_and_deleted_ops(&mut self, operators: &[SerializedOperator]) {
-        // Delete runs of Set(A), Set(B), Get(B), Get(A): these are
-        // stack-neutral sequences.
-        let mut start = None;
-        let mut current_run = vec![];
+    fn compute_spans(&mut self, operators: &[SerializedOperator]) {
+        // For each operator, get the reads and writes and construct spans.
         for (index, operator) in operators.iter().enumerate() {
-            match operator {
-                &SerializedOperator::Set(..) if start.is_none() => {
-                    start = Some(index);
-                    current_run.push(operator.clone());
-                }
-                &SerializedOperator::Set(..) => {
-                    current_run.push(operator.clone());
-                }
-                &SerializedOperator::Get(v, i)
-                    if start.is_some()
-                        && current_run.last() == Some(&SerializedOperator::Set(v, i)) =>
-                {
-                    current_run.pop();
-                    if current_run.is_empty() {
-                        for i in start.unwrap()..=index {
-                            self.locations.delete.push(i);
-                        }
-                        start = None;
-                    }
-                }
-                _ => {
-                    current_run.clear();
-                    start = None;
-                }
-            }
-        }
-
-        // For each non-deleted operator, get the reads and writes and construct spans.
-        let mut next_delete = 0;
-        for (index, operator) in operators.iter().enumerate() {
-            if next_delete < self.locations.delete.len()
-                && self.locations.delete[next_delete] == index
-            {
-                next_delete += 1;
-                continue;
-            }
-
             self.handle_op(index, operator);
         }
 

@@ -400,6 +400,7 @@ impl<'a> SerializedBodyContext<'a> {
 
         // Now push the args in reverse order.
         for &arg in operands.iter().rev() {
+            let arg = self.f.resolve_alias(arg);
             match &self.f.values[arg.index()] {
                 &ValueDef::Operator(op, ..) => {
                     if op_rematerialize(&op) {

@@ -155,12 +155,7 @@ pub fn produce_func_wasm(f: &FunctionBody, body: &SerializedBody, locations: &Lo
     wasm.locals
         .extend(locations.new_locals.iter().map(|ty| ty_to_valty(*ty)));
 
-    let mut next_delete = 0;
-    for (index, operator) in body.operators.iter().enumerate() {
-        if next_delete < locations.delete.len() && locations.delete[next_delete] == index {
-            next_delete += 1;
-            continue;
-        }
+    for operator in &body.operators {
         wasm.translate(operator, locations);
     }
 

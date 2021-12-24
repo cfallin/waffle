@@ -25,6 +25,7 @@ impl UseCountAnalysis {
             for &value in &f.blocks[block].insts {
                 if value != Value::undef() {
                     let value = f.resolve_alias(value);
+                    counts.add(value);
                     if workqueue_set.insert(value) {
                         workqueue.push_back(value);
                     }
@@ -34,6 +35,7 @@ impl UseCountAnalysis {
             f.blocks[block].terminator.visit_uses(|value| {
                 if value != Value::undef() {
                     let value = f.resolve_alias(value);
+                    counts.add(value);
                     if workqueue_set.insert(value) {
                         workqueue.push_back(value);
                     }
@@ -42,7 +44,6 @@ impl UseCountAnalysis {
 
             while let Some(value) = workqueue.pop_front() {
                 workqueue_set.remove(&value);
-                counts.add(value);
                 match &f.values[value.index()] {
                     &ValueDef::Alias(..) | &ValueDef::Arg(..) | &ValueDef::BlockParam(..) => {}
                     &ValueDef::Operator(_op, ref args) => {
@@ -51,7 +52,8 @@ impl UseCountAnalysis {
                                 continue;
                             }
                             let arg = f.resolve_alias(arg);
-                            if counts.use_count[arg.index()] == 0 {
+                            counts.add(arg);
+                            if counts.use_count[arg.index()] == 1 {
                                 if workqueue_set.insert(arg) {
                                     workqueue.push_back(arg);
                                 }
@@ -63,7 +65,8 @@ impl UseCountAnalysis {
                             continue;
                         }
                         let value = f.resolve_alias(value);
-                        if counts.use_count[value.index()] == 0 {
+                        counts.add(value);
+                        if counts.use_count[value.index()] == 1 {
                             if workqueue_set.insert(value) {
                                 workqueue.push_back(value);
                             }
