@@ -109,6 +109,7 @@ fn parse_body<'a>(
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param);
     }
+    ret.n_params = module.signatures[my_sig].params.len();
     for &r in &module.signatures[my_sig].returns[..] {
         ret.rets.push(r);
     }

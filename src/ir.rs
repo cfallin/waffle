@@ -53,6 +53,7 @@ impl FuncDecl {
 
 #[derive(Clone, Debug, Default)]
 pub struct FunctionBody {
+    pub n_params: usize,
     pub rets: Vec<Type>,
     pub locals: Vec<Type>,
     pub blocks: Vec<Block>,

@@ -160,7 +160,7 @@ pub fn produce_func_wasm<FT: FuncTypeSink>(
         locals: vec![],
     };
     wasm.locals
-        .extend(f.locals.iter().map(|ty| ty_to_valty(*ty)));
+        .extend(f.locals.iter().skip(f.n_params).map(|ty| ty_to_valty(*ty)));
     wasm.locals
         .extend(locations.new_locals.iter().map(|ty| ty_to_valty(*ty)));
 
