@@ -73,7 +73,7 @@ impl Schedule {
 
         // Prepare the "waiting on value", "remaining inputs", and
         // "ready" vectors.
-        for (value, value_def) in f.values() {
+        'skipvalue: for (value, value_def) in f.values() {
             if uses.use_count[value.index()] == 0 {
                 continue;
             }
@@ -91,7 +91,7 @@ impl Schedule {
                         let mut remaining = 0;
                         for &input in operands {
                             if input == Value::undef() {
-                                continue;
+                                continue 'skipvalue;
                             }
                             let input = f.resolve_alias(input);
 
