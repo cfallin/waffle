@@ -248,6 +248,7 @@ impl<'a> SerializedBodyContext<'a> {
                     .map(|target| {
                         let mut rev_ops = vec![];
                         for &value in target.args.iter().rev() {
+                            let value = self.f.resolve_alias(value);
                             self.push_value(value, &mut rev_ops);
                         }
                         rev_ops.reverse();
