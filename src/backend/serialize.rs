@@ -208,13 +208,6 @@ impl<'a> SerializedBodyContext<'a> {
                         results: results.clone(),
                     });
                 }
-
-                // Save params that are on the stack into
-                // locals. TODO: reuse one or more values immediately
-                // if ready-to-schedule ops can use them.
-                for &(_, value) in params.iter().rev() {
-                    self.operators.push(SerializedOperator::Set(value, 0));
-                }
             }
             &BlockOrderEntry::End => {
                 self.operators.push(SerializedOperator::End);
