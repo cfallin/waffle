@@ -73,7 +73,7 @@ impl Schedule {
 
         // Prepare the "waiting on value", "remaining inputs", and
         // "ready" vectors.
-        'skipvalue: for (value, value_def) in f.values() {
+        for (value, value_def) in f.values() {
             if uses.use_count[value.index()] == 0 {
                 continue;
             }
@@ -82,6 +82,10 @@ impl Schedule {
             }
             match value_def {
                 &ValueDef::Operator(op, ref operands) => {
+                    if operands.iter().any(|&value| value == Value::undef()) {
+                        continue;
+                    }
+
                     if operands.len() == 0 {
                         if !op_rematerialize(&op) {
                             log::trace!("immediately ready: v{}", value.index());
@@ -90,9 +94,6 @@ impl Schedule {
                     } else {
                         let mut remaining = 0;
                         for &input in operands {
-                            if input == Value::undef() {
-                                continue 'skipvalue;
-                            }
                             let input = f.resolve_alias(input);
 
                             match &f.values[input.index()] {
@@ -222,14 +223,10 @@ impl<'a> SchedulerContext<'a> {
         log::trace!("wake_dependents: v{}", v.index());
         let dependents = self.waiting_on_value.remove(&v).unwrap_or_default();
         for dependent in dependents {
+            log::trace!(" -> v{} wakes dependent v{}", v.index(), dependent.index(),);
             let remaining = self.remaining_inputs.get_mut(&dependent).unwrap();
             *remaining -= 1;
-            log::trace!(
-                " -> v{} wakes dependent v{}; remaining now {}",
-                v.index(),
-                dependent.index(),
-                *remaining
-            );
+            log::trace!(" -> remaining now {}", *remaining);
             if *remaining == 0 {
                 self.remaining_inputs.remove(&dependent);
                 self.ready.push(dependent);
