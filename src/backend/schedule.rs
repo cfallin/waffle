@@ -88,7 +88,6 @@ impl Schedule {
                             ctx.ready.push(value);
                         }
                     } else {
-                        log::trace!("v{} waiting on {:?}", value.index(), operands);
                         let mut remaining = 0;
                         for &input in operands {
                             if input == Value::undef() {
@@ -101,13 +100,18 @@ impl Schedule {
                                 }
                             }
 
+                            log::trace!("v{} waiting on v{}", value.index(), input.index());
                             ctx.waiting_on_value
                                 .entry(input)
                                 .or_insert_with(|| vec![])
                                 .push(value);
                             remaining += 1;
                         }
-                        ctx.remaining_inputs.insert(value, remaining);
+                        if remaining > 0 {
+                            ctx.remaining_inputs.insert(value, remaining);
+                        } else {
+                            ctx.ready.push(value);
+                        }
                     }
                 }
                 &ValueDef::Alias(v) | &ValueDef::PickOutput(v, _) => {
