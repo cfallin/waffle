@@ -109,6 +109,9 @@ fn parse_body<'a>(
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param);
     }
+    for &r in &module.signatures[my_sig].returns[..] {
+        ret.rets.push(r);
+    }
 
     let mut locals = body.get_locals_reader()?;
     for _ in 0..locals.get_count() {

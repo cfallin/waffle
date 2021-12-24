@@ -53,6 +53,7 @@ impl FuncDecl {
 
 #[derive(Clone, Debug, Default)]
 pub struct FunctionBody {
+    pub rets: Vec<Type>,
     pub locals: Vec<Type>,
     pub blocks: Vec<Block>,
     /// Sea-of-nodes representation.

@@ -345,13 +345,17 @@ impl BlockOrder {
                     target_stack.push(target);
                 }
                 let params = f.blocks[header].params.clone();
-                let results = match fallthrough {
-                    Some(fallthrough) => f.blocks[fallthrough]
-                        .params
-                        .iter()
-                        .map(|(ty, _)| *ty)
-                        .collect(),
-                    None => vec![],
+                let results = if header == 0 {
+                    f.rets.clone()
+                } else {
+                    match fallthrough {
+                        Some(fallthrough) => f.blocks[fallthrough]
+                            .params
+                            .iter()
+                            .map(|(ty, _)| *ty)
+                            .collect(),
+                        None => vec![],
+                    }
                 };
                 if is_loop {
                     entries.push(BlockOrderEntry::StartLoop(header, params, results));

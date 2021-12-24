@@ -288,6 +288,8 @@ impl<'a> SerializedBodyContext<'a> {
                         self.operators.extend(rev_ops);
                         self.operators
                             .push(SerializedOperator::BrTable { targets, default });
+                        self.operators
+                            .push(SerializedOperator::Operator(Operator::Unreachable));
                     }
                     &Terminator::Return { ref values, .. } => {
                         let mut rev_ops = vec![];
