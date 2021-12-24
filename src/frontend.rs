@@ -945,6 +945,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 };
                 // Get the frame we're branching to.
                 let frame = self.relative_frame(*relative_depth).clone();
+                log::trace!("Br/BrIf: dest frame {:?}", frame);
                 // Finally, generate the branch itself.
                 match cond {
                     None => {

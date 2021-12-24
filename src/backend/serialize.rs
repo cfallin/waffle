@@ -246,12 +246,14 @@ impl<'a> SerializedBodyContext<'a> {
                 let targets = targets
                     .iter()
                     .map(|target| {
+                        log::trace!("target: {:?}", target);
                         let mut rev_ops = vec![];
                         for &value in target.args.iter().rev() {
                             let value = self.f.resolve_alias(value);
                             self.push_value(value, &mut rev_ops);
                         }
                         rev_ops.reverse();
+                        log::trace!(" -> ops: {:?}", rev_ops);
                         match target.relative_branch {
                             Some(branch) => SerializedBlockTarget::Branch(branch, rev_ops),
                             None => SerializedBlockTarget::Fallthrough(rev_ops),

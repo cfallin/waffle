@@ -27,6 +27,7 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
     }
 
     fn translate(&mut self, op: &SerializedOperator, locations: &Locations) {
+        log::trace!("translate: {:?}", op);
         match op {
             SerializedOperator::StartBlock {
                 ref params,
@@ -129,6 +130,7 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
         target: &SerializedBlockTarget,
         locations: &Locations,
     ) {
+        log::trace!("translate_target: {:?}", target);
         match target {
             &SerializedBlockTarget::Fallthrough(ref ops) => {
                 for op in ops {

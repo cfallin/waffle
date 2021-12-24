@@ -310,7 +310,15 @@ impl BlockOrder {
     pub fn compute(f: &FunctionBody, cfg: &CFGInfo, wasm_region: &WasmRegion) -> BlockOrder {
         let mut target_stack = vec![];
         let mut entries = vec![];
-        Self::generate_region(f, cfg, &mut target_stack, &mut entries, wasm_region, None);
+        Self::generate_region(
+            f,
+            cfg,
+            &mut target_stack,
+            &mut entries,
+            wasm_region,
+            None,
+            true,
+        );
         log::trace!("entries: {:?}", entries);
         BlockOrder { entries }
     }
@@ -322,6 +330,7 @@ impl BlockOrder {
         entries: &mut Vec<BlockOrderEntry>,
         region: &WasmRegion,
         fallthrough: Option<BlockId>,
+        toplevel: bool,
     ) {
         log::trace!(
             "BlockOrder::generate_region: stack {:?} region {:?} fallthrough {:?}",
@@ -345,7 +354,7 @@ impl BlockOrder {
                     target_stack.push(target);
                 }
                 let params = f.blocks[header].params.clone();
-                let results = if header == 0 {
+                let results = if toplevel {
                     f.rets.clone()
                 } else {
                     match fallthrough {
@@ -370,7 +379,15 @@ impl BlockOrder {
                     } else {
                         Some(subregions[i + 1].header())
                     };
-                    Self::generate_region(f, cfg, target_stack, entries, subregion, fallthrough);
+                    Self::generate_region(
+                        f,
+                        cfg,
+                        target_stack,
+                        entries,
+                        subregion,
+                        fallthrough,
+                        false,
+                    );
                 }
 
                 entries.push(BlockOrderEntry::End);
