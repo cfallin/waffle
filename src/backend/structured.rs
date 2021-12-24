@@ -284,8 +284,16 @@ pub struct BlockOrder {
 
 #[derive(Clone, Debug)]
 pub enum BlockOrderEntry {
-    StartBlock(BlockId, Vec<(wasmparser::Type, Value)>),
-    StartLoop(BlockId, Vec<(wasmparser::Type, Value)>),
+    StartBlock(
+        BlockId,
+        Vec<(wasmparser::Type, Value)>,
+        Vec<wasmparser::Type>,
+    ),
+    StartLoop(
+        BlockId,
+        Vec<(wasmparser::Type, Value)>,
+        Vec<wasmparser::Type>,
+    ),
     End,
     BasicBlock(BlockId, Vec<BlockOrderTarget>),
 }
@@ -337,10 +345,18 @@ impl BlockOrder {
                     target_stack.push(target);
                 }
                 let params = f.blocks[header].params.clone();
+                let results = match fallthrough {
+                    Some(fallthrough) => f.blocks[fallthrough]
+                        .params
+                        .iter()
+                        .map(|(ty, _)| *ty)
+                        .collect(),
+                    None => vec![],
+                };
                 if is_loop {
-                    entries.push(BlockOrderEntry::StartLoop(header, params));
+                    entries.push(BlockOrderEntry::StartLoop(header, params, results));
                 } else {
-                    entries.push(BlockOrderEntry::StartBlock(header, params));
+                    entries.push(BlockOrderEntry::StartBlock(header, params, results));
                 }
 
                 for i in 0..subregions.len() {

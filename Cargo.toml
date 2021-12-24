@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 wasmparser = { git = 'https://github.com/cfallin/wasm-tools', rev = '03a81b6a6ed4d5d9730fa71bf65636a3b1538ce7' }
-wasm-encoder = "0.3"
+wasm-encoder = "0.8"
 anyhow = "1.0"
 structopt = "0.3"
 log = "0.4"

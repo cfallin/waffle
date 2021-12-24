@@ -22,21 +22,23 @@ pub struct SerializedBody {
     pub(crate) operators: Vec<SerializedOperator>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedBlockTarget {
     Fallthrough(Vec<SerializedOperator>),
     Branch(usize, Vec<SerializedOperator>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedOperator {
     StartBlock {
         header: BlockId,
         params: Vec<(wasmparser::Type, Value)>,
+        results: Vec<wasmparser::Type>,
     },
     StartLoop {
         header: BlockId,
         params: Vec<(wasmparser::Type, Value)>,
+        results: Vec<wasmparser::Type>,
     },
     Br(SerializedBlockTarget),
     BrIf {
@@ -192,8 +194,8 @@ impl SerializedBody {
 impl<'a> SerializedBodyContext<'a> {
     fn compute_entry(&mut self, entry: &BlockOrderEntry) {
         match entry {
-            &BlockOrderEntry::StartBlock(header, ref params)
-            | &BlockOrderEntry::StartLoop(header, ref params) => {
+            &BlockOrderEntry::StartBlock(header, ref params, ref results)
+            | &BlockOrderEntry::StartLoop(header, ref params, ref results) => {
                 let is_loop = match entry {
                     &BlockOrderEntry::StartLoop(..) => true,
                     _ => false,
@@ -203,11 +205,13 @@ impl<'a> SerializedBodyContext<'a> {
                     self.operators.push(SerializedOperator::StartLoop {
                         header,
                         params: params.clone(),
+                        results: results.clone(),
                     });
                 } else {
                     self.operators.push(SerializedOperator::StartBlock {
                         header,
                         params: params.clone(),
+                        results: results.clone(),
                     });
                 }
 
