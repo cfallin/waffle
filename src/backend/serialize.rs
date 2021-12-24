@@ -270,6 +270,7 @@ impl<'a> SerializedBodyContext<'a> {
                         let if_true = iter.next().unwrap();
                         let if_false = iter.next().unwrap();
                         let mut rev_ops = vec![];
+                        let cond = self.f.resolve_alias(cond);
                         self.push_value(cond, &mut rev_ops);
                         rev_ops.reverse();
                         self.operators.extend(rev_ops);
@@ -281,6 +282,7 @@ impl<'a> SerializedBodyContext<'a> {
                         let default = iter.next().unwrap();
                         let targets = iter.collect::<Vec<_>>();
                         let mut rev_ops = vec![];
+                        let value = self.f.resolve_alias(value);
                         self.push_value(value, &mut rev_ops);
                         rev_ops.reverse();
                         self.operators.extend(rev_ops);
