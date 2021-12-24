@@ -64,13 +64,9 @@ impl Wasm {
                 self.translate_target(0, target, locations);
             }
             SerializedOperator::BrIf {
-                cond,
                 ref if_true,
                 ref if_false,
             } => {
-                let loc = *locations.locations.get(&(*cond, 0)).unwrap();
-                self.operators
-                    .push(wasm_encoder::Instruction::LocalGet(loc));
                 self.operators.push(wasm_encoder::Instruction::If(
                     wasm_encoder::BlockType::Empty,
                 ));
@@ -80,19 +76,16 @@ impl Wasm {
                 self.operators.push(wasm_encoder::Instruction::End);
             }
             SerializedOperator::BrTable {
-                index,
                 ref targets,
                 ref default,
             } => {
+                let ty = self.create_type(vec![wasm_encoder::ValType::I32], vec![]);
                 for _ in 0..(targets.len() + 2) {
                     self.operators.push(wasm_encoder::Instruction::Block(
-                        wasm_encoder::BlockType::Empty,
+                        wasm_encoder::BlockType::FunctionType(ty),
                     ));
                 }
 
-                let loc = *locations.locations.get(&(*index, 0)).unwrap();
-                self.operators
-                    .push(wasm_encoder::Instruction::LocalGet(loc));
                 let br_table_targets = (1..=targets.len()).map(|i| i as u32).collect::<Vec<_>>();
                 self.operators.push(wasm_encoder::Instruction::BrTable(
                     Cow::Owned(br_table_targets),

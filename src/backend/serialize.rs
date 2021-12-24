@@ -42,12 +42,10 @@ pub enum SerializedOperator {
     },
     Br(SerializedBlockTarget),
     BrIf {
-        cond: Value,
         if_true: SerializedBlockTarget,
         if_false: SerializedBlockTarget,
     },
     BrTable {
-        index: Value,
         targets: Vec<SerializedBlockTarget>,
         default: SerializedBlockTarget,
     },
@@ -80,20 +78,16 @@ impl SerializedOperator {
                 target.visit_value_locals(r, w);
             }
             &SerializedOperator::BrIf {
-                cond,
                 ref if_true,
                 ref if_false,
             } => {
-                r(cond, 0);
                 if_true.visit_value_locals(r, w);
                 if_false.visit_value_locals(r, w);
             }
             &SerializedOperator::BrTable {
-                index,
                 ref default,
                 ref targets,
             } => {
-                r(index, 0);
                 default.visit_value_locals(r, w);
                 for target in targets {
                     target.visit_value_locals(r, w);
@@ -274,21 +268,23 @@ impl<'a> SerializedBodyContext<'a> {
                         let mut iter = targets.into_iter();
                         let if_true = iter.next().unwrap();
                         let if_false = iter.next().unwrap();
-                        self.operators.push(SerializedOperator::BrIf {
-                            cond,
-                            if_true,
-                            if_false,
-                        });
+                        let mut rev_ops = vec![];
+                        self.push_value(cond, &mut rev_ops);
+                        rev_ops.reverse();
+                        self.operators.extend(rev_ops);
+                        self.operators
+                            .push(SerializedOperator::BrIf { if_true, if_false });
                     }
                     &Terminator::Select { value, .. } => {
                         let mut iter = targets.into_iter();
                         let default = iter.next().unwrap();
                         let targets = iter.collect::<Vec<_>>();
-                        self.operators.push(SerializedOperator::BrTable {
-                            index: value,
-                            targets,
-                            default,
-                        });
+                        let mut rev_ops = vec![];
+                        self.push_value(value, &mut rev_ops);
+                        rev_ops.reverse();
+                        self.operators.extend(rev_ops);
+                        self.operators
+                            .push(SerializedOperator::BrTable { targets, default });
                     }
                     &Terminator::Return { ref values, .. } => {
                         let mut rev_ops = vec![];
