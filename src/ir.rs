@@ -1,15 +1,20 @@
 //! Intermediate representation for Wasm.
 
-use std::collections::hash_map::Entry;
-
 use crate::{
-    backend::{produce_func_wasm, BlockOrder, Locations, LoopNest, SerializedBody, WasmRegion},
+    backend::{
+        produce_func_wasm, BlockOrder, FuncTypeSink, Locations, LoopNest, SerializedBody,
+        WasmRegion,
+    },
     cfg::CFGInfo,
-    frontend, Operator,
+    frontend,
+    ops::ty_to_valty,
+    Operator,
 };
 use anyhow::Result;
 use fxhash::FxHashMap;
-use wasmparser::{FuncType, Type};
+use rayon::prelude::*;
+use std::collections::hash_map::Entry;
+use wasmparser::{FuncType, SectionReader, Type};
 
 pub type SignatureId = usize;
 pub type FuncId = usize;
@@ -483,10 +488,16 @@ impl<'a> Module<'a> {
         frontend::wasm_to_ir(bytes)
     }
 
-    pub fn to_wasm_bytes(self) -> Vec<u8> {
-        for func in &self.funcs {
-            match func {
-                &FuncDecl::Body(_, ref body) => {
+    pub fn to_wasm_bytes(&self) -> Vec<u8> {
+        // Do most of the compilation in parallel: up to the
+        // serialized (pre-regalloc) body and the regalloc
+        // results. Only the "final parts assembly" needs to be
+        // serialized because it can add function signatures.
+        let compiled: Vec<(u32, &FunctionBody, SerializedBody, Locations)> = self
+            .funcs
+            .par_iter()
+            .filter_map(|func| match func {
+                &FuncDecl::Body(sig, ref body) => {
                     let cfg = CFGInfo::new(body);
                     let loopnest = LoopNest::compute(&cfg);
                     let regions = WasmRegion::compute(&cfg, &loopnest);
@@ -495,13 +506,157 @@ impl<'a> Module<'a> {
                     log::trace!("serialized: {:?}", serialized);
                     let locations = Locations::compute(body, &serialized);
                     log::trace!("locations: {:?}", locations);
-                    let func_body = produce_func_wasm(body, &serialized, &locations);
-                    log::trace!("body: {:?}", func_body);
+                    Some((sig as u32, body, serialized, locations))
+                }
+                _ => None,
+            })
+            .collect();
+
+        // Build the final code section and function-type section.
+        let mut signatures = SignatureAdder::new(&self);
+        let mut code_section = wasm_encoder::CodeSection::new();
+        let mut func_section = wasm_encoder::FunctionSection::new();
+        for (sig, body, serialized, locations) in compiled {
+            let func_body = produce_func_wasm(body, &serialized, &locations, &mut signatures);
+            log::trace!("body: {:?}", func_body);
+
+            let mut locals: Vec<(u32, wasm_encoder::ValType)> = vec![];
+            for local_ty in func_body.locals {
+                if locals.len() > 0 && locals.last().unwrap().1 == local_ty {
+                    locals.last_mut().unwrap().0 += 1;
+                } else {
+                    locals.push((1, local_ty));
+                }
+            }
+            let mut func = wasm_encoder::Function::new(locals);
+
+            for inst in func_body.operators {
+                func.instruction(&inst);
+            }
+
+            func_section.function(sig);
+            code_section.function(&func);
+        }
+
+        // Build the final function-signature (type) section.
+        let mut type_section = wasm_encoder::TypeSection::new();
+        for sig in &signatures.signatures {
+            let params: Vec<wasm_encoder::ValType> =
+                sig.params.iter().map(|&ty| ty_to_valty(ty)).collect();
+            let returns: Vec<wasm_encoder::ValType> =
+                sig.returns.iter().map(|&ty| ty_to_valty(ty)).collect();
+            type_section.function(params, returns);
+        }
+
+        // Now do a final pass over the original bytes with
+        // wasmparser, replacing the type section, function section,
+        // and code section. (TODO: allow new imports to be added
+        // too?)
+        let parser = wasmparser::Parser::new(0);
+        let mut module = wasm_encoder::Module::new();
+        for payload in parser.parse_all(self.orig_bytes) {
+            match payload.unwrap() {
+                wasmparser::Payload::TypeSection(..) => {
+                    module.section(&type_section);
+                }
+                wasmparser::Payload::FunctionSection(..) => {
+                    module.section(&func_section);
+                }
+                wasmparser::Payload::CodeSectionStart { .. } => {
+                    module.section(&code_section);
+                }
+                wasmparser::Payload::CodeSectionEntry(..) => {}
+                wasmparser::Payload::ImportSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 2, data: bytes });
+                }
+                wasmparser::Payload::TableSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 4, data: bytes });
+                }
+                wasmparser::Payload::MemorySection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 5, data: bytes });
+                }
+                wasmparser::Payload::GlobalSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 6, data: bytes });
+                }
+                wasmparser::Payload::ExportSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 7, data: bytes });
+                }
+                wasmparser::Payload::StartSection { range, .. } => {
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 8, data: bytes });
+                }
+                wasmparser::Payload::ElementSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection { id: 9, data: bytes });
+                }
+                wasmparser::Payload::DataSection(reader) => {
+                    let range = reader.range();
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection {
+                        id: 11,
+                        data: bytes,
+                    });
+                }
+                wasmparser::Payload::DataCountSection { range, .. } => {
+                    let bytes = &self.orig_bytes[range.start..range.end];
+                    module.section(&wasm_encoder::RawSection {
+                        id: 12,
+                        data: bytes,
+                    });
                 }
                 _ => {}
             }
         }
-        // TODO
-        self.orig_bytes.to_vec()
+
+        module.finish()
+    }
+}
+
+struct SignatureAdder {
+    signatures: Vec<FuncType>,
+    signature_dedup: FxHashMap<FuncType, u32>,
+}
+
+impl SignatureAdder {
+    fn new(module: &Module<'_>) -> Self {
+        let signature_dedup: FxHashMap<FuncType, u32> = module
+            .signatures
+            .iter()
+            .enumerate()
+            .map(|(idx, sig)| (sig.clone(), idx as u32))
+            .collect();
+
+        Self {
+            signatures: module.signatures.clone(),
+            signature_dedup,
+        }
+    }
+}
+
+impl FuncTypeSink for SignatureAdder {
+    fn add_signature(&mut self, params: Vec<Type>, results: Vec<Type>) -> u32 {
+        let ft = wasmparser::FuncType {
+            params: params.into_boxed_slice(),
+            returns: results.into_boxed_slice(),
+        };
+        match self.signature_dedup.entry(ft.clone()) {
+            Entry::Occupied(o) => *o.get(),
+            Entry::Vacant(v) => {
+                let idx = self.signatures.len() as u32;
+                self.signatures.push(ft);
+                *v.insert(idx)
+            }
+        }
     }
 }

@@ -16,3 +16,4 @@ env_logger = "0.9"
 fxhash = "0.2"
 smallvec = "1.7"
 regalloc2 = { git = 'https://github.com/bytecodealliance/regalloc2', rev = 'c7bc6c941cd81bbd30b95969009b7e61539f2b4c' }
+rayon = "1.5"
