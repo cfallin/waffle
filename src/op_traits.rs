@@ -650,3 +650,13 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         Operator::MemoryGrow { .. } => Ok(vec![WriteMem, Trap]),
     }
 }
+
+pub fn op_rematerialize(op: &Operator) -> bool {
+    match op {
+        &Operator::I32Const { .. }
+        | &Operator::I64Const { .. }
+        | &Operator::F32Const { .. }
+        | &Operator::F64Const { .. } => true,
+        _ => false,
+    }
+}

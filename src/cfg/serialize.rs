@@ -8,10 +8,12 @@ use std::collections::VecDeque;
 use fxhash::{FxHashMap, FxHashSet};
 
 use super::{
-    structured::{BlockOrder, BlockOrderEntry, BlockOrderTarget},
+    structured::{BlockOrder, BlockOrderEntry},
     CFGInfo,
 };
-use crate::{BlockId, FunctionBody, Operator, Terminator, Value, ValueDef};
+use crate::{
+    op_traits::op_rematerialize, BlockId, FunctionBody, Operator, Terminator, Value, ValueDef,
+};
 
 /// A Wasm function body with a serialized sequence of operators that
 /// mirror Wasm opcodes in every way *except* for locals corresponding
@@ -145,6 +147,34 @@ impl SerializedBody {
     pub fn compute(f: &FunctionBody, cfg: &CFGInfo, order: &BlockOrder) -> SerializedBody {
         let uses = UseCountAnalysis::compute(f);
         let schedule = Schedule::compute(f, cfg, &uses);
+
+        if log::log_enabled!(log::Level::Trace) {
+            log::trace!("values:");
+            for value in 0..f.values.len() {
+                log::trace!(" * v{}: {:?}", value, f.values[value]);
+            }
+            log::trace!("schedule:");
+            for value in 0..schedule.location.len() {
+                log::trace!(" * v{}: {:?}", value, schedule.location[value]);
+            }
+
+            for block in 0..f.blocks.len() {
+                log::trace!("block{}:", block);
+                log::trace!(
+                    " -> at top: {:?}",
+                    schedule.compute_at_top_of_block.get(&block)
+                );
+                for &inst in &f.blocks[block].insts {
+                    log::trace!(" -> toplevel: v{}", inst.index());
+                    log::trace!(
+                        "    -> after: {:?}",
+                        schedule.compute_after_value.get(&inst)
+                    );
+                }
+                log::trace!(" -> terminator: {:?}", f.blocks[block].terminator);
+            }
+        }
+
         let mut ctx = SerializedBodyContext {
             f,
             cfg,
@@ -194,6 +224,13 @@ impl<'a> SerializedBodyContext<'a> {
                 self.operators.push(SerializedOperator::End);
             }
             &BlockOrderEntry::BasicBlock(block, ref targets) => {
+                log::trace!("BlockOrderEntry: block{}", block);
+
+                // Capture BlockParams.
+                for &(_, param) in self.f.blocks[block].params.iter().rev() {
+                    self.operators.push(SerializedOperator::Set(param, 0));
+                }
+
                 // Schedule ops. First handle the compute-at-top ones.
                 if let Some(compute_at_top) = self.schedule.compute_at_top_of_block.get(&block) {
                     self.schedule_ops(None, &compute_at_top[..]);
@@ -204,6 +241,8 @@ impl<'a> SerializedBodyContext<'a> {
                 for &inst in &self.f.blocks[block].insts {
                     if let Some(after) = self.schedule.compute_after_value.get(&inst) {
                         self.schedule_ops(Some(inst), &after[..]);
+                    } else {
+                        self.schedule_ops(Some(inst), &[]);
                     }
                 }
 
@@ -269,6 +308,7 @@ impl<'a> SerializedBodyContext<'a> {
     }
 
     fn schedule_ops(&mut self, toplevel: Option<Value>, values: &[Value]) {
+        log::trace!("schedule_ops: toplevel {:?} values {:?}", toplevel, values);
         // Work backward, generating values in the appropriate order
         // on the stack if single-use.
         let mut rev_ops = vec![];
@@ -294,6 +334,12 @@ impl<'a> SerializedBodyContext<'a> {
             );
         }
         rev_ops.reverse();
+        log::trace!(
+            "schedule_ops: toplevel {:?} values {:?} -> ops {:?}",
+            toplevel,
+            values,
+            rev_ops
+        );
         self.operators.extend(rev_ops.into_iter());
     }
 
@@ -304,6 +350,9 @@ impl<'a> SerializedBodyContext<'a> {
             }
             &ValueDef::Arg(i) => {
                 rev_ops.push(SerializedOperator::GetArg(i));
+            }
+            &ValueDef::Operator(op, ..) if op_rematerialize(&op) => {
+                rev_ops.push(SerializedOperator::Operator(op));
             }
             _ => {
                 rev_ops.push(SerializedOperator::Get(v, 0));
@@ -335,7 +384,7 @@ impl<'a> SerializedBodyContext<'a> {
 
         // We're generating ops in reverse order. So we must first
         // store value.
-        for i in (0..self.f.types[op.index()].len()).rev() {
+        for i in 0..self.f.types[op.index()].len() {
             if !leave_value_on_stack {
                 rev_ops.push(SerializedOperator::Set(op, i));
             } else {
@@ -351,8 +400,11 @@ impl<'a> SerializedBodyContext<'a> {
         // Now push the args in reverse order.
         for &arg in operands.iter().rev() {
             match &self.f.values[arg.index()] {
-                &ValueDef::Operator(..) => {
-                    if self.uses.use_count[arg.index()] == 1 && self.f.types[arg.index()].len() == 1
+                &ValueDef::Operator(op, ..) => {
+                    if op_rematerialize(&op) {
+                        rev_ops.push(SerializedOperator::Operator(op));
+                    } else if self.uses.use_count[arg.index()] == 1
+                        && self.f.types[arg.index()].len() == 1
                     {
                         self.schedule_op(
                             arg, rev_ops, /* leave_on_stack = */ true, to_compute,
@@ -393,6 +445,12 @@ impl UseCountAnalysis {
                 }
                 counts.toplevel.insert(value);
             }
+            f.blocks[block].terminator.visit_uses(|value| {
+                let value = f.resolve_alias(value);
+                if workqueue_set.insert(value) {
+                    workqueue.push_back(value);
+                }
+            });
 
             while let Some(value) = workqueue.pop_front() {
                 workqueue_set.remove(&value);
@@ -485,6 +543,10 @@ impl Schedule {
         let mut schedule = Schedule::default();
         schedule.location = vec![Location::None; f.values.len()];
 
+        log::trace!("f: {:?}", f);
+        log::trace!("cfg: {:?}", cfg);
+        log::trace!("uses: {:?}", uses);
+
         let mut ctx = SchedulerContext {
             schedule: &mut schedule,
             f,
@@ -500,11 +562,18 @@ impl Schedule {
             if uses.use_count[value.index()] == 0 {
                 continue;
             }
+            if uses.toplevel.contains(&value) {
+                continue;
+            }
             match value_def {
-                &ValueDef::Operator(_, ref operands) => {
+                &ValueDef::Operator(op, ref operands) => {
                     if operands.len() == 0 {
-                        ctx.ready.push(value);
+                        if !op_rematerialize(&op) {
+                            log::trace!("immediately ready: v{}", value.index());
+                            ctx.ready.push(value);
+                        }
                     } else {
+                        log::trace!("v{} waiting on {:?}", value.index(), operands);
                         ctx.remaining_inputs.insert(value, operands.len());
                         for &input in operands {
                             let input = f.resolve_alias(input);
@@ -517,7 +586,7 @@ impl Schedule {
                 }
                 &ValueDef::Alias(v) | &ValueDef::PickOutput(v, _) => {
                     let v = f.resolve_alias(v);
-                    ctx.remaining_inputs.insert(v, 1);
+                    ctx.remaining_inputs.insert(value, 1);
                     ctx.waiting_on_value
                         .entry(v)
                         .or_insert_with(|| vec![])
@@ -551,10 +620,14 @@ impl Schedule {
 
         for &block in cfg.postorder.iter().rev() {
             for &(_, param) in &f.blocks[block].params {
+                log::trace!("block{}: param v{}", block, param.index());
                 ctx.wake_dependents(param);
             }
+            ctx.sched_ready_at_block_top(block);
             for &inst in &f.blocks[block].insts {
+                log::trace!("block{}: toplevel v{}", block, inst.index());
                 ctx.sched_toplevel(inst);
+                ctx.sched_ready_after_value(inst);
             }
         }
 
@@ -564,14 +637,21 @@ impl Schedule {
 
 impl<'a> SchedulerContext<'a> {
     fn sched_toplevel(&mut self, v: Value) {
+        log::trace!("sched_toplevel: v{}", v.index());
         assert_eq!(self.schedule.location[v.index()], Location::None);
         self.schedule.location[v.index()] = Location::Toplevel;
         self.wake_dependents(v);
     }
 
     fn sched_ready_after_value(&mut self, v: Value) {
+        log::trace!("sched_ready_after_value: toplevel v{}", v.index());
         while !self.ready.is_empty() {
             for ready in std::mem::take(&mut self.ready) {
+                log::trace!(
+                    "sched_ready_after_value: toplevel v{} -> v{} now ready",
+                    v.index(),
+                    ready.index()
+                );
                 self.schedule.location[ready.index()] = Location::After(v);
                 self.schedule
                     .compute_after_value
@@ -584,8 +664,14 @@ impl<'a> SchedulerContext<'a> {
     }
 
     fn sched_ready_at_block_top(&mut self, block: BlockId) {
+        log::trace!("ready_at_block_top: block{}", block);
         while !self.ready.is_empty() {
             for ready in std::mem::take(&mut self.ready) {
+                log::trace!(
+                    "ready_at_block_top: block{} -> ready: v{}",
+                    block,
+                    ready.index()
+                );
                 self.schedule.location[ready.index()] = Location::BlockTop(block);
                 self.schedule
                     .compute_at_top_of_block
@@ -598,10 +684,17 @@ impl<'a> SchedulerContext<'a> {
     }
 
     fn wake_dependents(&mut self, v: Value) {
+        log::trace!("wake_dependents: v{}", v.index());
         let dependents = self.waiting_on_value.remove(&v).unwrap_or_default();
         for dependent in dependents {
             let remaining = self.remaining_inputs.get_mut(&dependent).unwrap();
             *remaining -= 1;
+            log::trace!(
+                " -> v{} wakes dependent v{}; remaining now {}",
+                v.index(),
+                dependent.index(),
+                *remaining
+            );
             if *remaining == 0 {
                 self.remaining_inputs.remove(&dependent);
                 self.ready.push(dependent);
