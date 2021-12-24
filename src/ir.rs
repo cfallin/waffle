@@ -3,7 +3,7 @@
 use std::collections::hash_map::Entry;
 
 use crate::{
-    backend::{BlockOrder, LoopNest, SerializedBody, WasmRegion},
+    backend::{produce_func_wasm, BlockOrder, Locations, LoopNest, SerializedBody, WasmRegion},
     cfg::CFGInfo,
     frontend, Operator,
 };
@@ -492,7 +492,11 @@ impl<'a> Module<'a> {
                     let regions = WasmRegion::compute(&cfg, &loopnest);
                     let blockorder = BlockOrder::compute(body, &cfg, &regions);
                     let serialized = SerializedBody::compute(body, &cfg, &blockorder);
-                    log::trace!("serialized:{:?}", serialized);
+                    log::trace!("serialized: {:?}", serialized);
+                    let locations = Locations::compute(body, &serialized);
+                    log::trace!("locations: {:?}", locations);
+                    let func_body = produce_func_wasm(body, &serialized, &locations);
+                    log::trace!("body: {:?}", func_body);
                 }
                 _ => {}
             }

@@ -65,10 +65,10 @@ impl<'a> Allocator<'a> {
         let mut reads = vec![];
         let mut writes = vec![];
         op.visit_value_locals(
-            |value, index| {
+            &mut |value, index| {
                 reads.push((value, index));
             },
-            |value, index| {
+            &mut |value, index| {
                 writes.push((value, index));
             },
         );
@@ -77,7 +77,7 @@ impl<'a> Allocator<'a> {
             let span = match self.spans.get_mut(&(value, index)) {
                 Some(span) => span,
                 None => {
-                    panic!("Read before any write to local (v{},{})", value, index);
+                    panic!("Read before any write to local ({},{})", value, index);
                 }
             };
             span.end = location + 1;

@@ -1,10 +1,9 @@
 //! Final Wasm operator sequence production.
 
+use super::{Locations, SerializedBlockTarget, SerializedBody, SerializedOperator};
+use crate::{ops::ty_to_valty, FunctionBody};
+use std::borrow::Cow;
 use wasm_encoder::BlockType;
-
-use crate::{ops::ty_to_valty, FunctionBody, Operator};
-
-use super::{Locations, SerializedBody, SerializedOperator};
 
 #[derive(Clone, Debug)]
 pub struct Wasm {
@@ -62,36 +61,96 @@ impl Wasm {
                 self.operators.push(op.clone().into());
             }
             SerializedOperator::Br(ref target) => {
-                todo!()
+                self.translate_target(0, target, locations);
             }
             SerializedOperator::BrIf {
                 cond,
                 ref if_true,
                 ref if_false,
             } => {
-                todo!()
+                let loc = *locations.locations.get(&(*cond, 0)).unwrap();
+                self.operators
+                    .push(wasm_encoder::Instruction::LocalGet(loc));
+                self.operators.push(wasm_encoder::Instruction::If(
+                    wasm_encoder::BlockType::Empty,
+                ));
+                self.translate_target(1, if_true, locations);
+                self.operators.push(wasm_encoder::Instruction::Else);
+                self.translate_target(1, if_false, locations);
+                self.operators.push(wasm_encoder::Instruction::End);
             }
             SerializedOperator::BrTable {
                 index,
                 ref targets,
                 ref default,
             } => {
-                todo!()
+                for _ in 0..(targets.len() + 2) {
+                    self.operators.push(wasm_encoder::Instruction::Block(
+                        wasm_encoder::BlockType::Empty,
+                    ));
+                }
+
+                let loc = *locations.locations.get(&(*index, 0)).unwrap();
+                self.operators
+                    .push(wasm_encoder::Instruction::LocalGet(loc));
+                let br_table_targets = (1..=targets.len()).map(|i| i as u32).collect::<Vec<_>>();
+                self.operators.push(wasm_encoder::Instruction::BrTable(
+                    Cow::Owned(br_table_targets),
+                    0,
+                ));
+                self.operators.push(wasm_encoder::Instruction::End);
+
+                self.translate_target(targets.len() + 1, default, locations);
+                self.operators.push(wasm_encoder::Instruction::End);
+
+                for i in 0..targets.len() {
+                    self.translate_target(targets.len() - i, &targets[i], locations);
+                    self.operators.push(wasm_encoder::Instruction::End);
+                }
             }
             SerializedOperator::Get(v, i) => {
-                todo!()
+                let loc = *locations.locations.get(&(*v, *i)).unwrap();
+                self.operators
+                    .push(wasm_encoder::Instruction::LocalGet(loc));
             }
             SerializedOperator::Set(v, i) => {
-                todo!()
+                let loc = *locations.locations.get(&(*v, *i)).unwrap();
+                self.operators
+                    .push(wasm_encoder::Instruction::LocalSet(loc));
             }
             SerializedOperator::Tee(v, i) => {
-                todo!()
+                let loc = *locations.locations.get(&(*v, *i)).unwrap();
+                self.operators
+                    .push(wasm_encoder::Instruction::LocalTee(loc));
+            }
+        }
+    }
+
+    fn translate_target(
+        &mut self,
+        extra_blocks: usize,
+        target: &SerializedBlockTarget,
+        locations: &Locations,
+    ) {
+        match target {
+            &SerializedBlockTarget::Fallthrough(ref ops) => {
+                for op in ops {
+                    self.translate(op, locations);
+                }
+            }
+            &SerializedBlockTarget::Branch(branch, ref ops) => {
+                for op in ops {
+                    self.translate(op, locations);
+                }
+                self.operators.push(wasm_encoder::Instruction::Br(
+                    (branch + extra_blocks) as u32,
+                ));
             }
         }
     }
 }
 
-pub fn produce_wasm(f: &FunctionBody, body: &SerializedBody, locations: &Locations) -> Wasm {
+pub fn produce_func_wasm(f: &FunctionBody, body: &SerializedBody, locations: &Locations) -> Wasm {
     let mut wasm = Wasm {
         operators: vec![],
         locals: vec![],

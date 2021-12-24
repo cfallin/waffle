@@ -72,12 +72,12 @@ pub enum SerializedOperator {
 impl SerializedOperator {
     pub fn visit_value_locals<R: FnMut(Value, usize), W: FnMut(Value, usize)>(
         &self,
-        mut r: R,
-        mut w: W,
+        r: &mut R,
+        w: &mut W,
     ) {
         match self {
             &SerializedOperator::Br(ref target) => {
-                target.visit_value_locals(&mut r, &mut w);
+                target.visit_value_locals(r, w);
             }
             &SerializedOperator::BrIf {
                 cond,
@@ -85,8 +85,8 @@ impl SerializedOperator {
                 ref if_false,
             } => {
                 r(cond, 0);
-                if_true.visit_value_locals(&mut r, &mut w);
-                if_false.visit_value_locals(&mut r, &mut w);
+                if_true.visit_value_locals(r, w);
+                if_false.visit_value_locals(r, w);
             }
             &SerializedOperator::BrTable {
                 index,
@@ -94,9 +94,9 @@ impl SerializedOperator {
                 ref targets,
             } => {
                 r(index, 0);
-                default.visit_value_locals(&mut r, &mut w);
+                default.visit_value_locals(r, w);
                 for target in targets {
-                    target.visit_value_locals(&mut r, &mut w);
+                    target.visit_value_locals(r, w);
                 }
             }
             &SerializedOperator::Get(v, i) => {
@@ -128,7 +128,7 @@ impl SerializedBlockTarget {
             &SerializedBlockTarget::Branch(_, ref ops)
             | &SerializedBlockTarget::Fallthrough(ref ops) => {
                 for op in ops {
-                    op.visit_value_locals(|value, i| r(value, i), |value, i| w(value, i));
+                    op.visit_value_locals(r, w);
                 }
             }
         }
