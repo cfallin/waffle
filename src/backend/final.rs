@@ -169,6 +169,7 @@ pub fn produce_func_wasm<FT: FuncTypeSink>(
     for operator in &body.operators {
         ctx.translate(operator, locations);
     }
+    wasm.operators.push(wasm_encoder::Instruction::End);
 
     wasm
 }

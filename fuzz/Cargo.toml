@@ -33,3 +33,9 @@ name = "roundtrip"
 path = "fuzz_targets/roundtrip.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "roundtrip_roundtrip"
+path = "fuzz_targets/roundtrip_roundtrip.rs"
+test = false
+doc = false
