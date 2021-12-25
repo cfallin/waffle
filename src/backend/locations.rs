@@ -164,12 +164,12 @@ impl<'a> Allocator<'a> {
                     end_idx += 1;
                     self.handle_end(&span);
                 } else {
-                    let span = self.ends[start_idx];
+                    let span = self.starts[start_idx];
                     start_idx += 1;
                     self.handle_start(&span);
                 }
             } else if start_idx < self.starts.len() {
-                let span = self.ends[start_idx];
+                let span = self.starts[start_idx];
                 start_idx += 1;
                 self.handle_start(&span);
             } else {
