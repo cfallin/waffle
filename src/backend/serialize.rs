@@ -12,6 +12,7 @@ use crate::{
     ValueDef,
 };
 use fxhash::FxHashSet;
+use wasmparser::Type;
 
 /// A Wasm function body with a serialized sequence of operators that
 /// mirror Wasm opcodes in every way *except* for locals corresponding
@@ -24,21 +25,21 @@ pub struct SerializedBody {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedBlockTarget {
-    Fallthrough(Vec<SerializedOperator>),
-    Branch(usize, Vec<SerializedOperator>),
+    Fallthrough(Vec<Type>, Vec<SerializedOperator>),
+    Branch(usize, Vec<Type>, Vec<SerializedOperator>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedOperator {
     StartBlock {
         header: BlockId,
-        params: Vec<(wasmparser::Type, Value)>,
-        results: Vec<wasmparser::Type>,
+        params: Vec<(Type, Value)>,
+        results: Vec<Type>,
     },
     StartLoop {
         header: BlockId,
-        params: Vec<(wasmparser::Type, Value)>,
-        results: Vec<wasmparser::Type>,
+        params: Vec<(Type, Value)>,
+        results: Vec<Type>,
     },
     Br(SerializedBlockTarget),
     BrIf {
@@ -119,8 +120,8 @@ impl SerializedBlockTarget {
         w: &mut W,
     ) {
         match self {
-            &SerializedBlockTarget::Branch(_, ref ops)
-            | &SerializedBlockTarget::Fallthrough(ref ops) => {
+            &SerializedBlockTarget::Branch(_, _, ref ops)
+            | &SerializedBlockTarget::Fallthrough(_, ref ops) => {
                 for op in ops {
                     op.visit_value_locals(r, w);
                 }
@@ -246,10 +247,15 @@ impl<'a> SerializedBodyContext<'a> {
                             self.push_value(value, &mut rev_ops);
                         }
                         rev_ops.reverse();
+                        let tys: Vec<Type> = self.f.blocks[target.target]
+                            .params
+                            .iter()
+                            .map(|&(ty, _)| ty)
+                            .collect();
                         log::trace!(" -> ops: {:?}", rev_ops);
                         match target.relative_branch {
-                            Some(branch) => SerializedBlockTarget::Branch(branch, rev_ops),
-                            None => SerializedBlockTarget::Fallthrough(rev_ops),
+                            Some(branch) => SerializedBlockTarget::Branch(branch, tys, rev_ops),
+                            None => SerializedBlockTarget::Fallthrough(tys, rev_ops),
                         }
                     })
                     .collect::<Vec<_>>();
@@ -283,8 +289,6 @@ impl<'a> SerializedBodyContext<'a> {
                         self.operators.extend(rev_ops);
                         self.operators
                             .push(SerializedOperator::BrTable { targets, default });
-                        self.operators
-                            .push(SerializedOperator::Operator(Operator::Unreachable));
                     }
                     &Terminator::Return { ref values, .. } => {
                         let mut rev_ops = vec![];
