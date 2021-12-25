@@ -148,6 +148,9 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
         .filter_map(|e| e.into_memory())
         .collect();
 
+    log::info!("a_globals = {:?}", a_globals);
+    log::info!("b_globals = {:?}", b_globals);
+
     assert_eq!(a_globals.len(), b_globals.len());
     for (a, b) in a_globals.into_iter().zip(b_globals.into_iter()) {
         match (a, b) {
