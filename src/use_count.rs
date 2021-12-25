@@ -1,9 +1,8 @@
 //! Use-count analysis.
 
-use std::collections::VecDeque;
-
 use crate::{FunctionBody, Value, ValueDef};
 use fxhash::FxHashSet;
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug)]
 pub struct UseCountAnalysis {

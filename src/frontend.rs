@@ -5,7 +5,7 @@
 use std::convert::TryFrom;
 
 use crate::ir::*;
-use crate::op_traits::{op_effects, op_inputs, op_outputs};
+use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
@@ -1181,21 +1181,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         log::trace!(" -> operands: {:?}", input_operands);
         log::trace!(" -> ty {:?}", outputs);
 
-        let side_effects = !op_effects(&op).unwrap().is_empty();
-
-        let value = if side_effects {
-            self.body
-                .add_mutable_inst(outputs.clone(), ValueDef::Operator(op, input_operands))
-        } else {
-            self.body
-                .add_value(ValueDef::Operator(op, input_operands), outputs.clone())
-        };
+        let value = self
+            .body
+            .add_value(ValueDef::Operator(op, input_operands), outputs.clone());
         log::trace!(" -> value: {:?}", value);
 
         if let Some(block) = self.cur_block {
-            if side_effects {
-                self.body.blocks[block].insts.push(value);
-            }
+            self.body.blocks[block].insts.push(value);
         }
 
         if n_outputs == 1 {

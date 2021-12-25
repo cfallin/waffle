@@ -4,7 +4,6 @@ use super::{Locations, SerializedBlockTarget, SerializedBody, SerializedOperator
 use crate::{ops::ty_to_valty, FunctionBody};
 use std::borrow::Cow;
 use wasm_encoder::BlockType;
-use wasmparser::Type;
 
 #[derive(Clone, Debug)]
 pub struct Wasm {
@@ -12,59 +11,23 @@ pub struct Wasm {
     pub locals: Vec<wasm_encoder::ValType>,
 }
 
-struct WasmContext<'a, FT: FuncTypeSink> {
+struct WasmContext<'a> {
     wasm: &'a mut Wasm,
-    func_type_sink: &'a mut FT,
 }
 
-pub trait FuncTypeSink {
-    fn add_signature(&mut self, params: Vec<Type>, results: Vec<Type>) -> u32;
-}
-
-impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
-    fn create_type(&mut self, params: Vec<Type>, results: Vec<Type>) -> u32 {
-        self.func_type_sink.add_signature(params, results)
-    }
-
-    fn find_fallthrough_ty<'b>(
-        &mut self,
-        params: &[Type],
-        mut targets: impl Iterator<Item = &'b SerializedBlockTarget>,
-    ) -> u32 {
-        let fallthrough_rets = targets
-            .find_map(|target| match target {
-                SerializedBlockTarget::Fallthrough(tys, ..) => Some(&tys[..]),
-                _ => None,
-            })
-            .unwrap_or(&[]);
-
-        self.create_type(params.to_vec(), fallthrough_rets.to_vec())
-    }
-
+impl<'a> WasmContext<'a> {
     fn translate(&mut self, op: &SerializedOperator, locations: &Locations) {
         log::trace!("translate: {:?}", op);
         match op {
-            SerializedOperator::StartBlock {
-                ref params,
-                ref results,
-                ..
-            } => {
-                let ty =
-                    self.create_type(params.iter().map(|&(ty, _)| ty).collect(), results.clone());
-                self.wasm.operators.push(wasm_encoder::Instruction::Block(
-                    BlockType::FunctionType(ty),
-                ));
-            }
-            SerializedOperator::StartLoop {
-                ref params,
-                ref results,
-                ..
-            } => {
-                let ty =
-                    self.create_type(params.iter().map(|&(ty, _)| ty).collect(), results.clone());
+            SerializedOperator::StartBlock { .. } => {
                 self.wasm
                     .operators
-                    .push(wasm_encoder::Instruction::Loop(BlockType::FunctionType(ty)));
+                    .push(wasm_encoder::Instruction::Block(BlockType::Empty));
+            }
+            SerializedOperator::StartLoop { .. } => {
+                self.wasm
+                    .operators
+                    .push(wasm_encoder::Instruction::Loop(BlockType::Empty));
             }
             SerializedOperator::End => {
                 self.wasm.operators.push(wasm_encoder::Instruction::End);
@@ -84,37 +47,29 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
                 ref if_true,
                 ref if_false,
             } => {
-                let fallthrough_ty =
-                    self.find_fallthrough_ty(&[], [if_true, if_false].iter().map(|&targ| targ));
                 self.wasm
                     .operators
-                    .push(wasm_encoder::Instruction::If(BlockType::FunctionType(
-                        fallthrough_ty,
-                    )));
+                    .push(wasm_encoder::Instruction::If(BlockType::Empty));
                 self.translate_target(1, if_true, locations);
                 self.wasm.operators.push(wasm_encoder::Instruction::Else);
                 self.translate_target(1, if_false, locations);
                 self.wasm.operators.push(wasm_encoder::Instruction::End);
             }
             SerializedOperator::BrTable {
+                ref index_ops,
                 ref targets,
                 ref default,
             } => {
-                let fallthrough_ty = self.find_fallthrough_ty(
-                    &[Type::I32],
-                    targets.iter().chain(std::iter::once(default)),
-                );
-                self.wasm.operators.push(wasm_encoder::Instruction::Block(
-                    wasm_encoder::BlockType::FunctionType(fallthrough_ty),
-                ));
-                let index_ty = self.create_type(vec![Type::I32], vec![]);
-                for _ in 0..(targets.len() + 1) {
+                for _ in 0..(targets.len() + 2) {
                     self.wasm.operators.push(wasm_encoder::Instruction::Block(
-                        wasm_encoder::BlockType::FunctionType(index_ty),
+                        wasm_encoder::BlockType::Empty,
                     ));
                 }
 
                 let br_table_targets = (1..=targets.len()).map(|i| i as u32).collect::<Vec<_>>();
+                for op in index_ops {
+                    self.translate(op, locations);
+                }
                 self.wasm.operators.push(wasm_encoder::Instruction::BrTable(
                     Cow::Owned(br_table_targets),
                     0,
@@ -158,7 +113,7 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
     ) {
         log::trace!("translate_target: {:?}", target);
         match target {
-            &SerializedBlockTarget::Fallthrough(_, ref ops) => {
+            &SerializedBlockTarget::Fallthrough(ref ops) => {
                 for op in ops {
                     self.translate(op, locations);
                 }
@@ -168,7 +123,7 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
                         .push(wasm_encoder::Instruction::Br((extra_blocks - 1) as u32));
                 }
             }
-            &SerializedBlockTarget::Branch(branch, _, ref ops) => {
+            &SerializedBlockTarget::Branch(branch, ref ops) => {
                 for op in ops {
                     self.translate(op, locations);
                 }
@@ -180,12 +135,7 @@ impl<'a, FT: FuncTypeSink> WasmContext<'a, FT> {
     }
 }
 
-pub fn produce_func_wasm<FT: FuncTypeSink>(
-    f: &FunctionBody,
-    body: &SerializedBody,
-    locations: &Locations,
-    ft: &mut FT,
-) -> Wasm {
+pub fn produce_func_wasm(f: &FunctionBody, body: &SerializedBody, locations: &Locations) -> Wasm {
     let mut wasm = Wasm {
         operators: vec![],
         locals: vec![],
@@ -195,13 +145,14 @@ pub fn produce_func_wasm<FT: FuncTypeSink>(
     wasm.locals
         .extend(locations.new_locals.iter().map(|ty| ty_to_valty(*ty)));
 
-    let mut ctx = WasmContext {
-        wasm: &mut wasm,
-        func_type_sink: ft,
-    };
+    let mut ctx = WasmContext { wasm: &mut wasm };
     for operator in &body.operators {
         ctx.translate(operator, locations);
     }
+    // There is always an explicit Return before this point. This
+    // allows us to avoid matching the return types in our stack
+    // discipline / outer block type.
+    wasm.operators.push(wasm_encoder::Instruction::Unreachable);
     wasm.operators.push(wasm_encoder::Instruction::End);
 
     wasm

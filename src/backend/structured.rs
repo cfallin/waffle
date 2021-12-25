@@ -284,16 +284,8 @@ pub struct BlockOrder {
 
 #[derive(Clone, Debug)]
 pub enum BlockOrderEntry {
-    StartBlock(
-        BlockId,
-        Vec<(wasmparser::Type, Value)>,
-        Vec<wasmparser::Type>,
-    ),
-    StartLoop(
-        BlockId,
-        Vec<(wasmparser::Type, Value)>,
-        Vec<wasmparser::Type>,
-    ),
+    StartBlock(BlockId),
+    StartLoop(BlockId),
     End,
     BasicBlock(BlockId, Vec<BlockOrderTarget>),
 }
@@ -310,15 +302,7 @@ impl BlockOrder {
     pub fn compute(f: &FunctionBody, cfg: &CFGInfo, wasm_region: &WasmRegion) -> BlockOrder {
         let mut target_stack = vec![];
         let mut entries = vec![];
-        Self::generate_region(
-            f,
-            cfg,
-            &mut target_stack,
-            &mut entries,
-            wasm_region,
-            None,
-            true,
-        );
+        Self::generate_region(f, cfg, &mut target_stack, &mut entries, wasm_region, None);
         log::trace!("entries: {:?}", entries);
         BlockOrder { entries }
     }
@@ -330,7 +314,6 @@ impl BlockOrder {
         entries: &mut Vec<BlockOrderEntry>,
         region: &WasmRegion,
         fallthrough: Option<BlockId>,
-        toplevel: bool,
     ) {
         log::trace!(
             "BlockOrder::generate_region: stack {:?} region {:?} fallthrough {:?}",
@@ -353,23 +336,11 @@ impl BlockOrder {
                 if let Some(target) = target {
                     target_stack.push(target);
                 }
-                let params = f.blocks[header].params.clone();
-                let results = if toplevel {
-                    f.rets.clone()
-                } else {
-                    match fallthrough {
-                        Some(fallthrough) => f.blocks[fallthrough]
-                            .params
-                            .iter()
-                            .map(|(ty, _)| *ty)
-                            .collect(),
-                        None => vec![],
-                    }
-                };
+
                 if is_loop {
-                    entries.push(BlockOrderEntry::StartLoop(header, params, results));
+                    entries.push(BlockOrderEntry::StartLoop(header));
                 } else {
-                    entries.push(BlockOrderEntry::StartBlock(header, params, results));
+                    entries.push(BlockOrderEntry::StartBlock(header));
                 }
 
                 for i in 0..subregions.len() {
@@ -379,15 +350,7 @@ impl BlockOrder {
                     } else {
                         Some(subregions[i + 1].header())
                     };
-                    Self::generate_region(
-                        f,
-                        cfg,
-                        target_stack,
-                        entries,
-                        subregion,
-                        fallthrough,
-                        false,
-                    );
+                    Self::generate_region(f, cfg, target_stack, entries, subregion, fallthrough);
                 }
 
                 entries.push(BlockOrderEntry::End);

@@ -3,16 +3,11 @@
 //! in Wasm function body. Contains everything needed to emit Wasm
 //! except for value locations (and corresponding local spill/reloads).
 
-use super::{
-    structured::{BlockOrder, BlockOrderEntry},
-    Schedule, UseCountAnalysis,
-};
+use super::structured::{BlockOrder, BlockOrderEntry};
 use crate::{
     cfg::CFGInfo, op_traits::op_rematerialize, BlockId, FunctionBody, Operator, Terminator, Value,
     ValueDef,
 };
-use fxhash::FxHashSet;
-use wasmparser::Type;
 
 /// A Wasm function body with a serialized sequence of operators that
 /// mirror Wasm opcodes in every way *except* for locals corresponding
@@ -25,21 +20,17 @@ pub struct SerializedBody {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedBlockTarget {
-    Fallthrough(Vec<Type>, Vec<SerializedOperator>),
-    Branch(usize, Vec<Type>, Vec<SerializedOperator>),
+    Fallthrough(Vec<SerializedOperator>),
+    Branch(usize, Vec<SerializedOperator>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SerializedOperator {
     StartBlock {
         header: BlockId,
-        params: Vec<(Type, Value)>,
-        results: Vec<Type>,
     },
     StartLoop {
         header: BlockId,
-        params: Vec<(Type, Value)>,
-        results: Vec<Type>,
     },
     Br(SerializedBlockTarget),
     BrIf {
@@ -47,6 +38,7 @@ pub enum SerializedOperator {
         if_false: SerializedBlockTarget,
     },
     BrTable {
+        index_ops: Vec<SerializedOperator>,
         targets: Vec<SerializedBlockTarget>,
         default: SerializedBlockTarget,
     },
@@ -86,9 +78,13 @@ impl SerializedOperator {
                 if_false.visit_value_locals(r, w);
             }
             &SerializedOperator::BrTable {
+                ref index_ops,
                 ref default,
                 ref targets,
             } => {
+                for index_op in index_ops {
+                    index_op.visit_value_locals(r, w);
+                }
                 default.visit_value_locals(r, w);
                 for target in targets {
                     target.visit_value_locals(r, w);
@@ -100,12 +96,7 @@ impl SerializedOperator {
             &SerializedOperator::Set(v, i) | &SerializedOperator::Tee(v, i) => {
                 w(v, i);
             }
-            &SerializedOperator::StartBlock { ref params, .. }
-            | &SerializedOperator::StartLoop { ref params, .. } => {
-                for &(_, value) in params {
-                    w(value, 0);
-                }
-            }
+            &SerializedOperator::StartBlock { .. } | &SerializedOperator::StartLoop { .. } => {}
             &SerializedOperator::GetArg(..)
             | &SerializedOperator::Operator(..)
             | &SerializedOperator::End => {}
@@ -120,8 +111,8 @@ impl SerializedBlockTarget {
         w: &mut W,
     ) {
         match self {
-            &SerializedBlockTarget::Branch(_, _, ref ops)
-            | &SerializedBlockTarget::Fallthrough(_, ref ops) => {
+            &SerializedBlockTarget::Branch(_, ref ops)
+            | &SerializedBlockTarget::Fallthrough(ref ops) => {
                 for op in ops {
                     op.visit_value_locals(r, w);
                 }
@@ -133,38 +124,21 @@ impl SerializedBlockTarget {
 struct SerializedBodyContext<'a> {
     f: &'a FunctionBody,
     cfg: &'a CFGInfo,
-    uses: &'a UseCountAnalysis,
-    schedule: &'a Schedule,
     operators: Vec<SerializedOperator>,
 }
 
 impl SerializedBody {
     pub fn compute(f: &FunctionBody, cfg: &CFGInfo, order: &BlockOrder) -> SerializedBody {
-        let uses = UseCountAnalysis::compute(f);
-        let schedule = Schedule::compute(f, cfg, &uses);
-
         if log::log_enabled!(log::Level::Trace) {
             log::trace!("values:");
             for value in 0..f.values.len() {
                 log::trace!(" * v{}: {:?}", value, f.values[value]);
             }
-            log::trace!("schedule:");
-            for value in 0..schedule.location.len() {
-                log::trace!(" * v{}: {:?}", value, schedule.location[value]);
-            }
 
             for block in 0..f.blocks.len() {
                 log::trace!("block{}:", block);
-                log::trace!(
-                    " -> at top: {:?}",
-                    schedule.compute_at_top_of_block.get(&block)
-                );
                 for &inst in &f.blocks[block].insts {
-                    log::trace!(" -> toplevel: v{}", inst.index());
-                    log::trace!(
-                        "    -> after: {:?}",
-                        schedule.compute_after_value.get(&inst)
-                    );
+                    log::trace!(" -> v{}", inst.index());
                 }
                 log::trace!(" -> terminator: {:?}", f.blocks[block].terminator);
             }
@@ -173,8 +147,6 @@ impl SerializedBody {
         let mut ctx = SerializedBodyContext {
             f,
             cfg,
-            uses: &uses,
-            schedule: &schedule,
             operators: vec![],
         };
         for entry in &order.entries {
@@ -189,25 +161,18 @@ impl SerializedBody {
 impl<'a> SerializedBodyContext<'a> {
     fn compute_entry(&mut self, entry: &BlockOrderEntry) {
         match entry {
-            &BlockOrderEntry::StartBlock(header, ref params, ref results)
-            | &BlockOrderEntry::StartLoop(header, ref params, ref results) => {
+            &BlockOrderEntry::StartBlock(header) | &BlockOrderEntry::StartLoop(header) => {
                 let is_loop = match entry {
                     &BlockOrderEntry::StartLoop(..) => true,
                     _ => false,
                 };
 
                 if is_loop {
-                    self.operators.push(SerializedOperator::StartLoop {
-                        header,
-                        params: params.clone(),
-                        results: results.clone(),
-                    });
+                    self.operators
+                        .push(SerializedOperator::StartLoop { header });
                 } else {
-                    self.operators.push(SerializedOperator::StartBlock {
-                        header,
-                        params: params.clone(),
-                        results: results.clone(),
-                    });
+                    self.operators
+                        .push(SerializedOperator::StartBlock { header });
                 }
             }
             &BlockOrderEntry::End => {
@@ -216,24 +181,12 @@ impl<'a> SerializedBodyContext<'a> {
             &BlockOrderEntry::BasicBlock(block, ref targets) => {
                 log::trace!("BlockOrderEntry: block{}", block);
 
-                // Capture BlockParams.
-                for &(_, param) in self.f.blocks[block].params.iter().rev() {
-                    self.operators.push(SerializedOperator::Set(param, 0));
-                }
-
-                // Schedule ops. First handle the compute-at-top ones.
-                if let Some(compute_at_top) = self.schedule.compute_at_top_of_block.get(&block) {
-                    self.schedule_ops(None, &compute_at_top[..]);
-                }
-
-                // Next schedule all toplevels, and values ready to
-                // schedule after each one.
+                // Compute insts' values in sequence.
                 for &inst in &self.f.blocks[block].insts {
-                    if let Some(after) = self.schedule.compute_after_value.get(&inst) {
-                        self.schedule_ops(Some(inst), &after[..]);
-                    } else {
-                        self.schedule_ops(Some(inst), &[]);
-                    }
+                    let mut rev_ops = vec![];
+                    self.emit_inst(inst, &mut rev_ops);
+                    rev_ops.reverse();
+                    self.operators.extend(rev_ops);
                 }
 
                 // For each BlockOrderTarget, compute a SerializedBlockTarget.
@@ -241,21 +194,26 @@ impl<'a> SerializedBodyContext<'a> {
                     .iter()
                     .map(|target| {
                         log::trace!("target: {:?}", target);
+
                         let mut rev_ops = vec![];
+
+                        // Store into block param values.
+                        for &(_, value) in &self.f.blocks[target.target].params {
+                            rev_ops.push(SerializedOperator::Set(value, 0));
+                        }
+
+                        // Load from branch operator's args.
                         for &value in target.args.iter().rev() {
                             let value = self.f.resolve_alias(value);
                             self.push_value(value, &mut rev_ops);
                         }
+
                         rev_ops.reverse();
-                        let tys: Vec<Type> = self.f.blocks[target.target]
-                            .params
-                            .iter()
-                            .map(|&(ty, _)| ty)
-                            .collect();
                         log::trace!(" -> ops: {:?}", rev_ops);
+
                         match target.relative_branch {
-                            Some(branch) => SerializedBlockTarget::Branch(branch, tys, rev_ops),
-                            None => SerializedBlockTarget::Fallthrough(tys, rev_ops),
+                            Some(branch) => SerializedBlockTarget::Branch(branch, rev_ops),
+                            None => SerializedBlockTarget::Fallthrough(rev_ops),
                         }
                     })
                     .collect::<Vec<_>>();
@@ -286,9 +244,11 @@ impl<'a> SerializedBodyContext<'a> {
                         let value = self.f.resolve_alias(value);
                         self.push_value(value, &mut rev_ops);
                         rev_ops.reverse();
-                        self.operators.extend(rev_ops);
-                        self.operators
-                            .push(SerializedOperator::BrTable { targets, default });
+                        self.operators.push(SerializedOperator::BrTable {
+                            index_ops: rev_ops,
+                            targets,
+                            default,
+                        });
                     }
                     &Terminator::Return { ref values, .. } => {
                         let mut rev_ops = vec![];
@@ -308,44 +268,8 @@ impl<'a> SerializedBodyContext<'a> {
             }
         }
     }
-
-    fn schedule_ops(&mut self, toplevel: Option<Value>, values: &[Value]) {
-        log::trace!("schedule_ops: toplevel {:?} values {:?}", toplevel, values);
-        // Work backward, generating values in the appropriate order
-        // on the stack if single-use.
-        let mut rev_ops = vec![];
-        let mut to_compute = values
-            .iter()
-            .chain(toplevel.iter())
-            .cloned()
-            .collect::<FxHashSet<_>>();
-        for &value in values.iter().rev() {
-            self.schedule_op(
-                value,
-                &mut rev_ops,
-                /* leave_value_on_stack = */ false,
-                &mut to_compute,
-            );
-        }
-        if let Some(toplevel) = toplevel {
-            self.schedule_op(
-                toplevel,
-                &mut rev_ops,
-                /* leave_value_on_stack = */ false,
-                &mut to_compute,
-            );
-        }
-        rev_ops.reverse();
-        log::trace!(
-            "schedule_ops: toplevel {:?} values {:?} -> ops {:?}",
-            toplevel,
-            values,
-            rev_ops
-        );
-        self.operators.extend(rev_ops.into_iter());
-    }
-
     fn push_value(&mut self, v: Value, rev_ops: &mut Vec<SerializedOperator>) {
+        let v = self.f.resolve_alias(v);
         match &self.f.values[v.index()] {
             &ValueDef::PickOutput(v, i) => {
                 rev_ops.push(SerializedOperator::Get(v, i));
@@ -362,22 +286,8 @@ impl<'a> SerializedBodyContext<'a> {
         }
     }
 
-    fn schedule_op(
-        &mut self,
-        op: Value,
-        rev_ops: &mut Vec<SerializedOperator>,
-        leave_value_on_stack: bool,
-        to_compute: &mut FxHashSet<Value>,
-    ) {
-        let op = self.f.resolve_alias(op);
-        if !to_compute.remove(&op) {
-            if leave_value_on_stack {
-                self.push_value(op, rev_ops);
-            }
-            return;
-        }
-
-        let (operator, operands) = match &self.f.values[op.index()] {
+    fn emit_inst(&mut self, inst: Value, rev_ops: &mut Vec<SerializedOperator>) {
+        let (operator, operands) = match &self.f.values[inst.index()] {
             &ValueDef::Operator(op, ref operands) => (op, operands),
             _ => {
                 return;
@@ -386,15 +296,8 @@ impl<'a> SerializedBodyContext<'a> {
 
         // We're generating ops in reverse order. So we must first
         // store value.
-        for i in 0..self.f.types[op.index()].len() {
-            if !leave_value_on_stack {
-                rev_ops.push(SerializedOperator::Set(op, i));
-            } else {
-                assert_eq!(i, 0);
-                if self.uses.use_count[op.index()] > 1 {
-                    rev_ops.push(SerializedOperator::Tee(op, i));
-                }
-            }
+        for i in 0..self.f.types[inst.index()].len() {
+            rev_ops.push(SerializedOperator::Set(inst, i));
         }
 
         rev_ops.push(SerializedOperator::Operator(operator));
@@ -402,24 +305,7 @@ impl<'a> SerializedBodyContext<'a> {
         // Now push the args in reverse order.
         for &arg in operands.iter().rev() {
             let arg = self.f.resolve_alias(arg);
-            match &self.f.values[arg.index()] {
-                &ValueDef::Operator(op, ..) => {
-                    if op_rematerialize(&op) {
-                        rev_ops.push(SerializedOperator::Operator(op));
-                    } else if self.uses.use_count[arg.index()] == 1
-                        && self.f.types[arg.index()].len() == 1
-                    {
-                        self.schedule_op(
-                            arg, rev_ops, /* leave_on_stack = */ true, to_compute,
-                        );
-                    } else {
-                        self.push_value(arg, rev_ops);
-                    }
-                }
-                _ => {
-                    self.push_value(arg, rev_ops);
-                }
-            }
+            self.push_value(arg, rev_ops);
         }
     }
 }
