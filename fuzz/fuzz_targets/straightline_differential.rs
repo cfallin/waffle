@@ -121,6 +121,11 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
     let parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
     let roundtrip_bytes = parsed_module.to_wasm_bytes();
 
+    if let Ok(filename) = std::env::var("FUZZ_DUMP_WASM") {
+        std::fs::write(format!("{}_orig.wasm", filename), &orig_bytes[..]).unwrap();
+        std::fs::write(format!("{}_roundtrip.wasm", filename), &roundtrip_bytes[..]).unwrap();
+    }
+
     let roundtrip_module = wasmtime::Module::new(&engine, &roundtrip_bytes[..])
         .expect("failed to parse roundtripped wasm");
     let roundtrip_instance = wasmtime::Instance::new(&mut store, &roundtrip_module, &[])
