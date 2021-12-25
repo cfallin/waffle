@@ -1133,8 +1133,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if let Some(block) = self.cur_block {
             let values = values.to_vec();
             self.body.end_block(block, Terminator::Return { values });
+            self.cur_block = None;
+            self.locals.finish_block();
         }
-        self.cur_block = None;
     }
 
     fn push_block_params(&mut self, num_params: usize) {
