@@ -575,12 +575,16 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
             wasmparser::Operator::LocalSet { local_index } => {
                 let (_, value) = self.op_stack.pop().unwrap();
-                self.locals.set(*local_index, value);
+                if self.cur_block.is_some() {
+                    self.locals.set(*local_index, value);
+                }
             }
 
             wasmparser::Operator::LocalTee { local_index } => {
                 let (_ty, value) = *self.op_stack.last().unwrap();
-                self.locals.set(*local_index, value);
+                if self.cur_block.is_some() {
+                    self.locals.set(*local_index, value);
+                }
             }
 
             wasmparser::Operator::Call { .. }
