@@ -3,9 +3,11 @@ use libfuzzer_sys::{arbitrary, fuzz_target};
 
 use waffle::Module;
 
-fn has_loop_or_no_start(bytes: &[u8]) -> bool {
+fn reject(bytes: &[u8]) -> bool {
     let parser = wasmparser::Parser::new(0);
     let mut has_start = false;
+    let mut has_global_set = false;
+    let mut num_globals = 0;
     for payload in parser.parse_all(bytes) {
         match payload.unwrap() {
             wasmparser::Payload::CodeSectionEntry(body) => {
@@ -21,6 +23,9 @@ fn has_loop_or_no_start(bytes: &[u8]) -> bool {
                             // Disallow recursion.
                             return true;
                         }
+                        wasmparser::Operator::GlobalSet { .. } => {
+                            has_global_set = true;
+                        }
                         _ => {}
                     }
                 }
@@ -28,10 +33,26 @@ fn has_loop_or_no_start(bytes: &[u8]) -> bool {
             wasmparser::Payload::StartSection { .. } => {
                 has_start = true;
             }
+            wasmparser::Payload::ExportSection(mut reader) => {
+                for _ in 0..reader.get_count() {
+                    let e = reader.read().unwrap();
+                    match &e.kind {
+                        &wasmparser::ExternalKind::Global => {
+                            num_globals += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             _ => {}
         }
     }
-    !has_start
+
+    if !has_start || !has_global_set || num_globals < 1 {
+        return true;
+    }
+
+    false
 }
 
 #[derive(Debug)]
@@ -97,12 +118,11 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
 
     let orig_bytes = module.module.to_bytes();
 
-    if has_loop_or_no_start(&orig_bytes[..]) {
-        log::debug!(
-            "has a loop or no start; discarding fuzz run. Body:\n{:?}",
-            module
-        );
+    if reject(&orig_bytes[..]) {
+        log::debug!("Discarding fuzz run. Body:\n{:?}", module);
         return;
+    } else {
+        log::info!("body: {:?}", module);
     }
 
     let engine = wasmtime::Engine::default();
@@ -113,7 +133,7 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
     let orig_instance = match orig_instance {
         Ok(orig_instance) => orig_instance,
         Err(e) => {
-            log::debug!("cannot run start on orig intsance ({:?}); discarding", e);
+            log::info!("cannot run start on orig intsance ({:?}); discarding", e);
             return;
         }
     };
