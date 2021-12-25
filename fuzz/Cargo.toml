@@ -14,6 +14,8 @@ libfuzzer-sys = "0.4"
 wasm-smith = "0.8"
 env_logger = "0.9"
 log = "0.4"
+wasmi = "0.10"
+wasmparser = "0.81"
 
 [dependencies.waffle]
 path = ".."
@@ -37,5 +39,11 @@ doc = false
 [[bin]]
 name = "roundtrip_roundtrip"
 path = "fuzz_targets/roundtrip_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "straightline_differential"
+path = "fuzz_targets/straightline_differential.rs"
 test = false
 doc = false
