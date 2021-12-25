@@ -3,8 +3,9 @@ use libfuzzer_sys::{arbitrary, fuzz_target};
 
 use waffle::Module;
 
-fn has_loop(bytes: &[u8]) -> bool {
+fn has_loop_or_no_start(bytes: &[u8]) -> bool {
     let parser = wasmparser::Parser::new(0);
+    let mut has_start = false;
     for payload in parser.parse_all(bytes) {
         match payload.unwrap() {
             wasmparser::Payload::CodeSectionEntry(body) => {
@@ -12,16 +13,25 @@ fn has_loop(bytes: &[u8]) -> bool {
                     let op = op.unwrap();
                     match op {
                         wasmparser::Operator::Loop { .. } => {
+                            // Disallow direct loops.
+                            return true;
+                        }
+                        wasmparser::Operator::Call { .. }
+                        | wasmparser::Operator::CallIndirect { .. } => {
+                            // Disallow recursion.
                             return true;
                         }
                         _ => {}
                     }
                 }
             }
+            wasmparser::Payload::StartSection { .. } => {
+                has_start = true;
+            }
             _ => {}
         }
     }
-    false
+    !has_start
 }
 
 #[derive(Debug)]
@@ -76,6 +86,9 @@ impl wasm_smith::Config for Config {
     fn canonicalize_nans(&self) -> bool {
         true
     }
+    fn max_memory_pages(&self, _is_64: bool) -> u64 {
+        1
+    }
 }
 
 fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
@@ -84,17 +97,19 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
 
     let orig_bytes = module.module.to_bytes();
 
-    if has_loop(&orig_bytes[..]) {
-        log::debug!("has a loop; discarding fuzz run");
+    if has_loop_or_no_start(&orig_bytes[..]) {
+        log::debug!(
+            "has a loop or no start; discarding fuzz run. Body:\n{:?}",
+            module
+        );
         return;
     }
 
-    let orig_wasmi_module =
-        wasmi::Module::from_buffer(&orig_bytes[..]).expect("failed to parse original wasm");
-    let orig_instance =
-        wasmi::ModuleInstance::new(&orig_wasmi_module, &wasmi::ImportsBuilder::default())
-            .expect("cannot instantiate original wasm")
-            .run_start(&mut wasmi::NopExternals);
+    let engine = wasmtime::Engine::default();
+    let mut store = wasmtime::Store::new(&engine, ());
+    let orig_module =
+        wasmtime::Module::new(&engine, &orig_bytes[..]).expect("failed to parse original wasm");
+    let orig_instance = wasmtime::Instance::new(&mut store, &orig_module, &[]);
     let orig_instance = match orig_instance {
         Ok(orig_instance) => orig_instance,
         Err(e) => {
@@ -106,34 +121,48 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
     let parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
     let roundtrip_bytes = parsed_module.to_wasm_bytes();
 
-    let roundtrip_wasmi_module =
-        wasmi::Module::from_buffer(&roundtrip_bytes).expect("failed to parse roundtripped wasm");
-    let roundtrip_instance =
-        wasmi::ModuleInstance::new(&roundtrip_wasmi_module, &wasmi::ImportsBuilder::default())
-            .expect("cannot instantiate roundtripped wasm")
-            .run_start(&mut wasmi::NopExternals)
-            .expect("cannot run start on original wasm");
+    let roundtrip_module = wasmtime::Module::new(&engine, &roundtrip_bytes[..])
+        .expect("failed to parse roundtripped wasm");
+    let roundtrip_instance = wasmtime::Instance::new(&mut store, &roundtrip_module, &[])
+        .expect("cannot instantiate roundtripped wasm");
 
-    // Ensure globals are equal.
-    assert_eq!(
-        orig_instance.globals().len(),
-        roundtrip_instance.globals().len()
-    );
-    for (a, b) in orig_instance
-        .globals()
-        .iter()
-        .zip(roundtrip_instance.globals().iter())
-    {
-        match (a.get(), b.get()) {
-            (wasmi::RuntimeValue::I32(a), wasmi::RuntimeValue::I32(b)) => assert_eq!(a, b),
-            (wasmi::RuntimeValue::I64(a), wasmi::RuntimeValue::I64(b)) => assert_eq!(a, b),
-            (wasmi::RuntimeValue::F32(a), wasmi::RuntimeValue::F32(b)) => {
-                assert_eq!(a.to_bits(), b.to_bits())
-            }
-            (wasmi::RuntimeValue::F64(a), wasmi::RuntimeValue::F64(b)) => {
-                assert_eq!(a.to_bits(), b.to_bits())
-            }
-            _ => panic!("mismatched types"),
+    // Ensure exports are equal.
+
+    let a_globals: Vec<_> = orig_instance
+        .exports(&mut store)
+        .filter_map(|e| e.into_global())
+        .collect();
+    let a_globals: Vec<wasmtime::Val> = a_globals.into_iter().map(|g| g.get(&mut store)).collect();
+    let a_mems: Vec<wasmtime::Memory> = orig_instance
+        .exports(&mut store)
+        .filter_map(|e| e.into_memory())
+        .collect();
+
+    let b_globals: Vec<_> = roundtrip_instance
+        .exports(&mut store)
+        .filter_map(|e| e.into_global())
+        .collect();
+    let b_globals: Vec<wasmtime::Val> = b_globals.into_iter().map(|g| g.get(&mut store)).collect();
+    let b_mems: Vec<wasmtime::Memory> = roundtrip_instance
+        .exports(&mut store)
+        .filter_map(|e| e.into_memory())
+        .collect();
+
+    assert_eq!(a_globals.len(), b_globals.len());
+    for (a, b) in a_globals.into_iter().zip(b_globals.into_iter()) {
+        match (a, b) {
+            (wasmtime::Val::I32(a), wasmtime::Val::I32(b)) => assert_eq!(a, b),
+            (wasmtime::Val::I64(a), wasmtime::Val::I64(b)) => assert_eq!(a, b),
+            (wasmtime::Val::F32(a), wasmtime::Val::F32(b)) => assert_eq!(a, b),
+            (wasmtime::Val::F64(a), wasmtime::Val::F64(b)) => assert_eq!(a, b),
+            _ => panic!("mismatching types"),
         }
+    }
+
+    assert_eq!(a_mems.len(), b_mems.len());
+    for (a, b) in a_mems.into_iter().zip(b_mems.into_iter()) {
+        let a_data = a.data(&store);
+        let b_data = b.data(&store);
+        assert_eq!(a_data, b_data);
     }
 });

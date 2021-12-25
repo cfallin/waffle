@@ -14,8 +14,8 @@ libfuzzer-sys = "0.4"
 wasm-smith = "0.8"
 env_logger = "0.9"
 log = "0.4"
-wasmi = "0.10"
 wasmparser = "0.81"
+wasmtime = "0.32"
 
 [dependencies.waffle]
 path = ".."
