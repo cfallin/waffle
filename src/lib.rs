@@ -2,9 +2,7 @@
 
 #![allow(dead_code)]
 
-// Re-export wasmparser and wasmencoder for easier use of the right
-// version by our embedders.
-pub use wasm_encoder;
+// Re-export wasmparser for easier use of the right version by our embedders.
 pub use wasmparser;
 
 mod backend;
