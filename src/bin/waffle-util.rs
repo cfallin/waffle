@@ -52,7 +52,7 @@ fn main() -> Result<()> {
             let bytes = std::fs::read(input)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let module = Module::from_wasm_bytes(&bytes[..])?;
-            let produced = module.to_wasm_bytes();
+            let produced = module.to_wasm_bytes()?;
             std::fs::write(output, &produced[..])?;
         }
     }

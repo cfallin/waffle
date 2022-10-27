@@ -15,8 +15,7 @@ use wasmparser::{
 };
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
-    let mut module = Module::default();
-    module.orig_bytes = bytes;
+    let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
     for payload in parser.parse_all(bytes) {
@@ -38,7 +37,7 @@ fn handle_payload<'a>(
             for _ in 0..reader.get_count() {
                 let ty = reader.read()?;
                 if let TypeDef::Func(fty) = ty {
-                    module.signatures.push(fty);
+                    module.frontend_add_signature(fty);
                 }
             }
         }
@@ -46,14 +45,14 @@ fn handle_payload<'a>(
             for _ in 0..reader.get_count() {
                 match reader.read()?.ty {
                     ImportSectionEntryType::Function(sig_idx) => {
-                        module.funcs.push(FuncDecl::Import(sig_idx as SignatureId));
+                        module.frontend_add_func(FuncDecl::Import(sig_idx as SignatureId));
                         *next_func += 1;
                     }
                     ImportSectionEntryType::Global(ty) => {
-                        module.globals.push(ty.content_type);
+                        module.frontend_add_global(ty.content_type);
                     }
                     ImportSectionEntryType::Table(ty) => {
-                        module.tables.push(ty.element_type);
+                        module.frontend_add_table(ty.element_type);
                     }
                     _ => {}
                 }
@@ -62,36 +61,30 @@ fn handle_payload<'a>(
         Payload::GlobalSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let global = reader.read()?;
-                module.globals.push(global.ty.content_type);
+                module.frontend_add_global(global.ty.content_type);
             }
         }
         Payload::TableSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let table = reader.read()?;
-                module.tables.push(table.element_type);
+                module.frontend_add_table(table.element_type);
             }
         }
         Payload::FunctionSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let sig_idx = reader.read()? as SignatureId;
-                module
-                    .funcs
-                    .push(FuncDecl::Body(sig_idx, FunctionBody::default()));
+                module.frontend_add_func(FuncDecl::Body(sig_idx, FunctionBody::default()));
             }
         }
         Payload::CodeSectionEntry(body) => {
             let func_idx = *next_func;
             *next_func += 1;
 
-            let my_sig = module.funcs[func_idx].sig();
+            let my_sig = module.func(func_idx).sig();
             let body = parse_body(module, my_sig, body)?;
 
-            match &mut module.funcs[func_idx] {
-                FuncDecl::Body(_, ref mut existing_body) => {
-                    *existing_body = body;
-                }
-                _ => unreachable!(),
-            }
+            let existing_body = module.func_mut(func_idx).body_mut().unwrap();
+            *existing_body = body;
         }
         _ => {}
     }
@@ -106,11 +99,11 @@ fn parse_body<'a>(
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
 
-    for &param in &module.signatures[my_sig].params[..] {
+    for &param in &module.signature(my_sig).params[..] {
         ret.locals.push(param);
     }
-    ret.n_params = module.signatures[my_sig].params.len();
-    for &r in &module.signatures[my_sig].returns[..] {
+    ret.n_params = module.signature(my_sig).params.len();
+    for &r in &module.signature(my_sig).returns[..] {
         ret.rets.push(r);
     }
 
@@ -126,14 +119,14 @@ fn parse_body<'a>(
     trace!(
         "Parsing function body: locals = {:?} sig = {:?}",
         ret.locals,
-        module.signatures[my_sig]
+        module.signature(my_sig)
     );
 
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
     builder.locals.seal_block_preds(0, &mut builder.body);
     builder.locals.start_block(0);
 
-    for (arg_idx, &arg_ty) in module.signatures[my_sig].params.iter().enumerate() {
+    for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
         let local_idx = arg_idx as LocalId;
         let value = builder.body.add_value(ValueDef::Arg(arg_idx), vec![arg_ty]);
         trace!("defining local {} to value {}", local_idx, value);
@@ -141,7 +134,7 @@ fn parse_body<'a>(
         builder.locals.set(local_idx, value);
     }
 
-    let n_args = module.signatures[my_sig].params.len();
+    let n_args = module.signature(my_sig).params.len();
     for (offset, local_ty) in locals.into_iter().enumerate() {
         let local_idx = (n_args + offset) as u32;
         builder.locals.declare(local_idx, local_ty);
@@ -517,7 +510,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         };
 
         // Push initial implicit Block.
-        let results = module.signatures[my_sig].returns.to_vec();
+        let results = module.signature(my_sig).returns.to_vec();
         let out = ret.body.add_block();
         ret.add_block_params(out, &results[..]);
         ret.ctrl_stack.push(Frame::Block {
@@ -997,7 +990,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             }
 
             wasmparser::Operator::Return => {
-                let retvals = self.pop_n(self.module.signatures[self.my_sig].returns.len());
+                let retvals = self.pop_n(self.module.signature(self.my_sig).returns.len());
                 self.emit_ret(&retvals[..]);
             }
 
@@ -1019,7 +1012,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             TypeOrFuncType::Type(Type::EmptyBlockType) => (vec![], vec![]),
             TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty]),
             TypeOrFuncType::FuncType(sig_idx) => {
-                let sig = &self.module.signatures[sig_idx as SignatureId];
+                let sig = &self.module.signature(sig_idx as SignatureId);
                 (
                     Vec::from(sig.params.clone()),
                     Vec::from(sig.returns.clone()),

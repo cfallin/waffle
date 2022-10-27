@@ -1,4 +1,4 @@
 //! Backend: IR to Wasm.
 
-mod binaryen;
-pub use binaryen::*;
+pub mod binaryen;
+pub mod lower;

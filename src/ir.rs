@@ -1,7 +1,9 @@
 //! Intermediate representation for Wasm.
 
+use crate::{backend, backend::binaryen};
 use crate::{frontend, Operator};
 use anyhow::Result;
+use fxhash::FxHashSet;
 use wasmparser::{FuncType, Type};
 
 pub type SignatureId = usize;
@@ -17,11 +19,53 @@ pub const INVALID_BLOCK: BlockId = usize::MAX;
 
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
-    pub orig_bytes: &'a [u8],
-    pub funcs: Vec<FuncDecl>,
-    pub signatures: Vec<FuncType>,
-    pub globals: Vec<Type>,
-    pub tables: Vec<Type>,
+    orig_bytes: &'a [u8],
+    funcs: Vec<FuncDecl>,
+    signatures: Vec<FuncType>,
+    globals: Vec<Type>,
+    tables: Vec<Type>,
+
+    dirty_funcs: FxHashSet<FuncId>,
+}
+
+impl<'a> Module<'a> {
+    pub(crate) fn with_orig_bytes(orig_bytes: &'a [u8]) -> Module<'a> {
+        let mut m = Module::default();
+        m.orig_bytes = orig_bytes;
+        m
+    }
+}
+
+impl<'a> Module<'a> {
+    pub fn func<'b>(&'b self, id: FuncId) -> &'b FuncDecl {
+        &self.funcs[id]
+    }
+    pub fn func_mut<'b>(&'b mut self, id: FuncId) -> &'b mut FuncDecl {
+        self.dirty_funcs.insert(id);
+        &mut self.funcs[id]
+    }
+    pub fn signature<'b>(&'b self, id: SignatureId) -> &'b FuncType {
+        &self.signatures[id]
+    }
+    pub fn global_ty(&self, id: GlobalId) -> Type {
+        self.globals[id as usize]
+    }
+    pub fn table_ty(&self, id: TableId) -> Type {
+        self.tables[id as usize]
+    }
+
+    pub(crate) fn frontend_add_signature(&mut self, ty: FuncType) {
+        self.signatures.push(ty);
+    }
+    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) {
+        self.funcs.push(body);
+    }
+    pub(crate) fn frontend_add_table(&mut self, ty: Type) {
+        self.tables.push(ty);
+    }
+    pub(crate) fn frontend_add_global(&mut self, ty: Type) {
+        self.globals.push(ty);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +79,20 @@ impl FuncDecl {
         match self {
             FuncDecl::Import(sig) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
+        }
+    }
+
+    pub fn body(&self) -> Option<&FunctionBody> {
+        match self {
+            FuncDecl::Body(_, body) => Some(body),
+            _ => None,
+        }
+    }
+
+    pub fn body_mut(&mut self) -> Option<&mut FunctionBody> {
+        match self {
+            FuncDecl::Body(_, body) => Some(body),
+            _ => None,
         }
     }
 }
@@ -457,7 +515,15 @@ impl<'a> Module<'a> {
         frontend::wasm_to_ir(bytes)
     }
 
-    pub fn to_wasm_bytes(&self) -> Vec<u8> {
-        todo!("use Binaryen")
+    pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
+        let binaryen_module = binaryen::Module::read(self.orig_bytes)?;
+        for &func in &self.dirty_funcs {
+            if let Some(body) = self.func(func).body() {
+                let mut binaryen_func = binaryen_module.func(func);
+                let binaryen_expr = backend::lower::generate_body(self, body);
+                binaryen_func.set_body(binaryen_expr);
+            }
+        }
+        binaryen_module.write()
     }
 }

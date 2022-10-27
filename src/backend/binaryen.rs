@@ -23,6 +23,20 @@ impl Module {
         Ok(Module(ptr))
     }
 
+    pub fn write(&self) -> Result<Vec<u8>> {
+        let result = unsafe { BinaryenModuleAllocateAndWrite(self.0, std::ptr::null()) };
+        if result.binary.is_null() {
+            bail!("Failed to serialize module");
+        }
+        let slice = unsafe {
+            std::slice::from_raw_parts(
+                result.binary as *const c_void as *const u8,
+                result.binary_bytes as usize,
+            )
+        };
+        Ok(slice.to_vec())
+    }
+
     pub fn num_funcs(&self) -> usize {
         unsafe { BinaryenGetNumFunctions(self.0) as usize }
     }
@@ -85,6 +99,12 @@ impl Function {
             None
         } else {
             Some(Expression(self.0, body))
+        }
+    }
+
+    pub fn set_body(&mut self, body: Expression) {
+        unsafe {
+            BinaryenFunctionSetBody(self.0, body.1);
         }
     }
 
@@ -622,14 +642,35 @@ type BinaryenFunction = *const c_void;
 type BinaryenExpression = *const c_void;
 type BinaryenExport = *const c_void;
 
+#[repr(C)]
+struct BinaryenModuleAllocateAndWriteResult {
+    binary: *mut c_void,
+    binary_bytes: libc::size_t,
+    source_map: *mut c_char,
+}
+
+impl Drop for BinaryenModuleAllocateAndWriteResult {
+    fn drop(&mut self) {
+        unsafe {
+            libc::free(self.binary);
+            libc::free(self.source_map as *mut c_void);
+        }
+    }
+}
+
 #[link(name = "binaryen")]
 extern "C" {
     fn BinaryenModuleRead(data: *const u8, len: usize) -> BinaryenModule;
     fn BinaryenModuleDispose(ptr: BinaryenModule);
+    fn BinaryenModuleAllocateAndWrite(
+        ptr: BinaryenModule,
+        sourceMapUrl: *const c_char,
+    ) -> BinaryenModuleAllocateAndWriteResult;
     fn BinaryenGetNumFunctions(ptr: BinaryenModule) -> u32;
     fn BinaryenGetFunctionByIndex(ptr: BinaryenModule, index: u32) -> BinaryenFunction;
     fn BinaryenGetFunction(ptr: BinaryenModule, name: *const c_char) -> BinaryenFunction;
     fn BinaryenFunctionGetBody(ptr: BinaryenFunction) -> BinaryenExpression;
+    fn BinaryenFunctionSetBody(ptr: BinaryenFunction, body: BinaryenExpression);
     fn BinaryenFunctionGetName(ptr: BinaryenFunction) -> *const c_char;
     fn BinaryenGetExport(ptr: BinaryenModule, name: *const c_char) -> BinaryenExport;
     fn BinaryenGetNumExports(ptr: BinaryenModule) -> u32;

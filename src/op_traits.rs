@@ -16,15 +16,15 @@ pub fn op_inputs(
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
 
         &Operator::Call { function_index } => {
-            let sig = module.funcs[function_index as usize].sig();
-            Ok(Vec::from(module.signatures[sig].params.clone()))
+            let sig = module.func(function_index).sig();
+            Ok(Vec::from(module.signature(sig).params.clone()))
         }
         &Operator::CallIndirect { index, .. } => {
-            let mut params = module.signatures[index as usize].params.to_vec();
+            let mut params = module.signature(index).params.to_vec();
             params.push(Type::I32);
             Ok(params)
         }
-        &Operator::Return => Ok(Vec::from(module.signatures[my_sig].returns.clone())),
+        &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone())),
 
         &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
             Ok(vec![my_locals[local_index as usize]])
@@ -38,7 +38,7 @@ pub fn op_inputs(
         &Operator::TypedSelect { ty } => Ok(vec![ty, ty, Type::I32]),
 
         &Operator::GlobalGet { .. } => Ok(vec![]),
-        &Operator::GlobalSet { global_index } => Ok(vec![module.globals[global_index as usize]]),
+        &Operator::GlobalSet { global_index } => Ok(vec![module.global_ty(global_index)]),
 
         Operator::I32Load { .. }
         | Operator::I64Load { .. }
@@ -216,7 +216,7 @@ pub fn op_inputs(
         Operator::I32ReinterpretF32 => Ok(vec![Type::F32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::F64]),
         Operator::TableGet { .. } => Ok(vec![Type::I32]),
-        Operator::TableSet { table } => Ok(vec![Type::I32, module.tables[*table as usize]]),
+        Operator::TableSet { table } => Ok(vec![Type::I32, module.table_ty(*table)]),
         Operator::TableGrow { .. } => Ok(vec![Type::I32]),
         Operator::TableSize { .. } => Ok(vec![]),
         Operator::MemorySize { .. } => Ok(vec![]),
@@ -234,11 +234,11 @@ pub fn op_outputs(
         &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
 
         &Operator::Call { function_index } => {
-            let sig = module.funcs[function_index as usize].sig();
-            Ok(Vec::from(module.signatures[sig].returns.clone()))
+            let sig = module.func(function_index).sig();
+            Ok(Vec::from(module.signature(sig).returns.clone()))
         }
         &Operator::CallIndirect { index, .. } => {
-            Ok(Vec::from(module.signatures[index as usize].returns.clone()))
+            Ok(Vec::from(module.signature(index).returns.clone()))
         }
         &Operator::Return => Ok(vec![]),
         &Operator::LocalSet { .. } => Ok(vec![]),
@@ -251,7 +251,7 @@ pub fn op_outputs(
             Ok(vec![val_ty])
         }
         &Operator::TypedSelect { ty } => Ok(vec![ty]),
-        &Operator::GlobalGet { global_index } => Ok(vec![module.globals[global_index as usize]]),
+        &Operator::GlobalGet { global_index } => Ok(vec![module.global_ty(global_index)]),
         &Operator::GlobalSet { .. } => Ok(vec![]),
 
         Operator::I32Load { .. }
@@ -425,7 +425,7 @@ pub fn op_outputs(
         Operator::F64ReinterpretI64 => Ok(vec![Type::F64]),
         Operator::I32ReinterpretF32 => Ok(vec![Type::I32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::I64]),
-        Operator::TableGet { table } => Ok(vec![module.tables[*table as usize]]),
+        Operator::TableGet { table } => Ok(vec![module.table_ty(*table)]),
         Operator::TableSet { .. } => Ok(vec![]),
         Operator::TableGrow { .. } => Ok(vec![]),
         Operator::TableSize { .. } => Ok(vec![Type::I32]),
