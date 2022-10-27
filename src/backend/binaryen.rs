@@ -14,6 +14,9 @@ pub struct Expression(BinaryenModule, BinaryenExpression);
 #[derive(Clone, Copy, Debug)]
 pub struct Export(BinaryenModule, BinaryenExport);
 
+type BinaryenIndex = u32;
+type BinaryenType = usize;
+
 impl Module {
     pub fn read(data: &[u8]) -> Result<Module> {
         let ptr = unsafe { BinaryenModuleRead(data.as_ptr(), data.len()) };
@@ -268,128 +271,6 @@ fn name_to_string(name: *const c_char) -> Option<String> {
 }
 
 impl Expression {
-    pub fn unpack(&self) -> Expr {
-        if self.1.is_null() {
-            return Expr::None;
-        }
-
-        let kind = unsafe { BinaryenExpressionGetId(self.1) };
-        let kinds = &*EXPR_IDS;
-
-        if kind == kinds.nop {
-            Expr::Nop
-        } else if kind == kinds.block {
-            let name = name_to_string(unsafe { BinaryenBlockGetName(self.1) });
-            let children = unsafe {
-                (0..BinaryenBlockGetNumChildren(self.1))
-                    .map(|i| Expression(self.0, BinaryenBlockGetChildAt(self.1, i)))
-                    .collect::<Vec<_>>()
-            };
-            Expr::Block(name, children)
-        } else if kind == kinds.if_ {
-            let cond = unsafe { Expression(self.0, BinaryenIfGetCondition(self.1)) };
-            let if_true = unsafe { Expression(self.0, BinaryenIfGetIfTrue(self.1)) };
-            let if_false = unsafe { Expression(self.0, BinaryenIfGetIfFalse(self.1)) };
-            Expr::If(cond, if_true, if_false)
-        } else if kind == kinds.loop_ {
-            let name = name_to_string(unsafe { BinaryenLoopGetName(self.1) });
-            let value = unsafe { Expression(self.0, BinaryenLoopGetBody(self.1)) };
-            Expr::Loop(name, value)
-        } else if kind == kinds.break_ {
-            let name = name_to_string(unsafe { BinaryenBreakGetName(self.1) }).unwrap();
-            let value = unsafe { Expression(self.0, BinaryenBreakGetValue(self.1)) };
-            Expr::Break(name, value)
-        } else if kind == kinds.switch {
-            let n = unsafe { BinaryenSwitchGetNumNames(self.1) };
-            let default_name = name_to_string(unsafe { BinaryenSwitchGetDefaultName(self.1) });
-            let names = (0..n)
-                .map(|i| name_to_string(unsafe { BinaryenSwitchGetNameAt(self.1, i) }))
-                .collect::<Vec<_>>();
-            let value = unsafe { Expression(self.0, BinaryenSwitchGetValue(self.1)) };
-            let cond = Expression(self.0, unsafe { BinaryenSwitchGetCondition(self.1) });
-            Expr::Switch(cond, value, default_name, names)
-        } else if kind == kinds.call {
-            let target = name_to_string(unsafe { BinaryenCallGetTarget(self.1) }).unwrap();
-            let n = unsafe { BinaryenCallGetNumOperands(self.1) };
-            let args = (0..n)
-                .map(|i| unsafe { Expression(self.0, BinaryenCallGetOperandAt(self.1, i)) })
-                .collect::<Vec<_>>();
-            Expr::Call(target, args)
-        } else if kind == kinds.call_indirect {
-            let target = unsafe { Expression(self.0, BinaryenCallIndirectGetTarget(self.1)) };
-            let n = unsafe { BinaryenCallIndirectGetNumOperands(self.1) };
-            let args = (0..n)
-                .map(|i| unsafe { Expression(self.0, BinaryenCallIndirectGetOperandAt(self.1, i)) })
-                .collect::<Vec<_>>();
-            Expr::CallIndirect(target, args)
-        } else if kind == kinds.local_get {
-            let index = unsafe { BinaryenLocalGetGetIndex(self.1) };
-            Expr::LocalGet(index)
-        } else if kind == kinds.local_set {
-            let index = unsafe { BinaryenLocalSetGetIndex(self.1) };
-            let value = unsafe { Expression(self.0, BinaryenLocalSetGetValue(self.1)) };
-            Expr::LocalSet(index, value)
-        } else if kind == kinds.global_get {
-            let name = name_to_string(unsafe { BinaryenGlobalGetGetName(self.1) }).unwrap();
-            Expr::GlobalGet(name)
-        } else if kind == kinds.global_set {
-            let name = name_to_string(unsafe { BinaryenGlobalSetGetName(self.1) }).unwrap();
-            let value = unsafe { Expression(self.0, BinaryenGlobalSetGetValue(self.1)) };
-            Expr::GlobalSet(name, value)
-        } else if kind == kinds.table_get {
-            let name = name_to_string(unsafe { BinaryenTableGetGetTable(self.1) }).unwrap();
-            let index = unsafe { Expression(self.0, BinaryenTableGetGetIndex(self.1)) };
-            Expr::TableGet(name, index)
-        } else if kind == kinds.table_set {
-            let name = name_to_string(unsafe { BinaryenTableSetGetTable(self.1) }).unwrap();
-            let index = unsafe { Expression(self.0, BinaryenTableSetGetIndex(self.1)) };
-            let value = unsafe { Expression(self.0, BinaryenTableSetGetIndex(self.1)) };
-            Expr::TableSet(name, index, value)
-        } else if kind == kinds.load {
-            let ptr = unsafe { Expression(self.0, BinaryenLoadGetPtr(self.1)) };
-            let offset = unsafe { BinaryenLoadGetOffset(self.1) };
-            Expr::Load(ptr, offset)
-        } else if kind == kinds.store {
-            let ptr = unsafe { Expression(self.0, BinaryenStoreGetPtr(self.1)) };
-            let offset = unsafe { BinaryenStoreGetOffset(self.1) };
-            let value = unsafe { Expression(self.0, BinaryenStoreGetValue(self.1)) };
-            Expr::Store(ptr, offset, value)
-        } else if kind == kinds.const_ {
-            let value = match self.ty() {
-                Type::None => unreachable!(),
-                Type::I32 => Value::I32(unsafe { BinaryenConstGetValueI32(self.1) }),
-                Type::I64 => Value::I64(unsafe { BinaryenConstGetValueI64(self.1) }),
-                Type::F32 => Value::F32(unsafe { BinaryenConstGetValueF32(self.1).to_bits() }),
-                Type::F64 => Value::F64(unsafe { BinaryenConstGetValueF64(self.1).to_bits() }),
-            };
-            Expr::Const(value)
-        } else if kind == kinds.unary {
-            let op = unsafe { BinaryenUnaryGetOp(self.1) };
-            let value = unsafe { Expression(self.0, BinaryenUnaryGetValue(self.1)) };
-            Expr::Unary(UnaryOp::from_kind(op), value)
-        } else if kind == kinds.binary {
-            let op = unsafe { BinaryenBinaryGetOp(self.1) };
-            let left = unsafe { Expression(self.0, BinaryenBinaryGetLeft(self.1)) };
-            let right = unsafe { Expression(self.0, BinaryenBinaryGetRight(self.1)) };
-            Expr::Binary(BinaryOp::from_kind(op), left, right)
-        } else if kind == kinds.select {
-            let cond = unsafe { Expression(self.0, BinaryenSelectGetCondition(self.1)) };
-            let if_true = unsafe { Expression(self.0, BinaryenSelectGetIfTrue(self.1)) };
-            let if_false = unsafe { Expression(self.0, BinaryenSelectGetIfFalse(self.1)) };
-            Expr::Select(cond, if_true, if_false)
-        } else if kind == kinds.drop_ {
-            let value = unsafe { Expression(self.0, BinaryenDropGetValue(self.1)) };
-            Expr::Drop(value)
-        } else if kind == kinds.return_ {
-            let value = unsafe { Expression(self.0, BinaryenReturnGetValue(self.1)) };
-            Expr::Return(value)
-        } else if kind == kinds.unreachable {
-            Expr::Unreachable
-        } else {
-            panic!("Unknown kind: {}", kind);
-        }
-    }
-
     pub fn ty(&self) -> Type {
         Type::from_kind(unsafe { BinaryenExpressionGetType(self.1) }).unwrap()
     }
@@ -400,6 +281,19 @@ impl Expression {
 
     pub fn module(&self) -> BinaryenModule {
         self.0
+    }
+
+    pub fn block(module: &Module, exprs: &[Expression]) -> Expression {
+        let children = exprs.iter().map(|expr| expr.1).collect::<Vec<_>>();
+        Expression(module.0, unsafe {
+            BinaryenBlock(
+                module.0,
+                /* name = */ std::ptr::null(),
+                children.as_ptr(),
+                children.len() as BinaryenIndex,
+                BinaryenUndefined(),
+            )
+        })
     }
 }
 
@@ -463,168 +357,6 @@ impl BinaryOp {
             BinaryOp::I32ShrU
         } else {
             BinaryOp::Other(kind)
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Expr {
-    None,
-    Nop,
-    Block(Option<String>, Vec<Expression>),
-    If(Expression, Expression, Expression),
-    Loop(Option<String>, Expression),
-    Break(String, Expression),
-    Switch(Expression, Expression, Option<String>, Vec<Option<String>>),
-    Call(String, Vec<Expression>),
-    CallIndirect(Expression, Vec<Expression>),
-    LocalGet(u32),
-    LocalSet(u32, Expression),
-    GlobalGet(String),
-    GlobalSet(String, Expression),
-    TableGet(String, Expression),
-    TableSet(String, Expression, Expression),
-    Load(Expression, u32),
-    Store(Expression, u32, Expression),
-    Const(Value),
-    Unary(UnaryOp, Expression),
-    Binary(BinaryOp, Expression, Expression),
-    Select(Expression, Expression, Expression),
-    Drop(Expression),
-    Return(Expression),
-    Unreachable,
-}
-
-impl Expr {
-    pub fn visit_children<F: FnMut(Expression)>(&self, mut f: F) {
-        self.visit_children_and_ret(|e| {
-            f(e);
-            let ret: Option<()> = None;
-            ret
-        });
-    }
-
-    pub fn visit_children_and_ret<R, F: FnMut(Expression) -> Option<R>>(
-        &self,
-        mut f: F,
-    ) -> Option<R> {
-        match self {
-            &Expr::None => None,
-            &Expr::Block(_, ref subexprs) => {
-                for e in subexprs {
-                    if let Some(ret) = f(*e) {
-                        return Some(ret);
-                    }
-                }
-                None
-            }
-            &Expr::If(cond, if_true, if_false) => {
-                if let Some(ret) = f(cond) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(if_true) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(if_false) {
-                    return Some(ret);
-                }
-                None
-            }
-            &Expr::Loop(_, body) => f(body),
-            &Expr::Drop(expr) => f(expr),
-
-            &Expr::Break(_, value) => f(value),
-            &Expr::Switch(index, value, ..) => {
-                if let Some(ret) = f(index) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(value) {
-                    return Some(ret);
-                }
-                None
-            }
-            &Expr::Call(_, ref ops) => {
-                for op in ops {
-                    if let Some(ret) = f(*op) {
-                        return Some(ret);
-                    }
-                }
-                None
-            }
-            &Expr::CallIndirect(target, ref ops) => {
-                if let Some(ret) = f(target) {
-                    return Some(ret);
-                }
-                for op in ops {
-                    if let Some(ret) = f(*op) {
-                        return Some(ret);
-                    }
-                }
-                None
-            }
-            &Expr::LocalGet(_) => None,
-            &Expr::LocalSet(_, expr) => f(expr),
-            &Expr::GlobalGet(_) => None,
-            &Expr::GlobalSet(_, expr) => f(expr),
-            &Expr::TableGet(_, index) => f(index),
-            &Expr::TableSet(_, index, value) => {
-                if let Some(val) = f(index) {
-                    return Some(val);
-                }
-                if let Some(val) = f(value) {
-                    return Some(val);
-                }
-                None
-            }
-            &Expr::Load(ptr, _) => f(ptr),
-            &Expr::Store(ptr, _, value) => {
-                if let Some(ret) = f(ptr) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(value) {
-                    return Some(ret);
-                }
-                None
-            }
-            &Expr::Const(_) => None,
-            &Expr::Unary(_, value) => f(value),
-            &Expr::Binary(_, left, right) => {
-                if let Some(ret) = f(left) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(right) {
-                    return Some(ret);
-                }
-                None
-            }
-            &Expr::Select(cond, if_true, if_false) => {
-                if let Some(ret) = f(cond) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(if_true) {
-                    return Some(ret);
-                }
-                if let Some(ret) = f(if_false) {
-                    return Some(ret);
-                }
-                None
-            }
-            &Expr::Return(expr) => f(expr),
-            &Expr::Unreachable => None,
-            &Expr::Nop => None,
-        }
-    }
-
-    pub fn to_expression(&self, module: BinaryenModule) -> Expression {
-        match self {
-            &Expr::Const(Value::I32(value)) => unsafe {
-                let literal = BinaryenLiteralInt32(value);
-                Expression(module, BinaryenConst(module, literal))
-            },
-            &Expr::LocalSet(idx, value) => unsafe {
-                Expression(module, BinaryenLocalSet(module, idx, value.1))
-            },
-            _ => unimplemented!(),
         }
     }
 }
@@ -803,6 +535,15 @@ extern "C" {
         index: u32,
         value: BinaryenExpression,
     ) -> BinaryenExpression;
+    fn BinaryenBlock(
+        module: BinaryenModule,
+        name: *const c_char,
+        children: *const BinaryenExpression,
+        n_children: BinaryenIndex,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
+
+    fn BinaryenUndefined() -> BinaryenType;
 
     fn BinaryenLiteralInt32(x: i32) -> BinaryenLiteral;
     fn BinaryenLiteralInt64(x: i64) -> BinaryenLiteral;

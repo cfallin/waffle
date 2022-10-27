@@ -220,6 +220,10 @@ impl FunctionBody {
             .enumerate()
             .map(|(idx, value_def)| (Value(idx as u32), value_def))
     }
+
+    pub fn blocks(&self) -> impl Iterator<Item = BlockId> {
+        (0..self.blocks.len()).into_iter()
+    }
 }
 
 impl std::ops::Index<Value> for FunctionBody {
@@ -516,11 +520,11 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        let binaryen_module = binaryen::Module::read(self.orig_bytes)?;
+        let mut binaryen_module = binaryen::Module::read(self.orig_bytes)?;
         for &func in &self.dirty_funcs {
             if let Some(body) = self.func(func).body() {
                 let mut binaryen_func = binaryen_module.func(func);
-                let binaryen_expr = backend::lower::generate_body(self, body);
+                let binaryen_expr = backend::lower::generate_body(body, &mut binaryen_module);
                 binaryen_func.set_body(binaryen_expr);
             }
         }
