@@ -115,6 +115,30 @@ impl Function {
         let s = unsafe { CStr::from_ptr(BinaryenFunctionGetName(self.1)) };
         s.to_str().unwrap()
     }
+
+    pub fn create(
+        module: &mut Module,
+        params: impl Iterator<Item = wasmparser::Type>,
+        results: impl Iterator<Item = wasmparser::Type>,
+        locals: impl Iterator<Item = wasmparser::Type>,
+        body: Expression,
+    ) -> Function {
+        let params = tys_to_binaryen(params);
+        let results = tys_to_binaryen(results);
+        let locals: Vec<BinaryenType> = locals.map(|&ty| Type::from(ty).to_kind()).collect();
+        let ptr = unsafe {
+            BinaryenAddFunc(
+                module.0,
+                /* name = */ std::ptr::null(),
+                params,
+                results,
+                locals.as_ptr(),
+                locals.len() as BinaryenIndex,
+                body.1,
+            )
+        };
+        Function(module.0, ptr)
+    }
 }
 
 impl Export {
@@ -205,6 +229,7 @@ struct TypeIds {
     i64_t: u32,
     f32_t: u32,
     f64_t: u32,
+    v128_t: u32,
 }
 
 impl TypeIds {
@@ -215,6 +240,7 @@ impl TypeIds {
             i64_t: unsafe { BinaryenTypeInt64() },
             f32_t: unsafe { BinaryenTypeFloat32() },
             f64_t: unsafe { BinaryenTypeFloat64() },
+            v128_t: unsafe { BinaryenTypeVec128() },
         }
     }
 }
@@ -230,6 +256,7 @@ pub enum Type {
     I64,
     F32,
     F64,
+    V128,
 }
 
 impl Type {
@@ -250,7 +277,7 @@ impl Type {
         }
     }
 
-    fn to_kind(&self) -> u32 {
+    pub(crate) fn to_kind(&self) -> BinaryenType {
         let tys = &*TYPE_IDS;
         match self {
             &Type::None => tys.none_t,
@@ -258,8 +285,27 @@ impl Type {
             &Type::I64 => tys.i64_t,
             &Type::F32 => tys.f32_t,
             &Type::F64 => tys.f64_t,
+            &Type::V128 => tys.v128_t,
         }
     }
+}
+
+impl From<wasmparser::Type> for Type {
+    fn from(ty: wasmparser::Type) -> Self {
+        match ty {
+            wasmparser::Type::I32 => Type::I32,
+            wasmparser::Type::I64 => Type::I64,
+            wasmparser::Type::F32 => Type::F32,
+            wasmparser::Type::F64 => Type::F64,
+            wasmparser::Type::V128 => Type::V128,
+            _ => unimplemented!(),
+        }
+    }
+}
+
+pub fn tys_to_binaryen(tys: impl Iterator<Item = wasmparser::Type>) -> BinaryenType {
+    let tys: Vec<BinaryenType> = tys.map(|&ty| Type::from(ty).to_kind()).collect();
+    unsafe { BinaryenTypeCreate(tys.as_ptr(), tys.len() as BinaryenIndex) }
 }
 
 fn name_to_string(name: *const c_char) -> Option<String> {
@@ -517,11 +563,14 @@ extern "C" {
     fn BinaryenUnreachableId() -> u32;
     fn BinaryenPopId() -> u32;
 
-    fn BinaryenTypeNone() -> u32;
-    fn BinaryenTypeInt32() -> u32;
-    fn BinaryenTypeInt64() -> u32;
-    fn BinaryenTypeFloat32() -> u32;
-    fn BinaryenTypeFloat64() -> u32;
+    fn BinaryenTypeNone() -> BinaryenType;
+    fn BinaryenTypeInt32() -> BinaryenType;
+    fn BinaryenTypeInt64() -> BinaryenType;
+    fn BinaryenTypeFloat32() -> BinaryenType;
+    fn BinaryenTypeFloat64() -> BinaryenType;
+    fn BinaryenTypeVec128() -> BinaryenType;
+
+    fn BinaryenTypeCreate(tys: *const BinaryenType, n_tys: BinaryenIndex) -> BinaryenType;
 
     fn BinaryenAddInt32() -> u32;
     fn BinaryenSubInt32() -> u32;
@@ -542,6 +591,16 @@ extern "C" {
         n_children: BinaryenIndex,
         ty: BinaryenType,
     ) -> BinaryenExpression;
+
+    fn BinaryenAddFunc(
+        module: BinaryenModule,
+        name: *const c_char,
+        params: BinaryenType,
+        results: BinaryenType,
+        vars: *const BinaryenType,
+        n_vars: BinaryenIndex,
+        body: BinaryenExpression,
+    ) -> BinaryenFunction;
 
     fn BinaryenUndefined() -> BinaryenType;
 

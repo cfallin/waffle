@@ -521,6 +521,12 @@ impl<'a> Module<'a> {
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
         let mut binaryen_module = binaryen::Module::read(self.orig_bytes)?;
+        for new_func_idx in self.funcs.len()..binaryen_module.num_funcs() {
+            let sig = self.func(new_func_idx).sig();
+            let body = self.func(new_func_idx).body().unwrap();
+            let binaryen_expr = backend::lower::generate_body(body, &mut binaryen_module);
+            backend::lower::create_new_func(self, sig, body, &mut binaryen_module, binaryen_expr);
+        }
         for &func in &self.dirty_funcs {
             if let Some(body) = self.func(func).body() {
                 let mut binaryen_func = binaryen_module.func(func);
