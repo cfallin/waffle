@@ -1,14 +1,18 @@
 use crate::backend::binaryen;
 use crate::ir::*;
 use fxhash::FxHashMap;
+use wasmparser::Type;
 
+/// Creates a body expression for a function. Returns that expression,
+/// and new locals (as their types) that were created as temporaries
+/// and need to be appended to `body.locals`.
 pub(crate) fn generate_body(
     body: &FunctionBody,
     into_mod: &mut binaryen::Module,
-) -> binaryen::Expression {
+) -> (Vec<Type>, binaryen::Expression) {
     // For each block, generate an expr.
     let mut block_exprs: FxHashMap<BlockId, binaryen::Expression> = FxHashMap::default();
-    let mut ctx = ElabCtx::default();
+    let mut ctx = ElabCtx::new(body, into_mod);
     for block in body.blocks() {
         let exprs = body[block]
             .insts
@@ -24,22 +28,33 @@ pub(crate) fn generate_body(
     todo!()
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct ElabCtx {
     value_to_expr: FxHashMap<Value, binaryen::Expression>,
-    block_params: FxHashMap<Value, LocalId>,
-    args: FxHashMap<Value, LocalId>,
+    block_params: FxHashMap<(Block, usize), LocalId>,
+    new_locals: Vec<Type>,
 }
 
 impl ElabCtx {
-    fn for_func(module: &Module, func: FuncId) -> ElabCtx {
-        let sig = module.func(func).sig();
-        let sig = module.signature(sig);
-        let body = module.func(func).body().unwrap();
+    fn new(body: &FunctionBody, into_mod: &mut binaryen::Module) -> ElabCtx {
+        // Create locals for each blockparam.
+        let mut block_params = FxHashMap::default();
+        let mut next_local = body.locals.len() as LocalId;
+        let mut new_locals = vec![];
+        for block in body.blocks() {
+            for &(ty, param) in &body[block].params {
+                let new_local = next_local;
+                next_local += 1;
+                block_params.insert((ty, param), new_local);
+                new_locals.push(ty);
+            }
+        }
 
-        let mut ctx = ElabCtx::default();
-
-        // TODO
+        ElabCtx {
+            value_to_expr: FxHashMap::default(),
+            block_params,
+            new_locals,
+        }
     }
 }
 
@@ -73,6 +88,7 @@ pub(crate) fn create_new_func(
     body: &FunctionBody,
     into_mod: &mut binaryen::Module,
     body_expr: binaryen::Expression,
+    new_locals: Vec<Type>,
 ) {
     // Create param types.
     let sig = module.signature(sig);
@@ -80,7 +96,11 @@ pub(crate) fn create_new_func(
         into_mod,
         sig.params.iter().copied(),
         sig.returns.iter().copied(),
-        body.locals.iter().copied(),
+        body.locals
+            .iter()
+            .copied()
+            .skip(body.n_params)
+            .chain(new_locals.into_iter()),
         body_expr,
     );
 }

@@ -99,14 +99,20 @@ impl FuncDecl {
 
 #[derive(Clone, Debug, Default)]
 pub struct FunctionBody {
+    /// How many parameters the function has. (Their types are the
+    /// first `n_params` values in `locals`.)
     pub n_params: usize,
+    /// Return types of the function.
     pub rets: Vec<Type>,
+    /// Local types, *including* args.
     pub locals: Vec<Type>,
+    /// Block bodies, indexed by `BlockId`.
     pub blocks: Vec<Block>,
+    /// Value definitions, indexed by `Value`.
     pub values: Vec<ValueDef>,
-    /// A single value can have multiple types if multi-value (e.g. a
-    /// call).
-    pub types: Vec</* Value, */ Vec<Type>>,
+    /// Types, indexed by `Value`. A single value can have multiple
+    /// types if multi-value (e.g. a call).
+    pub types: Vec<Vec<Type>>,
 }
 
 impl FunctionBody {
@@ -524,13 +530,25 @@ impl<'a> Module<'a> {
         for new_func_idx in self.funcs.len()..binaryen_module.num_funcs() {
             let sig = self.func(new_func_idx).sig();
             let body = self.func(new_func_idx).body().unwrap();
-            let binaryen_expr = backend::lower::generate_body(body, &mut binaryen_module);
-            backend::lower::create_new_func(self, sig, body, &mut binaryen_module, binaryen_expr);
+            let (new_locals, binaryen_expr) =
+                backend::lower::generate_body(body, &mut binaryen_module);
+            backend::lower::create_new_func(
+                self,
+                sig,
+                body,
+                &mut binaryen_module,
+                binaryen_expr,
+                new_locals,
+            );
         }
         for &func in &self.dirty_funcs {
             if let Some(body) = self.func(func).body() {
                 let mut binaryen_func = binaryen_module.func(func);
-                let binaryen_expr = backend::lower::generate_body(body, &mut binaryen_module);
+                let (new_locals, binaryen_expr) =
+                    backend::lower::generate_body(body, &mut binaryen_module);
+                for ty in new_locals {
+                    binaryen_func.add_local(ty);
+                }
                 binaryen_func.set_body(binaryen_expr);
             }
         }

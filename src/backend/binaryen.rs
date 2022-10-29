@@ -125,7 +125,7 @@ impl Function {
     ) -> Function {
         let params = tys_to_binaryen(params);
         let results = tys_to_binaryen(results);
-        let locals: Vec<BinaryenType> = locals.map(|&ty| Type::from(ty).to_kind()).collect();
+        let locals: Vec<BinaryenType> = locals.map(|ty| Type::from(ty).to_kind()).collect();
         let ptr = unsafe {
             BinaryenAddFunc(
                 module.0,
@@ -138,6 +138,10 @@ impl Function {
             )
         };
         Function(module.0, ptr)
+    }
+
+    pub fn add_local(&mut self, ty: wasmparser::Type) -> usize {
+        (unsafe { BinaryenFunctionAddVar(self.1, Type::from(ty).to_kind()) }) as usize
     }
 }
 
@@ -224,12 +228,12 @@ lazy_static! {
 }
 
 struct TypeIds {
-    none_t: u32,
-    i32_t: u32,
-    i64_t: u32,
-    f32_t: u32,
-    f64_t: u32,
-    v128_t: u32,
+    none_t: BinaryenType,
+    i32_t: BinaryenType,
+    i64_t: BinaryenType,
+    f32_t: BinaryenType,
+    f64_t: BinaryenType,
+    v128_t: BinaryenType,
 }
 
 impl TypeIds {
@@ -260,7 +264,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn from_kind(kind: u32) -> Option<Type> {
+    fn from_kind(kind: BinaryenType) -> Option<Type> {
         let tys = &*TYPE_IDS;
         if kind == tys.none_t {
             Some(Type::None)
@@ -304,7 +308,7 @@ impl From<wasmparser::Type> for Type {
 }
 
 pub fn tys_to_binaryen(tys: impl Iterator<Item = wasmparser::Type>) -> BinaryenType {
-    let tys: Vec<BinaryenType> = tys.map(|&ty| Type::from(ty).to_kind()).collect();
+    let tys: Vec<BinaryenType> = tys.map(|ty| Type::from(ty).to_kind()).collect();
     unsafe { BinaryenTypeCreate(tys.as_ptr(), tys.len() as BinaryenIndex) }
 }
 
@@ -450,6 +454,7 @@ extern "C" {
     fn BinaryenFunctionGetBody(ptr: BinaryenFunction) -> BinaryenExpression;
     fn BinaryenFunctionSetBody(ptr: BinaryenFunction, body: BinaryenExpression);
     fn BinaryenFunctionGetName(ptr: BinaryenFunction) -> *const c_char;
+    fn BinaryenFunctionAddVar(ptr: BinaryenFunction, ty: BinaryenType) -> BinaryenIndex;
     fn BinaryenGetExport(ptr: BinaryenModule, name: *const c_char) -> BinaryenExport;
     fn BinaryenGetNumExports(ptr: BinaryenModule) -> u32;
     fn BinaryenGetExportByIndex(ptr: BinaryenModule, index: u32) -> BinaryenExport;
@@ -459,7 +464,7 @@ extern "C" {
     fn BinaryenExternalFunction() -> u32;
 
     fn BinaryenExpressionGetId(ptr: BinaryenExpression) -> u32;
-    fn BinaryenExpressionGetType(ptr: BinaryenExpression) -> u32;
+    fn BinaryenExpressionGetType(ptr: BinaryenExpression) -> BinaryenType;
     fn BinaryenExpressionCopy(
         ptr: BinaryenExpression,
         module: BinaryenModule,
