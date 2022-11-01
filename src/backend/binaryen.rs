@@ -14,8 +14,8 @@ pub struct Expression(BinaryenModule, BinaryenExpression);
 #[derive(Clone, Copy, Debug)]
 pub struct Export(BinaryenModule, BinaryenExport);
 
-type BinaryenIndex = u32;
-type BinaryenType = usize;
+pub type BinaryenIndex = u32;
+pub type BinaryenType = usize;
 
 impl Module {
     pub fn read(data: &[u8]) -> Result<Module> {
@@ -423,6 +423,8 @@ pub type BinaryenModule = *const c_void;
 type BinaryenFunction = *const c_void;
 type BinaryenExpression = *const c_void;
 type BinaryenExport = *const c_void;
+type BinaryenRelooper = *const c_void;
+type BinaryenRelooperBlock = *const c_void;
 
 #[repr(C)]
 struct BinaryenModuleAllocateAndWriteResult {
@@ -437,6 +439,74 @@ impl Drop for BinaryenModuleAllocateAndWriteResult {
             libc::free(self.binary);
             libc::free(self.source_map as *mut c_void);
         }
+    }
+}
+
+pub struct Relooper(BinaryenModule, BinaryenRelooper);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RelooperBlock(BinaryenRelooperBlock);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RelooperBlockWithSwitch(BinaryenRelooperBlock);
+
+impl Relooper {
+    pub fn new(module: &Module) -> Relooper {
+        let ptr = unsafe { RelooperCreate(module.0) };
+        Relooper(module.0, ptr)
+    }
+
+    pub fn construct(self, entry: RelooperBlock, index_var: usize) -> Expression {
+        let module = self.0;
+        let expr = unsafe { RelooperRenderAndDispose(self.1, entry.0, index_var as BinaryenIndex) };
+        std::mem::forget(self);
+        Expression(module, expr)
+    }
+
+    pub fn add_block(&mut self, expr: Expression) -> RelooperBlock {
+        RelooperBlock(unsafe { RelooperAddBlock(self.1, expr.1) })
+    }
+
+    pub fn add_block_with_switch(
+        &mut self,
+        expr: Expression,
+        sel: Expression,
+    ) -> RelooperBlockWithSwitch {
+        RelooperBlockWithSwitch(unsafe { RelooperAddBlockWithSwitch(self.1, expr.1, sel.1) })
+    }
+}
+
+impl RelooperBlock {
+    pub fn cond_branch(&self, to: RelooperBlock, cond: Expression, edge: Expression) {
+        unsafe {
+            RelooperAddBranch(self.0, to.0, cond.1, edge.1);
+        }
+    }
+
+    pub fn branch(&self, to: RelooperBlock, edge: Expression) {
+        unsafe {
+            RelooperAddBranch(self.0, to.0, std::ptr::null(), edge.1);
+        }
+    }
+}
+
+impl RelooperBlockWithSwitch {
+    pub fn switch(&self, to: RelooperBlock, edge: Expression, indices: &[BinaryenIndex]) {
+        unsafe {
+            RelooperAddBranchForSwitch(
+                self.0,
+                to.0,
+                indices.as_ptr(),
+                indices.len() as BinaryenIndex,
+                edge.1,
+            );
+        }
+    }
+}
+
+impl Drop for Relooper {
+    fn drop(&mut self) {
+        panic!("Relooper dropped without constructing/disposing");
     }
 }
 
@@ -613,6 +683,32 @@ extern "C" {
     fn BinaryenLiteralInt64(x: i64) -> BinaryenLiteral;
     fn BinaryenLiteralFloat32Bits(x: i32) -> BinaryenLiteral;
     fn BinaryenLiteralFloat64Bits(x: i64) -> BinaryenLiteral;
+
+    fn RelooperCreate(module: BinaryenModule) -> BinaryenRelooper;
+    fn RelooperRenderAndDispose(
+        r: BinaryenRelooper,
+        entry: BinaryenRelooperBlock,
+        labelVar: BinaryenIndex,
+    ) -> BinaryenExpression;
+    fn RelooperAddBlock(r: BinaryenRelooper, code: BinaryenExpression) -> BinaryenRelooperBlock;
+    fn RelooperAddBranch(
+        from: BinaryenRelooperBlock,
+        to: BinaryenRelooperBlock,
+        cond: BinaryenExpression,
+        edge_code: BinaryenExpression,
+    );
+    fn RelooperAddBlockWithSwitch(
+        r: BinaryenRelooper,
+        code: BinaryenExpression,
+        selector: BinaryenExpression,
+    ) -> BinaryenRelooperBlock;
+    fn RelooperAddBranchForSwitch(
+        from: BinaryenRelooperBlock,
+        to: BinaryenRelooperBlock,
+        indices: *const BinaryenIndex,
+        n_indices: BinaryenIndex,
+        edge_code: BinaryenExpression,
+    );
 }
 
 #[repr(C)]

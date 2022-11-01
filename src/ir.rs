@@ -110,9 +110,6 @@ pub struct FunctionBody {
     pub blocks: Vec<Block>,
     /// Value definitions, indexed by `Value`.
     pub values: Vec<ValueDef>,
-    /// Types, indexed by `Value`. A single value can have multiple
-    /// types if multi-value (e.g. a call).
-    pub types: Vec<Vec<Type>>,
 }
 
 impl FunctionBody {
@@ -134,12 +131,11 @@ impl FunctionBody {
         log::trace!("add_edge: from {} to {}", from, to);
     }
 
-    pub fn add_value(&mut self, value: ValueDef, tys: Vec<Type>) -> Value {
-        log::trace!("add_value: def {:?} ty {:?}", value, tys);
+    pub fn add_value(&mut self, value: ValueDef) -> Value {
+        log::trace!("add_value: def {:?}", value);
         let id = Value(self.values.len() as u32);
         log::trace!(" -> value {:?}", id);
         self.values.push(value.clone());
-        self.types.push(tys);
         id
     }
 
@@ -166,30 +162,31 @@ impl FunctionBody {
         result
     }
 
-    pub fn add_mutable_inst(&mut self, tys: Vec<Type>, def: ValueDef) -> Value {
+    pub fn add_mutable_inst(&mut self, def: ValueDef) -> Value {
         let value = Value(self.values.len() as u32);
-        self.types.push(tys);
         self.values.push(def);
         value
     }
 
     pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
-        let value = self.add_value(ValueDef::BlockParam(block, index), vec![ty]);
+        let value = self.add_value(ValueDef::BlockParam(block, index, ty));
         self.blocks[block].params.push((ty, value));
         value
     }
 
     pub fn add_placeholder(&mut self, ty: Type) -> Value {
-        self.add_mutable_inst(vec![ty], ValueDef::Placeholder)
+        self.add_mutable_inst(ValueDef::Placeholder(ty))
     }
 
     pub fn replace_placeholder_with_blockparam(&mut self, block: BlockId, value: Value) {
-        assert!(self.values[value.index()] == ValueDef::Placeholder);
-        let ty = self.types[value.index()].get(0).cloned().unwrap();
         let index = self.blocks[block].params.len();
+        let ty = match &self.values[value.index()] {
+            &ValueDef::Placeholder(ty) => ty,
+            _ => unreachable!(),
+        };
         self.blocks[block].params.push((ty, value));
-        self.values[value.index()] = ValueDef::BlockParam(block, index);
+        self.values[value.index()] = ValueDef::BlockParam(block, index, ty);
     }
 
     pub fn resolve_and_update_alias(&mut self, value: Value) -> Value {
@@ -295,12 +292,12 @@ impl Value {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ValueDef {
-    Arg(usize),
-    BlockParam(BlockId, usize),
-    Operator(Operator, Vec<Value>),
-    PickOutput(Value, usize),
+    Arg(usize, Type),
+    BlockParam(BlockId, usize, Type),
+    Operator(Operator, Vec<Value>, Vec<Type>),
+    PickOutput(Value, usize, Type),
     Alias(Value),
-    Placeholder,
+    Placeholder(Type),
 }
 
 impl ValueDef {
@@ -308,14 +305,14 @@ impl ValueDef {
         match self {
             &ValueDef::Arg { .. } => {}
             &ValueDef::BlockParam { .. } => {}
-            &ValueDef::Operator(_, ref args) => {
+            &ValueDef::Operator(_, ref args, _) => {
                 for &arg in args {
                     f(arg);
                 }
             }
             &ValueDef::PickOutput(from, ..) => f(from),
             &ValueDef::Alias(value) => f(value),
-            &ValueDef::Placeholder => {}
+            &ValueDef::Placeholder(_) => {}
         }
     }
 
@@ -323,14 +320,14 @@ impl ValueDef {
         match self {
             &mut ValueDef::Arg { .. } => {}
             &mut ValueDef::BlockParam { .. } => {}
-            &mut ValueDef::Operator(_, ref mut args) => {
+            &mut ValueDef::Operator(_, ref mut args, _) => {
                 for arg in args {
                     f(arg);
                 }
             }
             &mut ValueDef::PickOutput(ref mut from, ..) => f(from),
             &mut ValueDef::Alias(ref mut value) => f(value),
-            &mut ValueDef::Placeholder => {}
+            &mut ValueDef::Placeholder(_) => {}
         }
     }
 }

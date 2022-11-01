@@ -41,7 +41,7 @@ impl UseCountAnalysis {
                 workqueue_set.remove(&value);
                 match &f.values[value.index()] {
                     &ValueDef::Alias(..) | &ValueDef::Arg(..) | &ValueDef::BlockParam(..) => {}
-                    &ValueDef::Operator(_op, ref args) => {
+                    &ValueDef::Operator(_op, ref args, _) => {
                         for &arg in args {
                             let arg = f.resolve_alias(arg);
                             counts.add(arg);
@@ -52,7 +52,7 @@ impl UseCountAnalysis {
                             }
                         }
                     }
-                    &ValueDef::PickOutput(value, _) => {
+                    &ValueDef::PickOutput(value, _, _) => {
                         let value = f.resolve_alias(value);
                         counts.add(value);
                         if counts.use_count[value.index()] == 1 {
@@ -61,7 +61,7 @@ impl UseCountAnalysis {
                             }
                         }
                     }
-                    &ValueDef::Placeholder => {
+                    &ValueDef::Placeholder(_) => {
                         panic!("Unresolved placeholder for value {}", value);
                     }
                 }

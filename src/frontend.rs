@@ -128,7 +128,7 @@ fn parse_body<'a>(
 
     for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
         let local_idx = arg_idx as LocalId;
-        let value = builder.body.add_value(ValueDef::Arg(arg_idx), vec![arg_ty]);
+        let value = builder.body.add_value(ValueDef::Arg(arg_idx, arg_ty));
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.declare(local_idx, arg_ty);
         builder.locals.set(local_idx, value);
@@ -155,7 +155,7 @@ fn parse_body<'a>(
         assert!(builder.locals.is_sealed(block));
     }
     for value in &builder.body.values {
-        assert!(value != &ValueDef::Placeholder);
+        assert!(!matches!(value, &ValueDef::Placeholder(_)));
     }
 
     trace!("Final function body:{:?}", ret);
@@ -291,32 +291,30 @@ impl LocalTracker {
 
     fn create_default_value(&mut self, body: &mut FunctionBody, ty: Type) -> Value {
         match ty {
-            Type::I32 => body.add_value(
-                ValueDef::Operator(Operator::I32Const { value: 0 }, vec![]),
+            Type::I32 => body.add_value(ValueDef::Operator(
+                Operator::I32Const { value: 0 },
+                vec![],
                 vec![ty],
-            ),
-            Type::I64 => body.add_value(
-                ValueDef::Operator(Operator::I64Const { value: 0 }, vec![]),
+            )),
+            Type::I64 => body.add_value(ValueDef::Operator(
+                Operator::I64Const { value: 0 },
+                vec![],
                 vec![ty],
-            ),
-            Type::F32 => body.add_value(
-                ValueDef::Operator(
-                    Operator::F32Const {
-                        value: Ieee32::from_bits(0),
-                    },
-                    vec![],
-                ),
+            )),
+            Type::F32 => body.add_value(ValueDef::Operator(
+                Operator::F32Const {
+                    value: Ieee32::from_bits(0),
+                },
+                vec![],
                 vec![ty],
-            ),
-            Type::F64 => body.add_value(
-                ValueDef::Operator(
-                    Operator::F64Const {
-                        value: Ieee64::from_bits(0),
-                    },
-                    vec![],
-                ),
+            )),
+            Type::F64 => body.add_value(ValueDef::Operator(
+                Operator::F64Const {
+                    value: Ieee64::from_bits(0),
+                },
+                vec![],
                 vec![ty],
-            ),
+            )),
             _ => todo!("unsupported type: {:?}", ty),
         }
     }
@@ -1180,7 +1178,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
         let value = self
             .body
-            .add_value(ValueDef::Operator(op, input_operands), outputs.clone());
+            .add_value(ValueDef::Operator(op, input_operands, outputs.clone()));
         log::trace!(" -> value: {:?}", value);
 
         if let Some(block) = self.cur_block {
@@ -1194,7 +1192,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             for (i, output_ty) in outputs.into_iter().enumerate() {
                 let pick = self
                     .body
-                    .add_value(ValueDef::PickOutput(value, i), vec![output_ty]);
+                    .add_value(ValueDef::PickOutput(value, i, output_ty));
                 self.op_stack.push((output_ty, pick));
                 log::trace!(" -> pick {}: {:?} ty {:?}", i, pick, output_ty);
             }
