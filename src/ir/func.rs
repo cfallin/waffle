@@ -55,7 +55,7 @@ impl FunctionBody {
         id
     }
 
-    pub fn add_edge(&mut self, from: Block, to: Block) {
+    fn add_edge(&mut self, from: Block, to: Block) {
         let succ_pos = self.blocks[from].succs.len();
         let pred_pos = self.blocks[to].preds.len();
         self.blocks[from].succs.push(to);
@@ -93,12 +93,6 @@ impl FunctionBody {
         result
     }
 
-    pub fn add_mutable_inst(&mut self, def: ValueDef) -> Value {
-        let value = Value(self.values.len() as u32);
-        self.values.push(def);
-        value
-    }
-
     pub fn add_blockparam(&mut self, block: Block, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
         let value = self.add_value(ValueDef::BlockParam(block, index, ty));
@@ -107,7 +101,7 @@ impl FunctionBody {
     }
 
     pub fn add_placeholder(&mut self, ty: Type) -> Value {
-        self.add_mutable_inst(ValueDef::Placeholder(ty))
+        self.add_value(ValueDef::Placeholder(ty))
     }
 
     pub fn replace_placeholder_with_blockparam(&mut self, block: Block, value: Value) {
