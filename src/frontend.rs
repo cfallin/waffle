@@ -11,7 +11,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
 use std::convert::TryFrom;
 use wasmparser::{
-    Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, Type, TypeDef, TypeOrFuncType,
+    Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, TypeDef, TypeOrFuncType,
 };
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
@@ -37,7 +37,7 @@ fn handle_payload<'a>(
             for _ in 0..reader.get_count() {
                 let ty = reader.read()?;
                 if let TypeDef::Func(fty) = ty {
-                    module.frontend_add_signature(fty);
+                    module.frontend_add_signature(fty.into());
                 }
             }
         }
@@ -49,10 +49,10 @@ fn handle_payload<'a>(
                         *next_func += 1;
                     }
                     ImportSectionEntryType::Global(ty) => {
-                        module.frontend_add_global(ty.content_type);
+                        module.frontend_add_global(ty.content_type.into());
                     }
                     ImportSectionEntryType::Table(ty) => {
-                        module.frontend_add_table(ty.element_type);
+                        module.frontend_add_table(ty.element_type.into());
                     }
                     _ => {}
                 }
@@ -61,13 +61,13 @@ fn handle_payload<'a>(
         Payload::GlobalSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let global = reader.read()?;
-                module.frontend_add_global(global.ty.content_type);
+                module.frontend_add_global(global.ty.content_type.into());
             }
         }
         Payload::TableSection(mut reader) => {
             for _ in 0..reader.get_count() {
                 let table = reader.read()?;
-                module.frontend_add_table(table.element_type);
+                module.frontend_add_table(table.element_type.into());
             }
         }
         Payload::FunctionSection(mut reader) => {
@@ -100,18 +100,18 @@ fn parse_body<'a>(
     let mut ret: FunctionBody = FunctionBody::default();
 
     for &param in &module.signature(my_sig).params[..] {
-        ret.locals.push(param);
+        ret.locals.push(param.into());
     }
     ret.n_params = module.signature(my_sig).params.len();
     for &r in &module.signature(my_sig).returns[..] {
-        ret.rets.push(r);
+        ret.rets.push(r.into());
     }
 
     let mut locals = body.get_locals_reader()?;
     for _ in 0..locals.get_count() {
         let (count, ty) = locals.read()?;
         for _ in 0..count {
-            ret.locals.push(ty);
+            ret.locals.push(ty.into());
         }
     }
     let locals = ret.locals.clone();
@@ -124,12 +124,16 @@ fn parse_body<'a>(
 
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
     let entry = Block::new(0);
+    builder.body.entry = entry;
     builder.locals.seal_block_preds(entry, &mut builder.body);
     builder.locals.start_block(entry);
 
     for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
         let local_idx = Local::new(arg_idx);
-        let value = builder.body.add_value(ValueDef::Arg(arg_idx, arg_ty));
+        builder.body.add_blockparam(entry, arg_ty);
+        let value = builder
+            .body
+            .add_value(ValueDef::BlockParam(entry, arg_idx, arg_ty));
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.declare(local_idx, arg_ty);
         builder.locals.set(local_idx, value);
@@ -1005,8 +1009,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
     fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
         match ty {
-            TypeOrFuncType::Type(Type::EmptyBlockType) => (vec![], vec![]),
-            TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty]),
+            TypeOrFuncType::Type(wasmparser::Type::EmptyBlockType) => (vec![], vec![]),
+            TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty.into()]),
             TypeOrFuncType::FuncType(sig_idx) => {
                 let sig = &self.module.signature(Signature::from(sig_idx));
                 (

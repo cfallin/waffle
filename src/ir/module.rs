@@ -1,19 +1,46 @@
-use super::{Func, FuncDecl, Global, Signature, Table};
+use super::{Func, FuncDecl, Global, ModuleDisplay, Signature, Table, Type};
 use crate::entity::EntityVec;
 use crate::frontend;
 use anyhow::Result;
 use fxhash::FxHashSet;
-use wasmparser::{FuncType, Type};
 
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
     orig_bytes: &'a [u8],
     funcs: EntityVec<Func, FuncDecl>,
-    signatures: EntityVec<Signature, FuncType>,
+    signatures: EntityVec<Signature, SignatureData>,
     globals: EntityVec<Global, Type>,
     tables: EntityVec<Table, Type>,
 
     dirty_funcs: FxHashSet<Func>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SignatureData {
+    pub params: Vec<Type>,
+    pub returns: Vec<Type>,
+}
+
+impl From<&wasmparser::FuncType> for SignatureData {
+    fn from(fty: &wasmparser::FuncType) -> Self {
+        Self {
+            params: fty
+                .params
+                .iter()
+                .map(|&ty| ty.into())
+                .collect::<Vec<Type>>(),
+            returns: fty
+                .returns
+                .iter()
+                .map(|&ty| ty.into())
+                .collect::<Vec<Type>>(),
+        }
+    }
+}
+impl From<wasmparser::FuncType> for SignatureData {
+    fn from(fty: wasmparser::FuncType) -> Self {
+        (&fty).into()
+    }
 }
 
 impl<'a> Module<'a> {
@@ -32,7 +59,10 @@ impl<'a> Module<'a> {
         self.dirty_funcs.insert(id);
         &mut self.funcs[id]
     }
-    pub fn signature<'b>(&'b self, id: Signature) -> &'b FuncType {
+    pub fn funcs<'b>(&'b self) -> impl Iterator<Item = (Func, &'b FuncDecl)> {
+        self.funcs.entries()
+    }
+    pub fn signature<'b>(&'b self, id: Signature) -> &'b SignatureData {
         &self.signatures[id]
     }
     pub fn global_ty(&self, id: Global) -> Type {
@@ -42,7 +72,7 @@ impl<'a> Module<'a> {
         self.tables[id]
     }
 
-    pub(crate) fn frontend_add_signature(&mut self, ty: FuncType) {
+    pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
         self.signatures.push(ty);
     }
     pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) {
@@ -61,5 +91,12 @@ impl<'a> Module<'a> {
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
         todo!()
+    }
+
+    pub fn display<'b>(&'b self) -> ModuleDisplay<'b>
+    where
+        'b: 'a,
+    {
+        ModuleDisplay(self)
     }
 }

@@ -1,14 +1,24 @@
 //! Operators.
 
-use wasmparser::{Ieee32, Ieee64, MemoryImmediate, Type};
+use wasmparser::{Ieee32, Ieee64, MemoryImmediate};
 
-use crate::{Func, Global, Local, Memory, Signature, Table};
+use crate::{Func, Global, Local, Memory, Signature, Table, Type};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MemoryArg {
     pub align: u8,
     pub offset: u64,
     pub memory: Memory,
+}
+
+impl std::fmt::Display for MemoryArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}, align={}, offset={}",
+            self.memory, self.align, self.offset
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -324,7 +334,7 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 local_index: Local::from(local_index),
             }),
             &wasmparser::Operator::Select => Ok(Operator::Select),
-            &wasmparser::Operator::TypedSelect { ty } => Ok(Operator::TypedSelect { ty }),
+            &wasmparser::Operator::TypedSelect { ty } => Ok(Operator::TypedSelect { ty: ty.into() }),
             &wasmparser::Operator::GlobalGet { global_index } => Ok(Operator::GlobalGet {
                 global_index: Global::from(global_index),
             }),

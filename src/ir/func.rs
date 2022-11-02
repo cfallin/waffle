@@ -1,6 +1,5 @@
-use super::{Block, Local, Signature, Value, ValueDef};
+use super::{Block, FunctionBodyDisplay, Local, Signature, Value, ValueDef, Type};
 use crate::entity::EntityVec;
-use wasmparser::Type;
 
 #[derive(Clone, Debug)]
 pub enum FuncDecl {
@@ -138,6 +137,10 @@ impl FunctionBody {
 
     pub fn add_local(&mut self, ty: Type) -> Local {
         self.locals.push(ty)
+    }
+
+    pub fn display<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
+        FunctionBodyDisplay(self, indent)
     }
 }
 

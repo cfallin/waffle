@@ -46,7 +46,7 @@ fn main() -> Result<()> {
             let bytes = std::fs::read(wasm)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let module = Module::from_wasm_bytes(&bytes[..])?;
-            println!("{:?}", module);
+            println!("{}", module.display());
         }
         Command::RoundTrip { input, output } => {
             let bytes = std::fs::read(input)?;
