@@ -1,4 +1,4 @@
-use super::{Block, FunctionBodyDisplay, Local, Signature, Value, ValueDef, Type};
+use super::{Block, FunctionBodyDisplay, Local, Signature, Type, Value, ValueDef};
 use crate::entity::EntityVec;
 
 #[derive(Clone, Debug)]
@@ -168,6 +168,17 @@ pub struct BlockTarget {
     pub args: Vec<Value>,
 }
 
+impl std::fmt::Display for BlockTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let args = self
+            .args
+            .iter()
+            .map(|arg| format!("{}", arg))
+            .collect::<Vec<_>>();
+        write!(f, "{}({})", self.block, args.join(", "))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Terminator {
     Br {
@@ -186,12 +197,53 @@ pub enum Terminator {
     Return {
         values: Vec<Value>,
     },
+    Unreachable,
     None,
 }
 
 impl std::default::Default for Terminator {
     fn default() -> Self {
         Terminator::None
+    }
+}
+
+impl std::fmt::Display for Terminator {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Terminator::None => write!(f, "no_terminator")?,
+            Terminator::Br { target } => write!(f, "br {}", target)?,
+            Terminator::CondBr {
+                cond,
+                if_true,
+                if_false,
+            } => write!(f, "if {}, {}, {}", cond, if_true, if_false)?,
+            Terminator::Select {
+                value,
+                targets,
+                default,
+            } => write!(
+                f,
+                "select {}, [{}], {}",
+                value,
+                targets
+                    .iter()
+                    .map(|target| format!("{}", target))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                default
+            )?,
+            Terminator::Return { values } => write!(
+                f,
+                "return {}",
+                values
+                    .iter()
+                    .map(|val| format!("{}", val))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?,
+            Terminator::Unreachable => write!(f, "unreachable")?,
+        }
+        Ok(())
     }
 }
 
@@ -219,6 +271,7 @@ impl Terminator {
                 }
             }
             Terminator::None => {}
+            Terminator::Unreachable => {}
         }
     }
 
@@ -245,6 +298,7 @@ impl Terminator {
                 }
             }
             Terminator::None => {}
+            Terminator::Unreachable => {}
         }
     }
 

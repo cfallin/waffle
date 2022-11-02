@@ -65,11 +65,20 @@ impl<'a> Module<'a> {
     pub fn signature<'b>(&'b self, id: Signature) -> &'b SignatureData {
         &self.signatures[id]
     }
+    pub fn signatures<'b>(&'b self) -> impl Iterator<Item = (Signature, &'b SignatureData)> {
+        self.signatures.entries()
+    }
     pub fn global_ty(&self, id: Global) -> Type {
         self.globals[id]
     }
+    pub fn globals<'b>(&'b self) -> impl Iterator<Item = (Global, Type)> + 'b {
+        self.globals.entries().map(|(id, ty)| (id, *ty))
+    }
     pub fn table_ty(&self, id: Table) -> Type {
         self.tables[id]
+    }
+    pub fn tables<'b>(&'b self) -> impl Iterator<Item = (Table, Type)> + 'b {
+        self.tables.entries().map(|(id, ty)| (id, *ty))
     }
 
     pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
@@ -86,7 +95,13 @@ impl<'a> Module<'a> {
     }
 
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
-        frontend::wasm_to_ir(bytes)
+        let mut module = frontend::wasm_to_ir(bytes)?;
+        for func_decl in module.funcs.values_mut() {
+            if let Some(body) = func_decl.body_mut() {
+                crate::passes::rpo::reorder_into_rpo(body);
+            }
+        }
+        Ok(module)
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {

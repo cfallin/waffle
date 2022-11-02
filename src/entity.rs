@@ -73,6 +73,12 @@ impl<Idx: EntityRef, T: Clone + Debug> std::default::Default for EntityVec<Idx, 
     }
 }
 
+impl<Idx: EntityRef, T: Clone + Debug> From<Vec<T>> for EntityVec<Idx, T> {
+    fn from(vec: Vec<T>) -> Self {
+        Self(vec, PhantomData)
+    }
+}
+
 impl<Idx: EntityRef, T: Clone + Debug> EntityVec<Idx, T> {
     pub fn push(&mut self, t: T) -> Idx {
         let idx = Idx::new(self.0.len());
@@ -116,6 +122,10 @@ impl<Idx: EntityRef, T: Clone + Debug> EntityVec<Idx, T> {
 
     pub fn get_mut(&mut self, idx: Idx) -> Option<&mut T> {
         self.0.get_mut(idx.index())
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
     }
 }
 

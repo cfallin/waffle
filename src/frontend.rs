@@ -551,7 +551,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         match &op {
             wasmparser::Operator::Unreachable => {
                 if let Some(block) = self.cur_block {
-                    self.body.end_block(block, Terminator::None);
+                    self.body.end_block(block, Terminator::Unreachable);
                     self.locals.finish_block();
                 }
                 self.cur_block = None;

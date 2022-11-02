@@ -9,6 +9,7 @@ pub enum Type {
     F32,
     F64,
     V128,
+    FuncRef,
 }
 impl From<wasmparser::Type> for Type {
     fn from(ty: wasmparser::Type) -> Self {
@@ -18,6 +19,7 @@ impl From<wasmparser::Type> for Type {
             wasmparser::Type::F32 => Type::F32,
             wasmparser::Type::F64 => Type::F64,
             wasmparser::Type::V128 => Type::V128,
+            wasmparser::Type::FuncRef => Type::FuncRef,
             _ => panic!("Unsupported type: {:?}", ty),
         }
     }
@@ -31,6 +33,7 @@ impl std::fmt::Display for Type {
             Type::F32 => "f32",
             Type::F64 => "f64",
             Type::V128 => "v128",
+            Type::FuncRef => "funcref",
         };
         write!(f, "{}", s)
     }
@@ -43,7 +46,7 @@ entity!(Local, "local");
 entity!(Global, "global");
 entity!(Table, "table");
 entity!(Memory, "memory");
-entity!(Value, "value");
+entity!(Value, "v");
 
 mod module;
 pub use module::*;

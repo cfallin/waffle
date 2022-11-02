@@ -12,6 +12,8 @@ mod frontend;
 mod ir;
 mod op_traits;
 mod ops;
+mod passes;
+pub use passes::rpo::reorder_into_rpo;
 
 pub use ir::*;
 pub use ops::Operator;
