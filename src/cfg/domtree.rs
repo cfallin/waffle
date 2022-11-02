@@ -12,18 +12,19 @@
 //   TR-06-33870
 //   https://www.cs.rice.edu/~keith/EMBED/dom.pdf
 
-use crate::ir::{BlockId, INVALID_BLOCK};
+use crate::entity::{EntityRef, PerEntity};
+use crate::ir::Block;
 
 // Helper
 fn merge_sets(
-    idom: &[BlockId], // map from BlockId to BlockId
-    block_to_rpo: &[Option<u32>],
-    mut node1: BlockId,
-    mut node2: BlockId,
-) -> BlockId {
+    idom: &PerEntity<Block, Block>, // map from Block to Block
+    block_to_rpo: &PerEntity<Block, Option<u32>>,
+    mut node1: Block,
+    mut node2: Block,
+) -> Block {
     while node1 != node2 {
-        if node1 == INVALID_BLOCK || node2 == INVALID_BLOCK {
-            return INVALID_BLOCK;
+        if node1.is_invalid() || node2.is_invalid() {
+            return Block::invalid();
         }
         let rpo1 = block_to_rpo[node1].unwrap();
         let rpo2 = block_to_rpo[node2].unwrap();
@@ -37,22 +38,20 @@ fn merge_sets(
     node1
 }
 
-pub fn calculate<'a, PredFn: Fn(BlockId) -> &'a [BlockId]>(
-    num_blocks: usize,
+pub fn calculate<'a, PredFn: Fn(Block) -> &'a [Block]>(
     preds: PredFn,
-    post_ord: &[BlockId],
-    start: BlockId,
-) -> Vec<BlockId> {
+    post_ord: &[Block],
+    start: Block,
+) -> PerEntity<Block, Block> {
     // We have post_ord, which is the postorder sequence.
 
     // Compute maps from RPO to block number and vice-versa.
-    let mut block_to_rpo = vec![None; num_blocks];
-    block_to_rpo.resize(num_blocks, None);
+    let mut block_to_rpo: PerEntity<Block, Option<u32>> = PerEntity::default();
     for (i, rpo_block) in post_ord.iter().rev().enumerate() {
         block_to_rpo[*rpo_block] = Some(i as u32);
     }
 
-    let mut idom = vec![INVALID_BLOCK; num_blocks];
+    let mut idom: PerEntity<Block, Block> = PerEntity::default();
 
     // The start node must have itself as a parent.
     idom[start] = start;
@@ -64,7 +63,7 @@ pub fn calculate<'a, PredFn: Fn(BlockId) -> &'a [BlockId]>(
         for &node in post_ord.iter().rev() {
             let rponum = block_to_rpo[node].unwrap();
 
-            let mut parent = INVALID_BLOCK;
+            let mut parent = Block::invalid();
             for &pred in preds(node).iter() {
                 let pred_rpo = match block_to_rpo[pred] {
                     Some(r) => r,
@@ -79,19 +78,19 @@ pub fn calculate<'a, PredFn: Fn(BlockId) -> &'a [BlockId]>(
                 }
             }
 
-            if parent != INVALID_BLOCK {
+            if parent != Block::invalid() {
                 for &pred in preds(node).iter() {
                     if pred == parent {
                         continue;
                     }
-                    if idom[pred] == INVALID_BLOCK {
+                    if idom[pred] == Block::invalid() {
                         continue;
                     }
-                    parent = merge_sets(&idom, &block_to_rpo[..], parent, pred);
+                    parent = merge_sets(&idom, &block_to_rpo, parent, pred);
                 }
             }
 
-            if parent != INVALID_BLOCK && parent != idom[node] {
+            if parent != Block::invalid() && parent != idom[node] {
                 idom[node] = parent;
                 changed = true;
             }
@@ -100,17 +99,17 @@ pub fn calculate<'a, PredFn: Fn(BlockId) -> &'a [BlockId]>(
 
     // Now set the start node's dominator-tree parent to "invalid";
     // this allows the loop in `dominates` to terminate.
-    idom[start] = INVALID_BLOCK;
+    idom[start] = Block::invalid();
 
     idom
 }
 
-pub fn dominates(idom: &[BlockId], a: BlockId, mut b: BlockId) -> bool {
+pub fn dominates(idom: &PerEntity<Block, Block>, a: Block, mut b: Block) -> bool {
     loop {
         if a == b {
             return true;
         }
-        if b == INVALID_BLOCK {
+        if b.is_invalid() {
             return false;
         }
         b = idom[b];

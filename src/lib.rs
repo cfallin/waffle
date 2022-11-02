@@ -7,11 +7,11 @@ pub use wasmparser;
 
 mod backend;
 mod cfg;
+mod entity;
 mod frontend;
 mod ir;
 mod op_traits;
 mod ops;
-mod use_count;
 
 pub use ir::*;
 pub use ops::Operator;

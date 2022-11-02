@@ -2,13 +2,13 @@
 
 use wasmparser::{Ieee32, Ieee64, MemoryImmediate, Type};
 
-use crate::{FuncId, GlobalId, LocalId, MemoryId, TableId};
+use crate::{Func, Global, Local, Memory, Signature, Table};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Memory {
+pub struct MemoryArg {
     pub align: u8,
     pub offset: u64,
-    pub memory: MemoryId,
+    pub memory: Memory,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -16,46 +16,117 @@ pub enum Operator {
     Unreachable,
     Nop,
 
-    Call { function_index: FuncId },
-    CallIndirect { index: FuncId, table_index: TableId },
+    Call {
+        function_index: Func,
+    },
+    CallIndirect {
+        sig_index: Signature,
+        table_index: Table,
+    },
     Return,
-    LocalSet { local_index: LocalId },
-    LocalTee { local_index: LocalId },
-    LocalGet { local_index: LocalId },
+    LocalSet {
+        local_index: Local,
+    },
+    LocalTee {
+        local_index: Local,
+    },
+    LocalGet {
+        local_index: Local,
+    },
     Select,
-    TypedSelect { ty: Type },
-    GlobalGet { global_index: GlobalId },
-    GlobalSet { global_index: GlobalId },
+    TypedSelect {
+        ty: Type,
+    },
+    GlobalGet {
+        global_index: Global,
+    },
+    GlobalSet {
+        global_index: Global,
+    },
 
-    I32Load { memory: Memory },
-    I64Load { memory: Memory },
-    F32Load { memory: Memory },
-    F64Load { memory: Memory },
-    I32Load8S { memory: Memory },
-    I32Load8U { memory: Memory },
-    I32Load16S { memory: Memory },
-    I32Load16U { memory: Memory },
-    I64Load8S { memory: Memory },
-    I64Load8U { memory: Memory },
-    I64Load16S { memory: Memory },
-    I64Load16U { memory: Memory },
-    I64Load32S { memory: Memory },
-    I64Load32U { memory: Memory },
+    I32Load {
+        memory: MemoryArg,
+    },
+    I64Load {
+        memory: MemoryArg,
+    },
+    F32Load {
+        memory: MemoryArg,
+    },
+    F64Load {
+        memory: MemoryArg,
+    },
+    I32Load8S {
+        memory: MemoryArg,
+    },
+    I32Load8U {
+        memory: MemoryArg,
+    },
+    I32Load16S {
+        memory: MemoryArg,
+    },
+    I32Load16U {
+        memory: MemoryArg,
+    },
+    I64Load8S {
+        memory: MemoryArg,
+    },
+    I64Load8U {
+        memory: MemoryArg,
+    },
+    I64Load16S {
+        memory: MemoryArg,
+    },
+    I64Load16U {
+        memory: MemoryArg,
+    },
+    I64Load32S {
+        memory: MemoryArg,
+    },
+    I64Load32U {
+        memory: MemoryArg,
+    },
 
-    I32Store { memory: Memory },
-    I64Store { memory: Memory },
-    F32Store { memory: Memory },
-    F64Store { memory: Memory },
-    I32Store8 { memory: Memory },
-    I32Store16 { memory: Memory },
-    I64Store8 { memory: Memory },
-    I64Store16 { memory: Memory },
-    I64Store32 { memory: Memory },
+    I32Store {
+        memory: MemoryArg,
+    },
+    I64Store {
+        memory: MemoryArg,
+    },
+    F32Store {
+        memory: MemoryArg,
+    },
+    F64Store {
+        memory: MemoryArg,
+    },
+    I32Store8 {
+        memory: MemoryArg,
+    },
+    I32Store16 {
+        memory: MemoryArg,
+    },
+    I64Store8 {
+        memory: MemoryArg,
+    },
+    I64Store16 {
+        memory: MemoryArg,
+    },
+    I64Store32 {
+        memory: MemoryArg,
+    },
 
-    I32Const { value: i32 },
-    I64Const { value: i64 },
-    F32Const { value: Ieee32 },
-    F64Const { value: Ieee64 },
+    I32Const {
+        value: i32,
+    },
+    I64Const {
+        value: i64,
+    },
+    F32Const {
+        value: Ieee32,
+    },
+    F64Const {
+        value: Ieee64,
+    },
 
     I32Eqz,
     I32Eq,
@@ -206,12 +277,24 @@ pub enum Operator {
     F64ReinterpretI64,
     I32ReinterpretF32,
     I64ReinterpretF64,
-    TableGet { table: TableId },
-    TableSet { table: TableId },
-    TableGrow { table: TableId },
-    TableSize { table: TableId },
-    MemorySize { mem: MemoryId },
-    MemoryGrow { mem: MemoryId },
+    TableGet {
+        table_index: Table,
+    },
+    TableSet {
+        table_index: Table,
+    },
+    TableGrow {
+        table_index: Table,
+    },
+    TableSize {
+        table_index: Table,
+    },
+    MemorySize {
+        mem: Memory,
+    },
+    MemoryGrow {
+        mem: Memory,
+    },
 }
 
 impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
@@ -222,32 +305,32 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
             &wasmparser::Operator::Unreachable => Ok(Operator::Unreachable),
             &wasmparser::Operator::Nop => Ok(Operator::Nop),
             &wasmparser::Operator::Call { function_index } => Ok(Operator::Call {
-                function_index: function_index as usize,
+                function_index: Func::from(function_index),
             }),
-            &wasmparser::Operator::CallIndirect { index, table_index } => {
-                Ok(Operator::CallIndirect {
-                    index: index as usize,
-                    table_index,
-                })
-            }
+            &wasmparser::Operator::CallIndirect {
+                index, table_index, ..
+            } => Ok(Operator::CallIndirect {
+                sig_index: Signature::from(index),
+                table_index: Table::from(table_index),
+            }),
             &wasmparser::Operator::Return => Ok(Operator::Return),
-            &wasmparser::Operator::LocalSet { local_index } => {
-                Ok(Operator::LocalSet { local_index })
-            }
-            &wasmparser::Operator::LocalTee { local_index } => {
-                Ok(Operator::LocalTee { local_index })
-            }
-            &wasmparser::Operator::LocalGet { local_index } => {
-                Ok(Operator::LocalGet { local_index })
-            }
+            &wasmparser::Operator::LocalSet { local_index } => Ok(Operator::LocalSet {
+                local_index: Local::from(local_index),
+            }),
+            &wasmparser::Operator::LocalTee { local_index } => Ok(Operator::LocalTee {
+                local_index: Local::from(local_index),
+            }),
+            &wasmparser::Operator::LocalGet { local_index } => Ok(Operator::LocalGet {
+                local_index: Local::from(local_index),
+            }),
             &wasmparser::Operator::Select => Ok(Operator::Select),
             &wasmparser::Operator::TypedSelect { ty } => Ok(Operator::TypedSelect { ty }),
-            &wasmparser::Operator::GlobalGet { global_index } => {
-                Ok(Operator::GlobalGet { global_index })
-            }
-            &wasmparser::Operator::GlobalSet { global_index } => {
-                Ok(Operator::GlobalSet { global_index })
-            }
+            &wasmparser::Operator::GlobalGet { global_index } => Ok(Operator::GlobalGet {
+                global_index: Global::from(global_index),
+            }),
+            &wasmparser::Operator::GlobalSet { global_index } => Ok(Operator::GlobalSet {
+                global_index: Global::from(global_index),
+            }),
             &wasmparser::Operator::I32Load { memarg } => Ok(Operator::I32Load {
                 memory: memarg.into(),
             }),
@@ -457,23 +540,35 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
             &wasmparser::Operator::F64ReinterpretI64 => Ok(Operator::F64ReinterpretI64),
             &wasmparser::Operator::I32ReinterpretF32 => Ok(Operator::I32ReinterpretF32),
             &wasmparser::Operator::I64ReinterpretF64 => Ok(Operator::I64ReinterpretF64),
-            &wasmparser::Operator::TableGet { table } => Ok(Operator::TableGet { table }),
-            &wasmparser::Operator::TableSet { table } => Ok(Operator::TableSet { table }),
-            &wasmparser::Operator::TableGrow { table } => Ok(Operator::TableGrow { table }),
-            &wasmparser::Operator::TableSize { table } => Ok(Operator::TableSize { table }),
-            &wasmparser::Operator::MemorySize { mem, .. } => Ok(Operator::MemorySize { mem }),
-            &wasmparser::Operator::MemoryGrow { mem, .. } => Ok(Operator::MemoryGrow { mem }),
+            &wasmparser::Operator::TableGet { table } => Ok(Operator::TableGet {
+                table_index: Table::from(table),
+            }),
+            &wasmparser::Operator::TableSet { table } => Ok(Operator::TableSet {
+                table_index: Table::from(table),
+            }),
+            &wasmparser::Operator::TableGrow { table } => Ok(Operator::TableGrow {
+                table_index: Table::from(table),
+            }),
+            &wasmparser::Operator::TableSize { table } => Ok(Operator::TableSize {
+                table_index: Table::from(table),
+            }),
+            &wasmparser::Operator::MemorySize { mem, .. } => Ok(Operator::MemorySize {
+                mem: Memory::from(mem),
+            }),
+            &wasmparser::Operator::MemoryGrow { mem, .. } => Ok(Operator::MemoryGrow {
+                mem: Memory::from(mem),
+            }),
             _ => Err(()),
         }
     }
 }
 
-impl std::convert::From<MemoryImmediate> for Memory {
-    fn from(value: MemoryImmediate) -> Memory {
-        Memory {
+impl std::convert::From<MemoryImmediate> for MemoryArg {
+    fn from(value: MemoryImmediate) -> MemoryArg {
+        MemoryArg {
             align: value.align,
             offset: value.offset,
-            memory: value.memory as MemoryId,
+            memory: Memory::from(value.memory),
         }
     }
 }

@@ -1,21 +1,22 @@
 //! Intermediate representation for Wasm.
 
-use crate::{backend, backend::binaryen};
+use crate::entity;
+use crate::entity::{EntityRef, EntityVec};
 use crate::{frontend, Operator};
 use anyhow::Result;
 use fxhash::FxHashSet;
-use wasmparser::{FuncType, Type};
+use wasmparser::FuncType;
 
-pub type SignatureId = usize;
-pub type FuncId = usize;
-pub type BlockId = usize;
-pub type InstId = usize;
-pub type LocalId = u32;
-pub type GlobalId = u32;
-pub type TableId = u32;
-pub type MemoryId = u32;
+pub use wasmparser::Type;
 
-pub const INVALID_BLOCK: BlockId = usize::MAX;
+entity!(Signature, "sig");
+entity!(Func, "func");
+entity!(Block, "block");
+entity!(Local, "local");
+entity!(Global, "global");
+entity!(Table, "table");
+entity!(Memory, "memory");
+entity!(Value, "value");
 
 #[derive(Clone, Debug, Default)]
 pub struct Module<'a> {
@@ -25,7 +26,7 @@ pub struct Module<'a> {
     globals: Vec<Type>,
     tables: Vec<Type>,
 
-    dirty_funcs: FxHashSet<FuncId>,
+    dirty_funcs: FxHashSet<Func>,
 }
 
 impl<'a> Module<'a> {
@@ -37,21 +38,21 @@ impl<'a> Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn func<'b>(&'b self, id: FuncId) -> &'b FuncDecl {
-        &self.funcs[id]
+    pub fn func<'b>(&'b self, id: Func) -> &'b FuncDecl {
+        &self.funcs[id.index()]
     }
-    pub fn func_mut<'b>(&'b mut self, id: FuncId) -> &'b mut FuncDecl {
+    pub fn func_mut<'b>(&'b mut self, id: Func) -> &'b mut FuncDecl {
         self.dirty_funcs.insert(id);
-        &mut self.funcs[id]
+        &mut self.funcs[id.index()]
     }
-    pub fn signature<'b>(&'b self, id: SignatureId) -> &'b FuncType {
-        &self.signatures[id]
+    pub fn signature<'b>(&'b self, id: Signature) -> &'b FuncType {
+        &self.signatures[id.index()]
     }
-    pub fn global_ty(&self, id: GlobalId) -> Type {
-        self.globals[id as usize]
+    pub fn global_ty(&self, id: Global) -> Type {
+        self.globals[id.index()]
     }
-    pub fn table_ty(&self, id: TableId) -> Type {
-        self.tables[id as usize]
+    pub fn table_ty(&self, id: Table) -> Type {
+        self.tables[id.index()]
     }
 
     pub(crate) fn frontend_add_signature(&mut self, ty: FuncType) {
@@ -70,12 +71,12 @@ impl<'a> Module<'a> {
 
 #[derive(Clone, Debug)]
 pub enum FuncDecl {
-    Import(SignatureId),
-    Body(SignatureId, FunctionBody),
+    Import(Signature),
+    Body(Signature, FunctionBody),
 }
 
 impl FuncDecl {
-    pub fn sig(&self) -> SignatureId {
+    pub fn sig(&self) -> Signature {
         match self {
             FuncDecl::Import(sig) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
@@ -105,23 +106,23 @@ pub struct FunctionBody {
     /// Return types of the function.
     pub rets: Vec<Type>,
     /// Local types, *including* args.
-    pub locals: Vec<Type>,
-    /// Block bodies, indexed by `BlockId`.
-    pub blocks: Vec<Block>,
+    pub locals: EntityVec<Local, Type>,
+    /// Entry block.
+    pub entry: Block,
+    /// Block bodies.
+    pub blocks: EntityVec<Block, BlockDef>,
     /// Value definitions, indexed by `Value`.
-    pub values: Vec<ValueDef>,
+    pub values: EntityVec<Value, ValueDef>,
 }
 
 impl FunctionBody {
-    pub fn add_block(&mut self) -> BlockId {
-        let id = self.blocks.len();
-        self.blocks.push(Block::default());
-        self.blocks[id].id = id;
+    pub fn add_block(&mut self) -> Block {
+        let id = self.blocks.push(BlockDef::default());
         log::trace!("add_block: block {}", id);
         id
     }
 
-    pub fn add_edge(&mut self, from: BlockId, to: BlockId) {
+    pub fn add_edge(&mut self, from: Block, to: Block) {
         let succ_pos = self.blocks[from].succs.len();
         let pred_pos = self.blocks[to].preds.len();
         self.blocks[from].succs.push(to);
@@ -133,10 +134,7 @@ impl FunctionBody {
 
     pub fn add_value(&mut self, value: ValueDef) -> Value {
         log::trace!("add_value: def {:?}", value);
-        let id = Value(self.values.len() as u32);
-        log::trace!(" -> value {:?}", id);
-        self.values.push(value.clone());
-        id
+        self.values.push(value)
     }
 
     pub fn set_alias(&mut self, value: Value, to: Value) {
@@ -147,13 +145,13 @@ impl FunctionBody {
         if to == value {
             panic!("Cannot create an alias cycle");
         }
-        self.values[value.index()] = ValueDef::Alias(to);
+        self.values[value] = ValueDef::Alias(to);
     }
 
     pub fn resolve_alias(&self, value: Value) -> Value {
         let mut result = value;
         loop {
-            if let &ValueDef::Alias(to) = &self.values[result.index()] {
+            if let &ValueDef::Alias(to) = &self.values[result] {
                 result = to;
             } else {
                 break;
@@ -168,7 +166,7 @@ impl FunctionBody {
         value
     }
 
-    pub fn add_blockparam(&mut self, block: BlockId, ty: Type) -> Value {
+    pub fn add_blockparam(&mut self, block: Block, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
         let value = self.add_value(ValueDef::BlockParam(block, index, ty));
         self.blocks[block].params.push((ty, value));
@@ -179,121 +177,65 @@ impl FunctionBody {
         self.add_mutable_inst(ValueDef::Placeholder(ty))
     }
 
-    pub fn replace_placeholder_with_blockparam(&mut self, block: BlockId, value: Value) {
+    pub fn replace_placeholder_with_blockparam(&mut self, block: Block, value: Value) {
         let index = self.blocks[block].params.len();
-        let ty = match &self.values[value.index()] {
+        let ty = match &self.values[value] {
             &ValueDef::Placeholder(ty) => ty,
             _ => unreachable!(),
         };
         self.blocks[block].params.push((ty, value));
-        self.values[value.index()] = ValueDef::BlockParam(block, index, ty);
+        self.values[value] = ValueDef::BlockParam(block, index, ty);
     }
 
     pub fn resolve_and_update_alias(&mut self, value: Value) -> Value {
         let to = self.resolve_alias(value);
         // Short-circuit the chain, union-find-style.
-        if let &ValueDef::Alias(orig_to) = &self.values[value.index()] {
+        if let &ValueDef::Alias(orig_to) = &self.values[value] {
             if orig_to != to {
-                self.values[value.index()] = ValueDef::Alias(to);
+                self.values[value] = ValueDef::Alias(to);
             }
         }
         to
     }
 
-    pub fn append_to_block(&mut self, block: BlockId, value: Value) {
+    pub fn append_to_block(&mut self, block: Block, value: Value) {
         self.blocks[block].insts.push(value);
     }
 
-    pub fn end_block(&mut self, block: BlockId, terminator: Terminator) {
+    pub fn end_block(&mut self, block: Block, terminator: Terminator) {
         terminator.visit_successors(|succ| {
             self.add_edge(block, succ);
         });
         self.blocks[block].terminator = terminator;
     }
 
-    pub fn add_local(&mut self, ty: Type) -> LocalId {
-        let id = self.locals.len() as LocalId;
-        self.locals.push(ty);
-        id
-    }
-
-    pub fn values<'a>(&'a self) -> impl Iterator<Item = (Value, &'a ValueDef)> + 'a {
-        self.values
-            .iter()
-            .enumerate()
-            .map(|(idx, value_def)| (Value(idx as u32), value_def))
-    }
-
-    pub fn blocks(&self) -> impl Iterator<Item = BlockId> {
-        (0..self.blocks.len()).into_iter()
-    }
-}
-
-impl std::ops::Index<Value> for FunctionBody {
-    type Output = ValueDef;
-    fn index(&self, index: Value) -> &ValueDef {
-        &self.values[index.0 as usize]
-    }
-}
-impl std::ops::IndexMut<Value> for FunctionBody {
-    fn index_mut(&mut self, index: Value) -> &mut ValueDef {
-        &mut self.values[index.0 as usize]
-    }
-}
-impl std::ops::Index<BlockId> for FunctionBody {
-    type Output = Block;
-    fn index(&self, index: BlockId) -> &Block {
-        &self.blocks[index]
-    }
-}
-impl std::ops::IndexMut<BlockId> for FunctionBody {
-    fn index_mut(&mut self, index: BlockId) -> &mut Block {
-        &mut self.blocks[index]
+    pub fn add_local(&mut self, ty: Type) -> Local {
+        self.locals.push(ty)
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Block {
-    pub id: BlockId,
-    /// Side-effecting values from the sea-of-nodes that are computed, in order.
+pub struct BlockDef {
+    /// Instructions in this block.
     pub insts: Vec<Value>,
     /// Terminator: branch or return.
     pub terminator: Terminator,
     /// Successor blocks.
-    pub succs: Vec<BlockId>,
+    pub succs: Vec<Block>,
     /// For each successor block, our index in its `preds` array.
     pub pos_in_succ_pred: Vec<usize>,
     /// Predecessor blocks.
-    pub preds: Vec<BlockId>,
+    pub preds: Vec<Block>,
     /// For each predecessor block, our index in its `succs` array.
     pub pos_in_pred_succ: Vec<usize>,
     /// Type and Value for each blockparam.
     pub params: Vec<(Type, Value)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Value(u32);
-
-impl std::fmt::Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "v{}", self.0)
-    }
-}
-
-impl Value {
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-
-    pub fn from_index(value: usize) -> Value {
-        Self(value as u32)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ValueDef {
     Arg(usize, Type),
-    BlockParam(BlockId, usize, Type),
+    BlockParam(Block, usize, Type),
     Operator(Operator, Vec<Value>, Vec<Type>),
     PickOutput(Value, usize, Type),
     Alias(Value),
@@ -334,7 +276,7 @@ impl ValueDef {
 
 #[derive(Clone, Debug)]
 pub struct BlockTarget {
-    pub block: BlockId,
+    pub block: Block,
     pub args: Vec<Value>,
 }
 
@@ -476,7 +418,7 @@ impl Terminator {
         }
     }
 
-    pub fn visit_successors<F: FnMut(BlockId)>(&self, mut f: F) {
+    pub fn visit_successors<F: FnMut(Block)>(&self, mut f: F) {
         self.visit_targets(|target| f(target.block));
     }
 
@@ -523,32 +465,6 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        let mut binaryen_module = binaryen::Module::read(self.orig_bytes)?;
-        for new_func_idx in self.funcs.len()..binaryen_module.num_funcs() {
-            let sig = self.func(new_func_idx).sig();
-            let body = self.func(new_func_idx).body().unwrap();
-            let (new_locals, binaryen_expr) =
-                backend::lower::generate_body(body, &mut binaryen_module);
-            backend::lower::create_new_func(
-                self,
-                sig,
-                body,
-                &mut binaryen_module,
-                binaryen_expr,
-                new_locals,
-            );
-        }
-        for &func in &self.dirty_funcs {
-            if let Some(body) = self.func(func).body() {
-                let mut binaryen_func = binaryen_module.func(func);
-                let (new_locals, binaryen_expr) =
-                    backend::lower::generate_body(body, &mut binaryen_module);
-                for ty in new_locals {
-                    binaryen_func.add_local(ty);
-                }
-                binaryen_func.set_body(binaryen_expr);
-            }
-        }
-        binaryen_module.write()
+        todo!()
     }
 }

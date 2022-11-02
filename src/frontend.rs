@@ -2,14 +2,14 @@
 
 #![allow(dead_code)]
 
-use std::convert::TryFrom;
-
+use crate::entity::EntityRef;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
+use std::convert::TryFrom;
 use wasmparser::{
     Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, Type, TypeDef, TypeOrFuncType,
 };
@@ -45,7 +45,7 @@ fn handle_payload<'a>(
             for _ in 0..reader.get_count() {
                 match reader.read()?.ty {
                     ImportSectionEntryType::Function(sig_idx) => {
-                        module.frontend_add_func(FuncDecl::Import(sig_idx as SignatureId));
+                        module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
                         *next_func += 1;
                     }
                     ImportSectionEntryType::Global(ty) => {
@@ -72,12 +72,12 @@ fn handle_payload<'a>(
         }
         Payload::FunctionSection(mut reader) => {
             for _ in 0..reader.get_count() {
-                let sig_idx = reader.read()? as SignatureId;
+                let sig_idx = Signature::from(reader.read()?);
                 module.frontend_add_func(FuncDecl::Body(sig_idx, FunctionBody::default()));
             }
         }
         Payload::CodeSectionEntry(body) => {
-            let func_idx = *next_func;
+            let func_idx = Func::new(*next_func);
             *next_func += 1;
 
             let my_sig = module.func(func_idx).sig();
@@ -94,7 +94,7 @@ fn handle_payload<'a>(
 
 fn parse_body<'a>(
     module: &'a Module,
-    my_sig: SignatureId,
+    my_sig: Signature,
     body: wasmparser::FunctionBody,
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
@@ -123,11 +123,12 @@ fn parse_body<'a>(
     );
 
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
-    builder.locals.seal_block_preds(0, &mut builder.body);
-    builder.locals.start_block(0);
+    let entry = Block::new(0);
+    builder.locals.seal_block_preds(entry, &mut builder.body);
+    builder.locals.start_block(entry);
 
     for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
-        let local_idx = arg_idx as LocalId;
+        let local_idx = Local::new(arg_idx);
         let value = builder.body.add_value(ValueDef::Arg(arg_idx, arg_ty));
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.declare(local_idx, arg_ty);
@@ -135,9 +136,9 @@ fn parse_body<'a>(
     }
 
     let n_args = module.signature(my_sig).params.len();
-    for (offset, local_ty) in locals.into_iter().enumerate() {
-        let local_idx = (n_args + offset) as u32;
-        builder.locals.declare(local_idx, local_ty);
+    for (offset, local_ty) in locals.values().enumerate() {
+        let local_idx = Local::new(n_args + offset);
+        builder.locals.declare(local_idx, *local_ty);
     }
 
     let ops = body.get_operators_reader()?;
@@ -150,12 +151,12 @@ fn parse_body<'a>(
         builder.handle_op(wasmparser::Operator::Return)?;
     }
 
-    for block in 0..builder.body.blocks.len() {
+    for block in builder.body.blocks.iter() {
         log::trace!("checking if block is sealed: {}", block);
-        assert!(builder.locals.is_sealed(block));
+        debug_assert!(builder.locals.is_sealed(block));
     }
-    for value in &builder.body.values {
-        assert!(!matches!(value, &ValueDef::Placeholder(_)));
+    for value in builder.body.values.values() {
+        debug_assert!(!matches!(value, &ValueDef::Placeholder(_)));
     }
 
     trace!("Final function body:{:?}", ret);
@@ -166,26 +167,26 @@ fn parse_body<'a>(
 #[derive(Debug, Clone, Default)]
 struct LocalTracker {
     /// Types of locals, as declared.
-    types: FxHashMap<LocalId, Type>,
+    types: FxHashMap<Local, Type>,
     /// The current block.
-    cur_block: Option<BlockId>,
+    cur_block: Option<Block>,
     /// Is the given block sealed?
-    block_sealed: FxHashSet<BlockId>,
+    block_sealed: FxHashSet<Block>,
     /// The local-to-value mapping at the start of a block.
-    block_start: FxHashMap<BlockId, FxHashMap<LocalId, Value>>,
+    block_start: FxHashMap<Block, FxHashMap<Local, Value>>,
     /// The local-to-value mapping at the end of a block.
-    block_end: FxHashMap<BlockId, FxHashMap<LocalId, Value>>,
-    in_cur_block: FxHashMap<LocalId, Value>,
-    incomplete_phis: FxHashMap<BlockId, Vec<(LocalId, Value)>>,
+    block_end: FxHashMap<Block, FxHashMap<Local, Value>>,
+    in_cur_block: FxHashMap<Local, Value>,
+    incomplete_phis: FxHashMap<Block, Vec<(Local, Value)>>,
 }
 
 impl LocalTracker {
-    pub fn declare(&mut self, local: LocalId, ty: Type) {
+    pub fn declare(&mut self, local: Local, ty: Type) {
         let was_present = self.types.insert(local, ty).is_some();
         assert!(!was_present);
     }
 
-    pub fn start_block(&mut self, block: BlockId) {
+    pub fn start_block(&mut self, block: Block) {
         self.finish_block();
         log::trace!("start_block: block {}", block);
         self.cur_block = Some(block);
@@ -200,7 +201,7 @@ impl LocalTracker {
         self.cur_block = None;
     }
 
-    pub fn seal_block_preds(&mut self, block: BlockId, body: &mut FunctionBody) {
+    pub fn seal_block_preds(&mut self, block: Block, body: &mut FunctionBody) {
         log::trace!("seal_block_preds: block {}", block);
         let not_sealed = self.block_sealed.insert(block);
         assert!(not_sealed);
@@ -213,23 +214,18 @@ impl LocalTracker {
         }
     }
 
-    fn is_sealed(&self, block: BlockId) -> bool {
+    fn is_sealed(&self, block: Block) -> bool {
         self.block_sealed.contains(&block)
     }
 
-    pub fn set(&mut self, local: LocalId, value: Value) {
+    pub fn set(&mut self, local: Local, value: Value) {
         log::trace!("set: local {} value {:?}", local, value);
         self.in_cur_block.insert(local, value);
     }
 
-    fn get_in_block(
-        &mut self,
-        body: &mut FunctionBody,
-        at_block: BlockId,
-        local: LocalId,
-    ) -> Value {
+    fn get_in_block(&mut self, body: &mut FunctionBody, at_block: Block, local: Local) -> Value {
         log::trace!("get_in_block: at_block {} local {}", at_block, local);
-        let ty = body.locals[local as usize];
+        let ty = body.locals[local];
 
         if self.cur_block == Some(at_block) {
             if let Some(&value) = self.in_cur_block.get(&local) {
@@ -279,12 +275,11 @@ impl LocalTracker {
         }
     }
 
-    pub fn get(&mut self, body: &mut FunctionBody, local: LocalId) -> Value {
+    pub fn get(&mut self, body: &mut FunctionBody, local: Local) -> Value {
         if let Some(block) = self.cur_block {
-            assert!((local as usize) < body.locals.len());
             self.get_in_block(body, block, local)
         } else {
-            let ty = body.locals[local as usize];
+            let ty = body.locals[local];
             self.create_default_value(body, ty)
         }
     }
@@ -322,8 +317,8 @@ impl LocalTracker {
     fn compute_blockparam(
         &mut self,
         body: &mut FunctionBody,
-        block: BlockId,
-        local: LocalId,
+        block: Block,
+        local: Local,
         value: Value,
     ) {
         log::trace!(
@@ -400,10 +395,10 @@ impl LocalTracker {
 #[derive(Debug)]
 struct FunctionBodyBuilder<'a, 'b> {
     module: &'b Module<'a>,
-    my_sig: SignatureId,
+    my_sig: Signature,
     body: &'b mut FunctionBody,
     locals: LocalTracker,
-    cur_block: Option<BlockId>,
+    cur_block: Option<Block>,
     ctrl_stack: Vec<Frame>,
     op_stack: Vec<(Type, Value)>,
 }
@@ -412,28 +407,28 @@ struct FunctionBodyBuilder<'a, 'b> {
 enum Frame {
     Block {
         start_depth: usize,
-        out: BlockId,
+        out: Block,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     Loop {
         start_depth: usize,
-        header: BlockId,
-        out: BlockId,
+        header: Block,
+        out: Block,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     If {
         start_depth: usize,
-        out: BlockId,
-        el: BlockId,
+        out: Block,
+        el: Block,
         param_values: Vec<(Type, Value)>,
         params: Vec<Type>,
         results: Vec<Type>,
     },
     Else {
         start_depth: usize,
-        out: BlockId,
+        out: Block,
         params: Vec<Type>,
         results: Vec<Type>,
     },
@@ -458,7 +453,7 @@ impl Frame {
         }
     }
 
-    fn br_target(&self) -> BlockId {
+    fn br_target(&self) -> Block {
         match self {
             Frame::Block { out, .. } => *out,
             Frame::Loop { header, .. } => *header,
@@ -466,7 +461,7 @@ impl Frame {
         }
     }
 
-    fn out(&self) -> BlockId {
+    fn out(&self) -> Block {
         match self {
             Frame::Block { out, .. }
             | Frame::Loop { out, .. }
@@ -495,15 +490,15 @@ impl Frame {
 }
 
 impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
-    fn new(module: &'b Module<'a>, my_sig: SignatureId, body: &'b mut FunctionBody) -> Self {
-        body.blocks.push(Block::default());
+    fn new(module: &'b Module<'a>, my_sig: Signature, body: &'b mut FunctionBody) -> Self {
+        body.blocks.push(BlockDef::default());
         let mut ret = Self {
             module,
             my_sig,
             body,
             ctrl_stack: vec![],
             op_stack: vec![],
-            cur_block: Some(0),
+            cur_block: Some(Block::new(0)),
             locals: LocalTracker::default(),
         };
 
@@ -559,22 +554,25 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             }
 
             wasmparser::Operator::LocalGet { local_index } => {
-                let ty = self.body.locals[*local_index as usize];
-                let value = self.locals.get(&mut self.body, *local_index);
+                let local_index = Local::from(*local_index);
+                let ty = self.body.locals[local_index];
+                let value = self.locals.get(&mut self.body, local_index);
                 self.op_stack.push((ty, value));
             }
 
             wasmparser::Operator::LocalSet { local_index } => {
+                let local_index = Local::from(*local_index);
                 let (_, value) = self.op_stack.pop().unwrap();
                 if self.cur_block.is_some() {
-                    self.locals.set(*local_index, value);
+                    self.locals.set(local_index, value);
                 }
             }
 
             wasmparser::Operator::LocalTee { local_index } => {
+                let local_index = Local::from(*local_index);
                 let (_ty, value) = *self.op_stack.last().unwrap();
                 if self.cur_block.is_some() {
-                    self.locals.set(*local_index, value);
+                    self.locals.set(local_index, value);
                 }
             }
 
@@ -998,7 +996,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         Ok(())
     }
 
-    fn add_block_params(&mut self, block: BlockId, tys: &[Type]) {
+    fn add_block_params(&mut self, block: Block, tys: &[Type]) {
         log::trace!("add_block_params: block {} tys {:?}", block, tys);
         for &ty in tys {
             self.body.add_blockparam(block, ty);
@@ -1010,7 +1008,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             TypeOrFuncType::Type(Type::EmptyBlockType) => (vec![], vec![]),
             TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty]),
             TypeOrFuncType::FuncType(sig_idx) => {
-                let sig = &self.module.signature(sig_idx as SignatureId);
+                let sig = &self.module.signature(Signature::from(sig_idx));
                 (
                     Vec::from(sig.params.clone()),
                     Vec::from(sig.returns.clone()),
@@ -1023,7 +1021,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         &self.ctrl_stack[self.ctrl_stack.len() - 1 - relative_depth as usize]
     }
 
-    fn emit_branch(&mut self, target: BlockId, args: &[Value]) {
+    fn emit_branch(&mut self, target: Block, args: &[Value]) {
         log::trace!(
             "emit_branch: cur_block {:?} target {} args {:?}",
             self.cur_block,
@@ -1045,9 +1043,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn emit_cond_branch(
         &mut self,
         cond: Value,
-        if_true: BlockId,
+        if_true: Block,
         if_true_args: &[Value],
-        if_false: BlockId,
+        if_false: Block,
         if_false_args: &[Value],
     ) {
         log::trace!(
@@ -1083,8 +1081,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     fn emit_br_table(
         &mut self,
         index: Value,
-        default_target: BlockId,
-        indexed_targets: &[BlockId],
+        default_target: Block,
+        indexed_targets: &[Block],
         args: &[Value],
     ) {
         log::trace!(
@@ -1151,11 +1149,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         let inputs = op_inputs(
             self.module,
             self.my_sig,
-            &self.body.locals[..],
+            &self.body.locals,
             &self.op_stack[..],
             &op,
         )?;
-        let outputs = op_outputs(self.module, &self.body.locals[..], &self.op_stack[..], &op)?;
+        let outputs = op_outputs(self.module, &self.body.locals, &self.op_stack[..], &op)?;
 
         log::trace!(
             "emit into block {:?}: op {:?} inputs {:?}",

@@ -1,14 +1,15 @@
 //! Metadata on operators.
 
-use crate::ir::{Module, SignatureId, Value};
+use crate::entity::EntityVec;
+use crate::ir::{Global, Local, Module, Signature, Table, Value};
 use crate::Operator;
 use anyhow::Result;
 use wasmparser::Type;
 
 pub fn op_inputs(
     module: &Module,
-    my_sig: SignatureId,
-    my_locals: &[Type],
+    my_sig: Signature,
+    my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
 ) -> Result<Vec<Type>> {
@@ -19,15 +20,15 @@ pub fn op_inputs(
             let sig = module.func(function_index).sig();
             Ok(Vec::from(module.signature(sig).params.clone()))
         }
-        &Operator::CallIndirect { index, .. } => {
-            let mut params = module.signature(index).params.to_vec();
+        &Operator::CallIndirect { sig_index, .. } => {
+            let mut params = module.signature(sig_index).params.to_vec();
             params.push(Type::I32);
             Ok(params)
         }
         &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone())),
 
         &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index as usize]])
+            Ok(vec![my_locals[local_index]])
         }
         &Operator::LocalGet { .. } => Ok(vec![]),
 
@@ -216,7 +217,7 @@ pub fn op_inputs(
         Operator::I32ReinterpretF32 => Ok(vec![Type::F32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::F64]),
         Operator::TableGet { .. } => Ok(vec![Type::I32]),
-        Operator::TableSet { table } => Ok(vec![Type::I32, module.table_ty(*table)]),
+        Operator::TableSet { table_index } => Ok(vec![Type::I32, module.table_ty(*table_index)]),
         Operator::TableGrow { .. } => Ok(vec![Type::I32]),
         Operator::TableSize { .. } => Ok(vec![]),
         Operator::MemorySize { .. } => Ok(vec![]),
@@ -226,7 +227,7 @@ pub fn op_inputs(
 
 pub fn op_outputs(
     module: &Module,
-    my_locals: &[Type],
+    my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
 ) -> Result<Vec<Type>> {
@@ -237,13 +238,13 @@ pub fn op_outputs(
             let sig = module.func(function_index).sig();
             Ok(Vec::from(module.signature(sig).returns.clone()))
         }
-        &Operator::CallIndirect { index, .. } => {
-            Ok(Vec::from(module.signature(index).returns.clone()))
+        &Operator::CallIndirect { sig_index, .. } => {
+            Ok(Vec::from(module.signature(sig_index).returns.clone()))
         }
         &Operator::Return => Ok(vec![]),
         &Operator::LocalSet { .. } => Ok(vec![]),
         &Operator::LocalGet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index as usize]])
+            Ok(vec![my_locals[local_index]])
         }
 
         &Operator::Select => {
@@ -425,7 +426,7 @@ pub fn op_outputs(
         Operator::F64ReinterpretI64 => Ok(vec![Type::F64]),
         Operator::I32ReinterpretF32 => Ok(vec![Type::I32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::I64]),
-        Operator::TableGet { table } => Ok(vec![module.table_ty(*table)]),
+        Operator::TableGet { table_index } => Ok(vec![module.table_ty(*table_index)]),
         Operator::TableSet { .. } => Ok(vec![]),
         Operator::TableGrow { .. } => Ok(vec![]),
         Operator::TableSize { .. } => Ok(vec![Type::I32]),
@@ -439,12 +440,12 @@ pub enum SideEffect {
     Trap,
     ReadMem,
     WriteMem,
-    ReadGlobal(usize),
-    WriteGlobal(usize),
-    ReadTable(usize),
-    WriteTable(usize),
-    ReadLocal(usize),
-    WriteLocal(usize),
+    ReadGlobal(Global),
+    WriteGlobal(Global),
+    ReadTable(Table),
+    WriteTable(Table),
+    ReadLocal(Local),
+    WriteLocal(Local),
     Return,
     All,
 }
@@ -459,17 +460,16 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         &Operator::Call { .. } => Ok(vec![All]),
         &Operator::CallIndirect { .. } => Ok(vec![All]),
         &Operator::Return => Ok(vec![Return]),
-        &Operator::LocalSet { local_index, .. } => Ok(vec![WriteLocal(local_index as usize)]),
-        &Operator::LocalGet { local_index, .. } => Ok(vec![ReadLocal(local_index as usize)]),
-        &Operator::LocalTee { local_index, .. } => Ok(vec![
-            ReadLocal(local_index as usize),
-            WriteLocal(local_index as usize),
-        ]),
+        &Operator::LocalSet { local_index, .. } => Ok(vec![WriteLocal(local_index)]),
+        &Operator::LocalGet { local_index, .. } => Ok(vec![ReadLocal(local_index)]),
+        &Operator::LocalTee { local_index, .. } => {
+            Ok(vec![ReadLocal(local_index), WriteLocal(local_index)])
+        }
 
         &Operator::Select => Ok(vec![]),
         &Operator::TypedSelect { .. } => Ok(vec![]),
-        &Operator::GlobalGet { global_index, .. } => Ok(vec![ReadGlobal(global_index as usize)]),
-        &Operator::GlobalSet { global_index, .. } => Ok(vec![WriteGlobal(global_index as usize)]),
+        &Operator::GlobalGet { global_index, .. } => Ok(vec![ReadGlobal(global_index)]),
+        &Operator::GlobalSet { global_index, .. } => Ok(vec![WriteGlobal(global_index)]),
 
         Operator::I32Load { .. }
         | Operator::I32Load8S { .. }
@@ -642,10 +642,10 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         Operator::F64ReinterpretI64 => Ok(vec![]),
         Operator::I32ReinterpretF32 => Ok(vec![]),
         Operator::I64ReinterpretF64 => Ok(vec![]),
-        Operator::TableGet { table, .. } => Ok(vec![ReadTable(*table as usize), Trap]),
-        Operator::TableSet { table, .. } => Ok(vec![WriteTable(*table as usize), Trap]),
-        Operator::TableGrow { table, .. } => Ok(vec![WriteTable(*table as usize), Trap]),
-        Operator::TableSize { table, .. } => Ok(vec![ReadTable(*table as usize)]),
+        Operator::TableGet { table_index, .. } => Ok(vec![ReadTable(*table_index), Trap]),
+        Operator::TableSet { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap]),
+        Operator::TableGrow { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap]),
+        Operator::TableSize { table_index, .. } => Ok(vec![ReadTable(*table_index)]),
         Operator::MemorySize { .. } => Ok(vec![ReadMem]),
         Operator::MemoryGrow { .. } => Ok(vec![WriteMem, Trap]),
     }

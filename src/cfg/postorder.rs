@@ -3,24 +3,23 @@
 // Borrowed from regalloc2's postorder.rs, which is also Apache-2.0
 // with LLVM-exception.
 
-use crate::ir::BlockId;
+use crate::entity::PerEntity;
+use crate::ir::Block;
 use smallvec::{smallvec, SmallVec};
 
-pub fn calculate<'a, SuccFn: Fn(BlockId) -> &'a [BlockId]>(
-    num_blocks: usize,
-    entry: BlockId,
+pub fn calculate<'a, SuccFn: Fn(Block) -> &'a [Block]>(
+    entry: Block,
     succ_blocks: SuccFn,
-) -> Vec<BlockId> {
+) -> Vec<Block> {
     let mut ret = vec![];
 
     // State: visited-block map, and explicit DFS stack.
-    let mut visited = vec![];
-    visited.resize(num_blocks, false);
+    let mut visited: PerEntity<Block, bool> = PerEntity::default();
 
     #[derive(Debug)]
     struct State<'a> {
-        block: BlockId,
-        succs: &'a [BlockId],
+        block: Block,
+        succs: &'a [Block],
         next_succ: usize,
     }
     let mut stack: SmallVec<[State; 64]> = smallvec![];

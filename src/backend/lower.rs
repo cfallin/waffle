@@ -1,4 +1,6 @@
+/*
 use crate::backend::binaryen;
+use crate::entity::EntityRef;
 use crate::ir::*;
 use crate::Operator;
 use fxhash::FxHashMap;
@@ -14,9 +16,9 @@ pub(crate) fn generate_body(
     let mut ctx = ElabCtx::new(body, into_mod);
 
     // For each block, generate an expr.
-    let mut block_exprs: FxHashMap<BlockId, binaryen::Expression> = FxHashMap::default();
-    for block in body.blocks() {
-        let exprs = body[block]
+    let mut block_exprs: FxHashMap<Block, binaryen::Expression> = FxHashMap::default();
+    for (block_id, block) in body.blocks.entries() {
+        let exprs = block
             .insts
             .iter()
             .flat_map(|&inst| {
@@ -24,61 +26,32 @@ pub(crate) fn generate_body(
                 ctx.elaborate_value(into_mod, inst)
             })
             .collect::<Vec<binaryen::Expression>>();
-        block_exprs.insert(block, binaryen::Expression::block(into_mod, &exprs[..]));
+        block_exprs.insert(block_id, binaryen::Expression::block(into_mod, &exprs[..]));
     }
 
     // Combine blocks into a single body expression, using the
     // relooper/stackifier support built into Binaryen.
     let mut relooper = binaryen::Relooper::new(into_mod);
     let mut entry = None;
-    let mut relooper_blocks: FxHashMap<BlockId, binaryen::RelooperBlock> = FxHashMap::default();
+    let mut relooper_blocks: FxHashMap<Block, binaryen::RelooperBlock> = FxHashMap::default();
     for (block_id, block_expr) in block_exprs {}
 
     let index_var = ctx.new_local(Type::I32);
-    let expr = relooper.construct(entry.unwrap(), index_var as usize);
+    let expr = relooper.construct(entry.unwrap(), index_var.index());
     (ctx.new_locals, expr)
 }
 
 #[derive(Clone, Debug)]
 struct ElabCtx<'a> {
     body: &'a FunctionBody,
-    op_result_locals: FxHashMap<(Value, usize), LocalId>,
-    block_param_locals: FxHashMap<(BlockId, usize), LocalId>,
+    op_result_locals: FxHashMap<(Value, usize), Local>,
+    block_param_locals: FxHashMap<(Block, usize), Local>,
     new_locals: Vec<Type>,
 }
 
 impl<'a> ElabCtx<'a> {
     fn new(body: &'a FunctionBody, into_mod: &mut binaryen::Module) -> ElabCtx<'a> {
-        // Create locals for each blockparam.
-        let mut this = ElabCtx {
-            body,
-            op_result_locals: FxHashMap::default(),
-            block_param_locals: FxHashMap::default(),
-            new_locals: vec![],
-        };
-
-        for block in body.blocks() {
-            for &(ty, param) in &body[block].params {}
-        }
-
-        // Create locals for each Operator value and each blockparam.
-        for (value, def) in body.values() {
-            match def {
-                &ValueDef::Operator(_, _, ref tys) => {
-                    for (i, ty) in tys.iter().copied().enumerate() {
-                        let local = this.new_local(ty);
-                        this.op_result_locals.insert((value, i), local);
-                    }
-                }
-                &ValueDef::BlockParam(block, index, ty) => {
-                    let local = this.new_local(ty);
-                    this.block_param_locals.insert((block, index), local);
-                }
-                _ => {}
-            }
-        }
-
-        this
+        todo!()
     }
 
     fn elaborate_value(
@@ -86,9 +59,10 @@ impl<'a> ElabCtx<'a> {
         into_mod: &binaryen::Module,
         value: Value,
     ) -> Option<binaryen::Expression> {
+        /*
         let value = self.body.resolve_alias(value);
 
-        match &self.body[value] {
+        match &self.body.values[value] {
             &ValueDef::Operator(op, ref args, ref tys) => {
                 // Get expressions for each arg.
                 let args = args.iter().map(|&arg| self.get_val_local(arg));
@@ -113,11 +87,13 @@ impl<'a> ElabCtx<'a> {
             }
             _ => None,
         }
+         */
+        todo!()
     }
 
-    fn get_val_local(&self, value: Value) -> LocalId {
-        match &self.body[value] {
-            &ValueDef::Arg(idx, _) => idx as LocalId,
+    fn get_val_local(&self, value: Value) -> Local {
+        match &self.body.values[value] {
+            &ValueDef::Arg(idx, _) => Local::new(idx),
             &ValueDef::BlockParam(block, idx, _) => {
                 self.block_param_locals.get(&(block, idx)).copied().unwrap()
             }
@@ -130,8 +106,8 @@ impl<'a> ElabCtx<'a> {
         }
     }
 
-    fn new_local(&mut self, ty: Type) -> LocalId {
-        let index = (self.body.locals.len() + self.new_locals.len()) as LocalId;
+    fn new_local(&mut self, ty: Type) -> Local {
+        let index = Local::new(self.body.locals.len() + self.new_locals.len());
         self.new_locals.push(ty);
         index
     }
@@ -145,19 +121,18 @@ impl<'a> ElabCtx<'a> {
         todo!()
     }
 
-    fn local_ty(&self, local: LocalId) -> Type {
-        let index = local as usize;
+    fn local_ty(&self, local: Local) -> Type {
         self.body
             .locals
-            .get(index)
+            .get(local)
             .copied()
-            .unwrap_or_else(|| self.new_locals[index - self.body.locals.len()])
+            .unwrap_or_else(|| self.new_locals[local.index() - self.body.locals.len()])
     }
 }
 
 pub(crate) fn create_new_func(
     module: &Module,
-    sig: SignatureId,
+    sig: Signature,
     body: &FunctionBody,
     into_mod: &mut binaryen::Module,
     body_expr: binaryen::Expression,
@@ -170,10 +145,11 @@ pub(crate) fn create_new_func(
         sig.params.iter().copied(),
         sig.returns.iter().copied(),
         body.locals
-            .iter()
+            .values()
             .copied()
             .skip(body.n_params)
             .chain(new_locals.into_iter()),
         body_expr,
     );
 }
+*/
