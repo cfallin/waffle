@@ -29,6 +29,20 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
             ret_tys.join(", ")
         )?;
 
+        for (value, value_def) in self.0.values.entries() {
+            match value_def {
+                ValueDef::Operator(..) | ValueDef::BlockParam(..) => {}
+                ValueDef::Alias(_alias_target) => {}
+                ValueDef::PickOutput(val, idx, ty) => {
+                    writeln!(f, "{}    {} = {}.{} # {}", self.1, value, val, idx, ty)?
+                }
+                ValueDef::Placeholder(ty) => {
+                    writeln!(f, "{}    {} = placeholder # {}", self.1, value, ty)?
+                }
+                ValueDef::None => panic!(),
+            }
+        }
+
         for (block_id, block) in self.0.blocks.entries() {
             let block_params = block
                 .params
@@ -75,9 +89,6 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     }
                     ValueDef::PickOutput(val, idx, ty) => {
                         writeln!(f, "{}    {} = {}.{} # {}", self.1, inst, val, idx, ty)?;
-                    }
-                    ValueDef::Alias(v) => {
-                        writeln!(f, "{}    {} <- {}", self.1, inst, v)?;
                     }
                     _ => unreachable!(),
                 }

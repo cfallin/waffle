@@ -1,13 +1,15 @@
-use super::{Block, Value, Type};
+use super::{Block, Type, Value};
 use crate::Operator;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ValueDef {
     BlockParam(Block, usize, Type),
     Operator(Operator, Vec<Value>, Vec<Type>),
     PickOutput(Value, usize, Type),
     Alias(Value),
     Placeholder(Type),
+    #[default]
+    None,
 }
 
 impl ValueDef {
@@ -22,6 +24,7 @@ impl ValueDef {
             &ValueDef::PickOutput(from, ..) => f(from),
             &ValueDef::Alias(value) => f(value),
             &ValueDef::Placeholder(_) => {}
+            &ValueDef::None => panic!(),
         }
     }
 
@@ -36,6 +39,7 @@ impl ValueDef {
             &mut ValueDef::PickOutput(ref mut from, ..) => f(from),
             &mut ValueDef::Alias(ref mut value) => f(value),
             &mut ValueDef::Placeholder(_) => {}
+            &mut ValueDef::None => panic!(),
         }
     }
 }

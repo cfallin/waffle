@@ -98,7 +98,8 @@ impl<'a> Module<'a> {
         let mut module = frontend::wasm_to_ir(bytes)?;
         for func_decl in module.funcs.values_mut() {
             if let Some(body) = func_decl.body_mut() {
-                crate::passes::rpo::reorder_into_rpo(body);
+                crate::passes::rpo::run(body);
+                crate::passes::resolve_aliases::run(body);
             }
         }
         Ok(module)

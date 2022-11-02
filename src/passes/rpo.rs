@@ -136,7 +136,7 @@ impl RPO {
     }
 }
 
-pub fn reorder_into_rpo(body: &mut FunctionBody) {
+pub fn run(body: &mut FunctionBody) {
     let rpo = RPO::compute(body);
     // Remap entry block.
     body.entry = rpo.map_block(body.entry);
