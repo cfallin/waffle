@@ -210,6 +210,7 @@ fn handle_payload<'a>(
                 }
             }
         }
+        Payload::End => {}
         payload => {
             log::warn!("Skipping section: {:?}", payload);
         }
