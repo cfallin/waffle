@@ -90,7 +90,7 @@ impl<Idx: EntityRef, T: Clone + Debug> EntityVec<Idx, T> {
         self.0.len()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = Idx> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = Idx> {
         (0..self.0.len()).map(|index| Idx::new(index))
     }
 

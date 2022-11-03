@@ -3,7 +3,7 @@
 // Borrowed from regalloc2's cfg.rs, which is also Apache-2.0 with
 // LLVM exception.
 
-use crate::entity::PerEntity;
+use crate::entity::{EntityRef, PerEntity};
 use crate::ir::{Block, FunctionBody, Terminator};
 use smallvec::SmallVec;
 
@@ -26,6 +26,32 @@ pub struct CFGInfo {
     pub postorder_pos: PerEntity<Block, Option<usize>>,
     /// Domtree parents, indexed by block.
     pub domtree: PerEntity<Block, Block>,
+    /// Domtree children.
+    pub domtree_children: PerEntity<Block, DomtreeChildren>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DomtreeChildren {
+    pub child: Block,
+    pub next: Block,
+}
+
+pub struct DomtreeChildIter<'a> {
+    domtree_children: &'a PerEntity<Block, DomtreeChildren>,
+    block: Block,
+}
+
+impl<'a> Iterator for DomtreeChildIter<'a> {
+    type Item = Block;
+    fn next(&mut self) -> Option<Block> {
+        if self.block.is_invalid() {
+            None
+        } else {
+            let block = self.block;
+            self.block = self.domtree_children[block].next;
+            Some(block)
+        }
+    }
 }
 
 impl CFGInfo {
@@ -53,11 +79,17 @@ impl CFGInfo {
             postorder_pos[*block] = Some(i);
         }
 
-        let domtree = domtree::calculate(
-            |block| &&block_preds[block],
-            &postorder[..],
-            f.entry,
-        );
+        let domtree = domtree::calculate(|block| &&block_preds[block], &postorder[..], f.entry);
+
+        let mut domtree_children: PerEntity<Block, DomtreeChildren> = PerEntity::default();
+        for block in f.blocks.iter().rev() {
+            let idom = domtree[block];
+            if idom.is_valid() {
+                let next = domtree_children[idom].child;
+                domtree_children[block].next = next;
+                domtree_children[idom].child = block;
+            }
+        }
 
         CFGInfo {
             entry: f.entry,
@@ -67,11 +99,19 @@ impl CFGInfo {
             postorder,
             postorder_pos,
             domtree,
+            domtree_children,
         }
     }
 
     pub fn dominates(&self, a: Block, b: Block) -> bool {
         domtree::dominates(&self.domtree, a, b)
+    }
+
+    pub fn dom_children<'a>(&'a self, block: Block) -> DomtreeChildIter<'a> {
+        DomtreeChildIter {
+            domtree_children: &self.domtree_children,
+            block: self.domtree_children[block].child,
+        }
     }
 
     pub fn succs(&self, block: Block) -> &[Block] {
