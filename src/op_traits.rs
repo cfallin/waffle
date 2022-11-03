@@ -39,7 +39,7 @@ pub fn op_inputs(
         &Operator::TypedSelect { ty } => Ok(vec![ty, ty, Type::I32].into()),
 
         &Operator::GlobalGet { .. } => Ok(Cow::Borrowed(&[])),
-        &Operator::GlobalSet { global_index } => Ok(vec![module.global_ty(global_index)].into()),
+        &Operator::GlobalSet { global_index } => Ok(vec![module.global(global_index).ty].into()),
 
         Operator::I32Load { .. }
         | Operator::I64Load { .. }
@@ -258,7 +258,7 @@ pub fn op_outputs(
             Ok(vec![val_ty].into())
         }
         &Operator::TypedSelect { ty } => Ok(vec![ty].into()),
-        &Operator::GlobalGet { global_index } => Ok(vec![module.global_ty(global_index)].into()),
+        &Operator::GlobalGet { global_index } => Ok(vec![module.global(global_index).ty].into()),
         &Operator::GlobalSet { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::I32Load { .. }

@@ -9,7 +9,7 @@ pub struct Module<'a> {
     orig_bytes: &'a [u8],
     funcs: EntityVec<Func, FuncDecl>,
     signatures: EntityVec<Signature, SignatureData>,
-    globals: EntityVec<Global, Type>,
+    globals: EntityVec<Global, GlobalData>,
     tables: EntityVec<Table, TableData>,
     imports: Vec<Import>,
     exports: Vec<Export>,
@@ -41,6 +41,12 @@ pub struct MemorySegment {
 pub struct TableData {
     pub ty: Type,
     pub func_elements: Option<Vec<Func>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GlobalData {
+    pub ty: Type,
+    pub value: Option<u64>,
 }
 
 impl From<&wasmparser::FuncType> for SignatureData {
@@ -149,11 +155,11 @@ impl<'a> Module<'a> {
     pub fn signatures<'b>(&'b self) -> impl Iterator<Item = (Signature, &'b SignatureData)> {
         self.signatures.entries()
     }
-    pub fn global_ty(&self, id: Global) -> Type {
-        self.globals[id]
+    pub fn global<'b>(&'b self, id: Global) -> &'b GlobalData {
+        &self.globals[id]
     }
-    pub fn globals<'b>(&'b self) -> impl Iterator<Item = (Global, Type)> + 'b {
-        self.globals.entries().map(|(id, ty)| (id, *ty))
+    pub fn globals<'b>(&'b self) -> impl Iterator<Item = (Global, &'b GlobalData)> + 'b {
+        self.globals.entries()
     }
     pub fn table<'b>(&'b self, id: Table) -> &'b TableData {
         &self.tables[id]
@@ -170,6 +176,12 @@ impl<'a> Module<'a> {
     pub fn exports<'b>(&'b self) -> impl Iterator<Item = &'b Export> + 'b {
         self.exports.iter()
     }
+    pub(crate) fn table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
+        &mut self.tables[table]
+    }
+    pub(crate) fn memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
+        &mut self.memories[memory]
+    }
 
     pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
         self.signatures.push(ty);
@@ -185,11 +197,8 @@ impl<'a> Module<'a> {
         };
         self.tables.push(TableData { ty, func_elements })
     }
-    pub(crate) fn frontend_table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
-        &mut self.tables[table]
-    }
-    pub(crate) fn frontend_add_global(&mut self, ty: Type) -> Global {
-        self.globals.push(ty)
+    pub(crate) fn frontend_add_global(&mut self, global: GlobalData) -> Global {
+        self.globals.push(global)
     }
     pub(crate) fn frontend_add_import(&mut self, import: Import) {
         self.imports.push(import);
@@ -199,9 +208,6 @@ impl<'a> Module<'a> {
     }
     pub(crate) fn frontend_add_memory(&mut self, memory: MemoryData) -> Memory {
         self.memories.push(memory)
-    }
-    pub(crate) fn frontend_memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
-        &mut self.memories[memory]
     }
 
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {

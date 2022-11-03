@@ -27,11 +27,14 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     Ok(module)
 }
 
-fn parse_init_expr<'a>(init_expr: &wasmparser::InitExpr<'a>) -> Result<usize> {
+fn parse_init_expr<'a>(init_expr: &wasmparser::InitExpr<'a>) -> Result<Option<u64>> {
     let operators = init_expr
         .get_operators_reader()
         .into_iter()
         .collect::<Result<Vec<wasmparser::Operator>, _>>()?;
+    if operators.len() == 1 && matches!(&operators[0], &wasmparser::Operator::End) {
+        return Ok(None);
+    }
     if operators.len() != 2 || !matches!(&operators[1], &wasmparser::Operator::End) {
         anyhow::bail!(
             "Unsupported operator seq in base-address expr: {:?}",
@@ -39,8 +42,10 @@ fn parse_init_expr<'a>(init_expr: &wasmparser::InitExpr<'a>) -> Result<usize> {
         );
     }
     Ok(match &operators[0] {
-        &wasmparser::Operator::I32Const { value } => value as usize,
-        &wasmparser::Operator::I64Const { value } => value as usize,
+        &wasmparser::Operator::I32Const { value } => Some(value as u64),
+        &wasmparser::Operator::I64Const { value } => Some(value as u64),
+        &wasmparser::Operator::F32Const { value } => Some(value.bits() as u64),
+        &wasmparser::Operator::F64Const { value } => Some(value.bits()),
         op => anyhow::bail!("Unsupported data segment base-address operator: {:?}", op),
     })
 }
@@ -73,7 +78,8 @@ fn handle_payload<'a>(
                         Some(ImportKind::Func(func))
                     }
                     ImportSectionEntryType::Global(ty) => {
-                        let global = module.frontend_add_global(ty.content_type.into());
+                        let ty = ty.content_type.into();
+                        let global = module.frontend_add_global(GlobalData { ty, value: None });
                         Some(ImportKind::Global(global))
                     }
                     ImportSectionEntryType::Table(ty) => {
@@ -94,7 +100,12 @@ fn handle_payload<'a>(
         Payload::GlobalSection(reader) => {
             for global in reader {
                 let global = global?;
-                module.frontend_add_global(global.ty.content_type.into());
+                let ty = global.ty.content_type.into();
+                let init_expr = parse_init_expr(&global.init_expr)?;
+                module.frontend_add_global(GlobalData {
+                    ty,
+                    value: init_expr,
+                });
             }
         }
         Payload::TableSection(reader) => {
@@ -156,9 +167,9 @@ fn handle_payload<'a>(
                     } => {
                         let data = segment.data.to_vec();
                         let memory = Memory::from(*memory_index);
-                        let offset = parse_init_expr(init_expr)?;
+                        let offset = parse_init_expr(init_expr)?.unwrap_or(0) as usize;
                         module
-                            .frontend_memory_mut(memory)
+                            .memory_mut(memory)
                             .segments
                             .push(MemorySegment { offset, data });
                     }
@@ -182,7 +193,7 @@ fn handle_payload<'a>(
                         init_expr,
                     } => {
                         let table = Table::from(*table_index);
-                        let offset = parse_init_expr(&init_expr)?;
+                        let offset = parse_init_expr(&init_expr)?.unwrap_or(0) as usize;
                         let items = element
                             .items
                             .get_items_reader()?
@@ -197,11 +208,7 @@ fn handle_payload<'a>(
                             funcs.push(func);
                         }
 
-                        let table_items = module
-                            .frontend_table_mut(table)
-                            .func_elements
-                            .as_mut()
-                            .unwrap();
+                        let table_items = module.table_mut(table).func_elements.as_mut().unwrap();
                         if (offset + funcs.len()) > table_items.len() {
                             table_items.resize(offset + funcs.len(), Func::invalid());
                         }

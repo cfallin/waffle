@@ -155,8 +155,12 @@ impl<'a> Display for ModuleDisplay<'a> {
             sig_strs.insert(sig, sig_str.clone());
             writeln!(f, "  {}: {}", sig, sig_str)?;
         }
-        for (global, global_ty) in self.0.globals() {
-            writeln!(f, "  {}: {}", global, global_ty)?;
+        for (global, global_data) in self.0.globals() {
+            writeln!(
+                f,
+                "  {}: {:?} # {}",
+                global, global_data.value, global_data.ty
+            )?;
         }
         for (table, table_data) in self.0.tables() {
             writeln!(f, "  {}: {}", table, table_data.ty)?;
