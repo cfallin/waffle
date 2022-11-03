@@ -119,6 +119,9 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     ValueDef::PickOutput(val, idx, ty) => {
                         writeln!(f, "{}    {} = {}.{} # {}", self.1, inst, val, idx, ty)?;
                     }
+                    ValueDef::Alias(val) => {
+                        writeln!(f, "{}    {} = {}", self.1, inst, val)?;
+                    }
                     _ => unreachable!(),
                 }
             }
