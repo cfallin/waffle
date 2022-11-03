@@ -13,6 +13,7 @@ mod ir;
 mod op_traits;
 mod ops;
 pub mod passes;
+mod scoped_map;
 
 pub use ir::*;
 pub use ops::Operator;

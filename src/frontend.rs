@@ -1320,7 +1320,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         let n_outputs = outputs.len();
 
         let mut input_operands = vec![];
-        for input in inputs.into_iter().rev() {
+        for &input in inputs.into_iter().rev() {
             let (stack_top_ty, stack_top) = self.op_stack.pop().unwrap();
             assert_eq!(stack_top_ty, input);
             input_operands.push(stack_top);
@@ -1331,7 +1331,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
         let value = self
             .body
-            .add_value(ValueDef::Operator(op, input_operands, outputs.clone()));
+            .add_value(ValueDef::Operator(op, input_operands, outputs.to_vec()));
         log::trace!(" -> value: {:?}", value);
 
         if let Some(block) = self.cur_block {
@@ -1342,7 +1342,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             let output_ty = outputs[0];
             self.op_stack.push((output_ty, value));
         } else {
-            for (i, output_ty) in outputs.into_iter().enumerate() {
+            for (i, &output_ty) in outputs.into_iter().enumerate() {
                 let pick = self
                     .body
                     .add_value(ValueDef::PickOutput(value, i, output_ty));

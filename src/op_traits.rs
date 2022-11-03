@@ -4,6 +4,7 @@ use crate::entity::EntityVec;
 use crate::ir::{Global, Local, Module, Signature, Table, Type, Value};
 use crate::Operator;
 use anyhow::Result;
+use std::borrow::Cow;
 
 pub fn op_inputs(
     module: &Module,
@@ -11,34 +12,34 @@ pub fn op_inputs(
     my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
-) -> Result<Vec<Type>> {
+) -> Result<Cow<'static, [Type]>> {
     match op {
-        &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
+        &Operator::Unreachable | &Operator::Nop => Ok(Cow::Borrowed(&[])),
 
         &Operator::Call { function_index } => {
             let sig = module.func(function_index).sig();
-            Ok(Vec::from(module.signature(sig).params.clone()))
+            Ok(Vec::from(module.signature(sig).params.clone()).into())
         }
         &Operator::CallIndirect { sig_index, .. } => {
             let mut params = module.signature(sig_index).params.to_vec();
             params.push(Type::I32);
-            Ok(params)
+            Ok(params.into())
         }
-        &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone())),
+        &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone()).into()),
 
         &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index]])
+            Ok(vec![my_locals[local_index]].into())
         }
-        &Operator::LocalGet { .. } => Ok(vec![]),
+        &Operator::LocalGet { .. } => Ok(Cow::Borrowed(&[])),
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
-            Ok(vec![val_ty, val_ty, Type::I32])
+            Ok(vec![val_ty, val_ty, Type::I32].into())
         }
-        &Operator::TypedSelect { ty } => Ok(vec![ty, ty, Type::I32]),
+        &Operator::TypedSelect { ty } => Ok(vec![ty, ty, Type::I32].into()),
 
-        &Operator::GlobalGet { .. } => Ok(vec![]),
-        &Operator::GlobalSet { global_index } => Ok(vec![module.global_ty(global_index)]),
+        &Operator::GlobalGet { .. } => Ok(Cow::Borrowed(&[])),
+        &Operator::GlobalSet { global_index } => Ok(vec![module.global_ty(global_index)].into()),
 
         Operator::I32Load { .. }
         | Operator::I64Load { .. }
@@ -53,24 +54,24 @@ pub fn op_inputs(
         | Operator::I64Load16S { .. }
         | Operator::I64Load16U { .. }
         | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. } => Ok(vec![Type::I32]),
+        | Operator::I64Load32U { .. } => Ok(Cow::Borrowed(&[Type::I32])),
 
-        Operator::I32Store { .. } => Ok(vec![Type::I32, Type::I32]),
-        Operator::I64Store { .. } => Ok(vec![Type::I32, Type::I64]),
-        Operator::F32Store { .. } => Ok(vec![Type::I32, Type::F32]),
-        Operator::F64Store { .. } => Ok(vec![Type::I32, Type::F64]),
-        Operator::I32Store8 { .. } => Ok(vec![Type::I32, Type::I32]),
-        Operator::I32Store16 { .. } => Ok(vec![Type::I32, Type::I32]),
-        Operator::I64Store8 { .. } => Ok(vec![Type::I32, Type::I64]),
-        Operator::I64Store16 { .. } => Ok(vec![Type::I32, Type::I64]),
-        Operator::I64Store32 { .. } => Ok(vec![Type::I32, Type::I64]),
+        Operator::I32Store { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32])),
+        Operator::I64Store { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I64])),
+        Operator::F32Store { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::F32])),
+        Operator::F64Store { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::F64])),
+        Operator::I32Store8 { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32])),
+        Operator::I32Store16 { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32])),
+        Operator::I64Store8 { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I64])),
+        Operator::I64Store16 { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I64])),
+        Operator::I64Store32 { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I64])),
 
         Operator::I32Const { .. }
         | Operator::I64Const { .. }
         | Operator::F32Const { .. }
-        | Operator::F64Const { .. } => Ok(vec![]),
+        | Operator::F64Const { .. } => Ok(Cow::Borrowed(&[])),
 
-        Operator::I32Eqz => Ok(vec![Type::I32]),
+        Operator::I32Eqz => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::I32Eq
         | Operator::I32Ne
         | Operator::I32LtS
@@ -80,9 +81,9 @@ pub fn op_inputs(
         | Operator::I32LeS
         | Operator::I32LeU
         | Operator::I32GeS
-        | Operator::I32GeU => Ok(vec![Type::I32, Type::I32]),
+        | Operator::I32GeU => Ok(Cow::Borrowed(&[Type::I32, Type::I32])),
 
-        Operator::I64Eqz => Ok(vec![Type::I64]),
+        Operator::I64Eqz => Ok(Cow::Borrowed(&[Type::I64])),
 
         Operator::I64Eq
         | Operator::I64Ne
@@ -93,23 +94,25 @@ pub fn op_inputs(
         | Operator::I64LeS
         | Operator::I64LeU
         | Operator::I64GeS
-        | Operator::I64GeU => Ok(vec![Type::I64, Type::I64]),
+        | Operator::I64GeU => Ok(Cow::Borrowed(&[Type::I64, Type::I64])),
 
         Operator::F32Eq
         | Operator::F32Ne
         | Operator::F32Lt
         | Operator::F32Gt
         | Operator::F32Le
-        | Operator::F32Ge => Ok(vec![Type::F32, Type::F32]),
+        | Operator::F32Ge => Ok(Cow::Borrowed(&[Type::F32, Type::F32])),
 
         Operator::F64Eq
         | Operator::F64Ne
         | Operator::F64Lt
         | Operator::F64Gt
         | Operator::F64Le
-        | Operator::F64Ge => Ok(vec![Type::F64, Type::F64]),
+        | Operator::F64Ge => Ok(Cow::Borrowed(&[Type::F64, Type::F64])),
 
-        Operator::I32Clz | Operator::I32Ctz | Operator::I32Popcnt => Ok(vec![Type::I32]),
+        Operator::I32Clz | Operator::I32Ctz | Operator::I32Popcnt => {
+            Ok(Cow::Borrowed(&[Type::I32]))
+        }
 
         Operator::I32Add
         | Operator::I32Sub
@@ -125,9 +128,11 @@ pub fn op_inputs(
         | Operator::I32ShrS
         | Operator::I32ShrU
         | Operator::I32Rotl
-        | Operator::I32Rotr => Ok(vec![Type::I32, Type::I32]),
+        | Operator::I32Rotr => Ok(Cow::Borrowed(&[Type::I32, Type::I32])),
 
-        Operator::I64Clz | Operator::I64Ctz | Operator::I64Popcnt => Ok(vec![Type::I64]),
+        Operator::I64Clz | Operator::I64Ctz | Operator::I64Popcnt => {
+            Ok(Cow::Borrowed(&[Type::I64]))
+        }
 
         Operator::I64Add
         | Operator::I64Sub
@@ -143,7 +148,7 @@ pub fn op_inputs(
         | Operator::I64ShrS
         | Operator::I64ShrU
         | Operator::I64Rotl
-        | Operator::I64Rotr => Ok(vec![Type::I64, Type::I64]),
+        | Operator::I64Rotr => Ok(Cow::Borrowed(&[Type::I64, Type::I64])),
 
         Operator::F32Abs
         | Operator::F32Neg
@@ -151,7 +156,7 @@ pub fn op_inputs(
         | Operator::F32Floor
         | Operator::F32Trunc
         | Operator::F32Nearest
-        | Operator::F32Sqrt => Ok(vec![Type::F32]),
+        | Operator::F32Sqrt => Ok(Cow::Borrowed(&[Type::F32])),
 
         Operator::F32Add
         | Operator::F32Sub
@@ -159,7 +164,7 @@ pub fn op_inputs(
         | Operator::F32Div
         | Operator::F32Min
         | Operator::F32Max
-        | Operator::F32Copysign => Ok(vec![Type::F32, Type::F32]),
+        | Operator::F32Copysign => Ok(Cow::Borrowed(&[Type::F32, Type::F32])),
 
         Operator::F64Abs
         | Operator::F64Neg
@@ -167,7 +172,7 @@ pub fn op_inputs(
         | Operator::F64Floor
         | Operator::F64Trunc
         | Operator::F64Nearest
-        | Operator::F64Sqrt => Ok(vec![Type::F64]),
+        | Operator::F64Sqrt => Ok(Cow::Borrowed(&[Type::F64])),
 
         Operator::F64Add
         | Operator::F64Sub
@@ -175,52 +180,54 @@ pub fn op_inputs(
         | Operator::F64Div
         | Operator::F64Min
         | Operator::F64Max
-        | Operator::F64Copysign => Ok(vec![Type::F64, Type::F64]),
+        | Operator::F64Copysign => Ok(Cow::Borrowed(&[Type::F64, Type::F64])),
 
-        Operator::I32WrapI64 => Ok(vec![Type::I64]),
-        Operator::I32TruncF32S => Ok(vec![Type::F32]),
-        Operator::I32TruncF32U => Ok(vec![Type::F32]),
-        Operator::I32TruncF64S => Ok(vec![Type::F64]),
-        Operator::I32TruncF64U => Ok(vec![Type::F64]),
-        Operator::I64ExtendI32S => Ok(vec![Type::I32]),
-        Operator::I64ExtendI32U => Ok(vec![Type::I32]),
-        Operator::I64TruncF32S => Ok(vec![Type::F32]),
-        Operator::I64TruncF32U => Ok(vec![Type::F32]),
-        Operator::I64TruncF64S => Ok(vec![Type::F64]),
-        Operator::I64TruncF64U => Ok(vec![Type::F64]),
-        Operator::F32ConvertI32S => Ok(vec![Type::I32]),
-        Operator::F32ConvertI32U => Ok(vec![Type::I32]),
-        Operator::F32ConvertI64S => Ok(vec![Type::I64]),
-        Operator::F32ConvertI64U => Ok(vec![Type::I64]),
-        Operator::F32DemoteF64 => Ok(vec![Type::F64]),
-        Operator::F64ConvertI32S => Ok(vec![Type::I32]),
-        Operator::F64ConvertI32U => Ok(vec![Type::I32]),
-        Operator::F64ConvertI64S => Ok(vec![Type::I64]),
-        Operator::F64ConvertI64U => Ok(vec![Type::I64]),
-        Operator::F64PromoteF32 => Ok(vec![Type::F32]),
-        Operator::I32Extend8S => Ok(vec![Type::I32]),
-        Operator::I32Extend16S => Ok(vec![Type::I32]),
-        Operator::I64Extend8S => Ok(vec![Type::I64]),
-        Operator::I64Extend16S => Ok(vec![Type::I64]),
-        Operator::I64Extend32S => Ok(vec![Type::I64]),
-        Operator::I32TruncSatF32S => Ok(vec![Type::F32]),
-        Operator::I32TruncSatF32U => Ok(vec![Type::F32]),
-        Operator::I32TruncSatF64S => Ok(vec![Type::F64]),
-        Operator::I32TruncSatF64U => Ok(vec![Type::F64]),
-        Operator::I64TruncSatF32S => Ok(vec![Type::F32]),
-        Operator::I64TruncSatF32U => Ok(vec![Type::F32]),
-        Operator::I64TruncSatF64S => Ok(vec![Type::F64]),
-        Operator::I64TruncSatF64U => Ok(vec![Type::F64]),
-        Operator::F32ReinterpretI32 => Ok(vec![Type::I32]),
-        Operator::F64ReinterpretI64 => Ok(vec![Type::I64]),
-        Operator::I32ReinterpretF32 => Ok(vec![Type::F32]),
-        Operator::I64ReinterpretF64 => Ok(vec![Type::F64]),
-        Operator::TableGet { .. } => Ok(vec![Type::I32]),
-        Operator::TableSet { table_index } => Ok(vec![Type::I32, module.table(*table_index).ty]),
-        Operator::TableGrow { .. } => Ok(vec![Type::I32]),
-        Operator::TableSize { .. } => Ok(vec![]),
-        Operator::MemorySize { .. } => Ok(vec![]),
-        Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
+        Operator::I32WrapI64 => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I32TruncF32S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I32TruncF32U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I32TruncF64S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I32TruncF64U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I64ExtendI32S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64ExtendI32U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64TruncF32S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I64TruncF32U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I64TruncF64S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I64TruncF64U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F32ConvertI32S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::F32ConvertI32U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::F32ConvertI64S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32ConvertI64U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32DemoteF64 => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F64ConvertI32S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::F64ConvertI32U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::F64ConvertI64S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F64ConvertI64U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F64PromoteF32 => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I32Extend8S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32Extend16S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64Extend8S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64Extend16S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64Extend32S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I32TruncSatF32S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I32TruncSatF32U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I32TruncSatF64S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I32TruncSatF64U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I64TruncSatF32S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I64TruncSatF32U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I64TruncSatF64S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I64TruncSatF64U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F32ReinterpretI32 => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::F64ReinterpretI64 => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I32ReinterpretF32 => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::I64ReinterpretF64 => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::TableGet { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::TableSet { table_index } => {
+            Ok(vec![Type::I32, module.table(*table_index).ty].into())
+        }
+        Operator::TableGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::TableSize { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
     }
 }
 
@@ -229,60 +236,60 @@ pub fn op_outputs(
     my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
-) -> Result<Vec<Type>> {
+) -> Result<Cow<'static, [Type]>> {
     match op {
-        &Operator::Unreachable | &Operator::Nop => Ok(vec![]),
+        &Operator::Unreachable | &Operator::Nop => Ok(Cow::Borrowed(&[])),
 
         &Operator::Call { function_index } => {
             let sig = module.func(function_index).sig();
-            Ok(Vec::from(module.signature(sig).returns.clone()))
+            Ok(Vec::from(module.signature(sig).returns.clone()).into())
         }
         &Operator::CallIndirect { sig_index, .. } => {
-            Ok(Vec::from(module.signature(sig_index).returns.clone()))
+            Ok(Vec::from(module.signature(sig_index).returns.clone()).into())
         }
-        &Operator::Return => Ok(vec![]),
-        &Operator::LocalSet { .. } => Ok(vec![]),
+        &Operator::Return => Ok(Cow::Borrowed(&[])),
+        &Operator::LocalSet { .. } => Ok(Cow::Borrowed(&[])),
         &Operator::LocalGet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index]])
+            Ok(vec![my_locals[local_index]].into())
         }
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
-            Ok(vec![val_ty])
+            Ok(vec![val_ty].into())
         }
-        &Operator::TypedSelect { ty } => Ok(vec![ty]),
-        &Operator::GlobalGet { global_index } => Ok(vec![module.global_ty(global_index)]),
-        &Operator::GlobalSet { .. } => Ok(vec![]),
+        &Operator::TypedSelect { ty } => Ok(vec![ty].into()),
+        &Operator::GlobalGet { global_index } => Ok(vec![module.global_ty(global_index)].into()),
+        &Operator::GlobalSet { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::I32Load { .. }
         | Operator::I32Load8S { .. }
         | Operator::I32Load8U { .. }
         | Operator::I32Load16S { .. }
-        | Operator::I32Load16U { .. } => Ok(vec![Type::I32]),
+        | Operator::I32Load16U { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::I64Load { .. }
         | Operator::I64Load8S { .. }
         | Operator::I64Load8U { .. }
         | Operator::I64Load16S { .. }
         | Operator::I64Load16U { .. }
         | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. } => Ok(vec![Type::I64]),
-        Operator::F32Load { .. } => Ok(vec![Type::F32]),
-        Operator::F64Load { .. } => Ok(vec![Type::F64]),
+        | Operator::I64Load32U { .. } => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32Load { .. } => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F64Load { .. } => Ok(Cow::Borrowed(&[Type::F64])),
 
-        Operator::I32Store { .. } => Ok(vec![]),
-        Operator::I64Store { .. } => Ok(vec![]),
-        Operator::F32Store { .. } => Ok(vec![]),
-        Operator::F64Store { .. } => Ok(vec![]),
-        Operator::I32Store8 { .. } => Ok(vec![]),
-        Operator::I32Store16 { .. } => Ok(vec![]),
-        Operator::I64Store8 { .. } => Ok(vec![]),
-        Operator::I64Store16 { .. } => Ok(vec![]),
-        Operator::I64Store32 { .. } => Ok(vec![]),
+        Operator::I32Store { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I64Store { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::F32Store { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::F64Store { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I32Store8 { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I32Store16 { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I64Store8 { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I64Store16 { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::I64Store32 { .. } => Ok(Cow::Borrowed(&[])),
 
-        Operator::I32Const { .. } => Ok(vec![Type::I32]),
-        Operator::I64Const { .. } => Ok(vec![Type::I64]),
-        Operator::F32Const { .. } => Ok(vec![Type::F32]),
-        Operator::F64Const { .. } => Ok(vec![Type::F64]),
+        Operator::I32Const { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64Const { .. } => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32Const { .. } => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F64Const { .. } => Ok(Cow::Borrowed(&[Type::F64])),
 
         Operator::I32Eqz
         | Operator::I32Eq
@@ -317,7 +324,7 @@ pub fn op_outputs(
         | Operator::F64Lt
         | Operator::F64Gt
         | Operator::F64Le
-        | Operator::F64Ge => Ok(vec![Type::I32]),
+        | Operator::F64Ge => Ok(Cow::Borrowed(&[Type::I32])),
 
         Operator::I32Clz
         | Operator::I32Ctz
@@ -336,7 +343,7 @@ pub fn op_outputs(
         | Operator::I32ShrS
         | Operator::I32ShrU
         | Operator::I32Rotl
-        | Operator::I32Rotr => Ok(vec![Type::I32]),
+        | Operator::I32Rotr => Ok(Cow::Borrowed(&[Type::I32])),
 
         Operator::I64Clz
         | Operator::I64Ctz
@@ -355,7 +362,7 @@ pub fn op_outputs(
         | Operator::I64ShrS
         | Operator::I64ShrU
         | Operator::I64Rotl
-        | Operator::I64Rotr => Ok(vec![Type::I64]),
+        | Operator::I64Rotr => Ok(Cow::Borrowed(&[Type::I64])),
 
         Operator::F32Abs
         | Operator::F32Neg
@@ -370,7 +377,7 @@ pub fn op_outputs(
         | Operator::F32Div
         | Operator::F32Min
         | Operator::F32Max
-        | Operator::F32Copysign => Ok(vec![Type::F32]),
+        | Operator::F32Copysign => Ok(Cow::Borrowed(&[Type::F32])),
 
         Operator::F64Abs
         | Operator::F64Neg
@@ -385,52 +392,52 @@ pub fn op_outputs(
         | Operator::F64Div
         | Operator::F64Min
         | Operator::F64Max
-        | Operator::F64Copysign => Ok(vec![Type::F64]),
+        | Operator::F64Copysign => Ok(Cow::Borrowed(&[Type::F64])),
 
-        Operator::I32WrapI64 => Ok(vec![Type::I32]),
-        Operator::I32TruncF32S => Ok(vec![Type::I32]),
-        Operator::I32TruncF32U => Ok(vec![Type::I32]),
-        Operator::I32TruncF64S => Ok(vec![Type::I32]),
-        Operator::I32TruncF64U => Ok(vec![Type::I32]),
-        Operator::I64ExtendI32S => Ok(vec![Type::I64]),
-        Operator::I64ExtendI32U => Ok(vec![Type::I64]),
-        Operator::I64TruncF32S => Ok(vec![Type::I64]),
-        Operator::I64TruncF32U => Ok(vec![Type::I64]),
-        Operator::I64TruncF64S => Ok(vec![Type::I64]),
-        Operator::I64TruncF64U => Ok(vec![Type::I64]),
-        Operator::F32ConvertI32S => Ok(vec![Type::F32]),
-        Operator::F32ConvertI32U => Ok(vec![Type::F32]),
-        Operator::F32ConvertI64S => Ok(vec![Type::F32]),
-        Operator::F32ConvertI64U => Ok(vec![Type::F32]),
-        Operator::F32DemoteF64 => Ok(vec![Type::F32]),
-        Operator::F64ConvertI32S => Ok(vec![Type::F64]),
-        Operator::F64ConvertI32U => Ok(vec![Type::F64]),
-        Operator::F64ConvertI64S => Ok(vec![Type::F64]),
-        Operator::F64ConvertI64U => Ok(vec![Type::F64]),
-        Operator::F64PromoteF32 => Ok(vec![Type::F64]),
-        Operator::I32Extend8S => Ok(vec![Type::I32]),
-        Operator::I32Extend16S => Ok(vec![Type::I32]),
-        Operator::I64Extend8S => Ok(vec![Type::I64]),
-        Operator::I64Extend16S => Ok(vec![Type::I64]),
-        Operator::I64Extend32S => Ok(vec![Type::I64]),
-        Operator::I32TruncSatF32S => Ok(vec![Type::I32]),
-        Operator::I32TruncSatF32U => Ok(vec![Type::I32]),
-        Operator::I32TruncSatF64S => Ok(vec![Type::I32]),
-        Operator::I32TruncSatF64U => Ok(vec![Type::I32]),
-        Operator::I64TruncSatF32S => Ok(vec![Type::I64]),
-        Operator::I64TruncSatF32U => Ok(vec![Type::I64]),
-        Operator::I64TruncSatF64S => Ok(vec![Type::I64]),
-        Operator::I64TruncSatF64U => Ok(vec![Type::I64]),
-        Operator::F32ReinterpretI32 => Ok(vec![Type::F32]),
-        Operator::F64ReinterpretI64 => Ok(vec![Type::F64]),
-        Operator::I32ReinterpretF32 => Ok(vec![Type::I32]),
-        Operator::I64ReinterpretF64 => Ok(vec![Type::I64]),
-        Operator::TableGet { table_index } => Ok(vec![module.table(*table_index).ty]),
-        Operator::TableSet { .. } => Ok(vec![]),
-        Operator::TableGrow { .. } => Ok(vec![]),
-        Operator::TableSize { .. } => Ok(vec![Type::I32]),
-        Operator::MemorySize { .. } => Ok(vec![Type::I32]),
-        Operator::MemoryGrow { .. } => Ok(vec![Type::I32]),
+        Operator::I32WrapI64 => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncF32S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncF32U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncF64S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncF64U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64ExtendI32S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64ExtendI32U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncF32S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncF32U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncF64S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncF64U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32ConvertI32S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F32ConvertI32U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F32ConvertI64S => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F32ConvertI64U => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F32DemoteF64 => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F64ConvertI32S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F64ConvertI32U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F64ConvertI64S => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F64ConvertI64U => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::F64PromoteF32 => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I32Extend8S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32Extend16S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64Extend8S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64Extend16S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64Extend32S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I32TruncSatF32S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncSatF32U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncSatF64S => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I32TruncSatF64U => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64TruncSatF32S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncSatF32U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncSatF64S => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::I64TruncSatF64U => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::F32ReinterpretI32 => Ok(Cow::Borrowed(&[Type::F32])),
+        Operator::F64ReinterpretI64 => Ok(Cow::Borrowed(&[Type::F64])),
+        Operator::I32ReinterpretF32 => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::I64ReinterpretF64 => Ok(Cow::Borrowed(&[Type::I64])),
+        Operator::TableGet { table_index } => Ok(vec![module.table(*table_index).ty].into()),
+        Operator::TableSet { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::TableGrow { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::TableSize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
     }
 }
 
@@ -449,26 +456,26 @@ pub enum SideEffect {
     All,
 }
 
-pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
+pub fn op_effects(op: &Operator) -> Result<Cow<'static, [SideEffect]>> {
     use SideEffect::*;
 
     match op {
-        &Operator::Unreachable => Ok(vec![Trap]),
-        &Operator::Nop => Ok(vec![]),
+        &Operator::Unreachable => Ok(Cow::Borrowed(&[Trap])),
+        &Operator::Nop => Ok(Cow::Borrowed(&[])),
 
-        &Operator::Call { .. } => Ok(vec![All]),
-        &Operator::CallIndirect { .. } => Ok(vec![All]),
-        &Operator::Return => Ok(vec![Return]),
-        &Operator::LocalSet { local_index, .. } => Ok(vec![WriteLocal(local_index)]),
-        &Operator::LocalGet { local_index, .. } => Ok(vec![ReadLocal(local_index)]),
+        &Operator::Call { .. } => Ok(Cow::Borrowed(&[All])),
+        &Operator::CallIndirect { .. } => Ok(Cow::Borrowed(&[All])),
+        &Operator::Return => Ok(Cow::Borrowed(&[Return])),
+        &Operator::LocalSet { local_index, .. } => Ok(vec![WriteLocal(local_index)].into()),
+        &Operator::LocalGet { local_index, .. } => Ok(vec![ReadLocal(local_index)].into()),
         &Operator::LocalTee { local_index, .. } => {
-            Ok(vec![ReadLocal(local_index), WriteLocal(local_index)])
+            Ok(vec![ReadLocal(local_index), WriteLocal(local_index)].into())
         }
 
-        &Operator::Select => Ok(vec![]),
-        &Operator::TypedSelect { .. } => Ok(vec![]),
-        &Operator::GlobalGet { global_index, .. } => Ok(vec![ReadGlobal(global_index)]),
-        &Operator::GlobalSet { global_index, .. } => Ok(vec![WriteGlobal(global_index)]),
+        &Operator::Select => Ok(Cow::Borrowed(&[])),
+        &Operator::TypedSelect { .. } => Ok(Cow::Borrowed(&[])),
+        &Operator::GlobalGet { global_index, .. } => Ok(vec![ReadGlobal(global_index)].into()),
+        &Operator::GlobalSet { global_index, .. } => Ok(vec![WriteGlobal(global_index)].into()),
 
         Operator::I32Load { .. }
         | Operator::I32Load8S { .. }
@@ -483,7 +490,7 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::I64Load32S { .. }
         | Operator::I64Load32U { .. }
         | Operator::F32Load { .. }
-        | Operator::F64Load { .. } => Ok(vec![Trap, ReadMem]),
+        | Operator::F64Load { .. } => Ok(Cow::Borrowed(&[Trap, ReadMem])),
 
         Operator::I32Store { .. }
         | Operator::I64Store { .. }
@@ -493,12 +500,12 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::I32Store16 { .. }
         | Operator::I64Store8 { .. }
         | Operator::I64Store16 { .. }
-        | Operator::I64Store32 { .. } => Ok(vec![Trap, WriteMem]),
+        | Operator::I64Store32 { .. } => Ok(Cow::Borrowed(&[Trap, WriteMem])),
 
         Operator::I32Const { .. }
         | Operator::I64Const { .. }
         | Operator::F32Const { .. }
-        | Operator::F64Const { .. } => Ok(vec![]),
+        | Operator::F64Const { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::I32Eqz
         | Operator::I32Eq
@@ -533,7 +540,7 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::F64Lt
         | Operator::F64Gt
         | Operator::F64Le
-        | Operator::F64Ge => Ok(vec![]),
+        | Operator::F64Ge => Ok(Cow::Borrowed(&[])),
 
         Operator::I32Clz
         | Operator::I32Ctz
@@ -548,10 +555,10 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::I32ShrS
         | Operator::I32ShrU
         | Operator::I32Rotl
-        | Operator::I32Rotr => Ok(vec![]),
+        | Operator::I32Rotr => Ok(Cow::Borrowed(&[])),
 
         Operator::I32DivS | Operator::I32DivU | Operator::I32RemS | Operator::I32RemU => {
-            Ok(vec![Trap])
+            Ok(Cow::Borrowed(&[Trap]))
         }
 
         Operator::I64Clz
@@ -567,10 +574,10 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::I64ShrS
         | Operator::I64ShrU
         | Operator::I64Rotl
-        | Operator::I64Rotr => Ok(vec![]),
+        | Operator::I64Rotr => Ok(Cow::Borrowed(&[])),
 
         Operator::I64DivS | Operator::I64DivU | Operator::I64RemS | Operator::I64RemU => {
-            Ok(vec![Trap])
+            Ok(Cow::Borrowed(&[Trap]))
         }
 
         Operator::F32Abs
@@ -586,7 +593,7 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::F32Div
         | Operator::F32Min
         | Operator::F32Max
-        | Operator::F32Copysign => Ok(vec![]),
+        | Operator::F32Copysign => Ok(Cow::Borrowed(&[])),
 
         Operator::F64Abs
         | Operator::F64Neg
@@ -601,52 +608,52 @@ pub fn op_effects(op: &Operator) -> Result<Vec<SideEffect>> {
         | Operator::F64Div
         | Operator::F64Min
         | Operator::F64Max
-        | Operator::F64Copysign => Ok(vec![]),
+        | Operator::F64Copysign => Ok(Cow::Borrowed(&[])),
 
-        Operator::I32WrapI64 => Ok(vec![]),
-        Operator::I32TruncF32S => Ok(vec![Trap]),
-        Operator::I32TruncF32U => Ok(vec![Trap]),
-        Operator::I32TruncF64S => Ok(vec![Trap]),
-        Operator::I32TruncF64U => Ok(vec![Trap]),
-        Operator::I64ExtendI32S => Ok(vec![]),
-        Operator::I64ExtendI32U => Ok(vec![]),
-        Operator::I64TruncF32S => Ok(vec![Trap]),
-        Operator::I64TruncF32U => Ok(vec![Trap]),
-        Operator::I64TruncF64S => Ok(vec![Trap]),
-        Operator::I64TruncF64U => Ok(vec![Trap]),
-        Operator::F32ConvertI32S => Ok(vec![]),
-        Operator::F32ConvertI32U => Ok(vec![]),
-        Operator::F32ConvertI64S => Ok(vec![]),
-        Operator::F32ConvertI64U => Ok(vec![]),
-        Operator::F32DemoteF64 => Ok(vec![]),
-        Operator::F64ConvertI32S => Ok(vec![]),
-        Operator::F64ConvertI32U => Ok(vec![]),
-        Operator::F64ConvertI64S => Ok(vec![]),
-        Operator::F64ConvertI64U => Ok(vec![]),
-        Operator::F64PromoteF32 => Ok(vec![]),
-        Operator::I32Extend8S => Ok(vec![]),
-        Operator::I32Extend16S => Ok(vec![]),
-        Operator::I64Extend8S => Ok(vec![]),
-        Operator::I64Extend16S => Ok(vec![]),
-        Operator::I64Extend32S => Ok(vec![]),
-        Operator::I32TruncSatF32S => Ok(vec![]),
-        Operator::I32TruncSatF32U => Ok(vec![]),
-        Operator::I32TruncSatF64S => Ok(vec![]),
-        Operator::I32TruncSatF64U => Ok(vec![]),
-        Operator::I64TruncSatF32S => Ok(vec![]),
-        Operator::I64TruncSatF32U => Ok(vec![]),
-        Operator::I64TruncSatF64S => Ok(vec![]),
-        Operator::I64TruncSatF64U => Ok(vec![]),
-        Operator::F32ReinterpretI32 => Ok(vec![]),
-        Operator::F64ReinterpretI64 => Ok(vec![]),
-        Operator::I32ReinterpretF32 => Ok(vec![]),
-        Operator::I64ReinterpretF64 => Ok(vec![]),
-        Operator::TableGet { table_index, .. } => Ok(vec![ReadTable(*table_index), Trap]),
-        Operator::TableSet { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap]),
-        Operator::TableGrow { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap]),
-        Operator::TableSize { table_index, .. } => Ok(vec![ReadTable(*table_index)]),
-        Operator::MemorySize { .. } => Ok(vec![ReadMem]),
-        Operator::MemoryGrow { .. } => Ok(vec![WriteMem, Trap]),
+        Operator::I32WrapI64 => Ok(Cow::Borrowed(&[])),
+        Operator::I32TruncF32S => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I32TruncF32U => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I32TruncF64S => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I32TruncF64U => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I64ExtendI32S => Ok(Cow::Borrowed(&[])),
+        Operator::I64ExtendI32U => Ok(Cow::Borrowed(&[])),
+        Operator::I64TruncF32S => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I64TruncF32U => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I64TruncF64S => Ok(Cow::Borrowed(&[Trap])),
+        Operator::I64TruncF64U => Ok(Cow::Borrowed(&[Trap])),
+        Operator::F32ConvertI32S => Ok(Cow::Borrowed(&[])),
+        Operator::F32ConvertI32U => Ok(Cow::Borrowed(&[])),
+        Operator::F32ConvertI64S => Ok(Cow::Borrowed(&[])),
+        Operator::F32ConvertI64U => Ok(Cow::Borrowed(&[])),
+        Operator::F32DemoteF64 => Ok(Cow::Borrowed(&[])),
+        Operator::F64ConvertI32S => Ok(Cow::Borrowed(&[])),
+        Operator::F64ConvertI32U => Ok(Cow::Borrowed(&[])),
+        Operator::F64ConvertI64S => Ok(Cow::Borrowed(&[])),
+        Operator::F64ConvertI64U => Ok(Cow::Borrowed(&[])),
+        Operator::F64PromoteF32 => Ok(Cow::Borrowed(&[])),
+        Operator::I32Extend8S => Ok(Cow::Borrowed(&[])),
+        Operator::I32Extend16S => Ok(Cow::Borrowed(&[])),
+        Operator::I64Extend8S => Ok(Cow::Borrowed(&[])),
+        Operator::I64Extend16S => Ok(Cow::Borrowed(&[])),
+        Operator::I64Extend32S => Ok(Cow::Borrowed(&[])),
+        Operator::I32TruncSatF32S => Ok(Cow::Borrowed(&[])),
+        Operator::I32TruncSatF32U => Ok(Cow::Borrowed(&[])),
+        Operator::I32TruncSatF64S => Ok(Cow::Borrowed(&[])),
+        Operator::I32TruncSatF64U => Ok(Cow::Borrowed(&[])),
+        Operator::I64TruncSatF32S => Ok(Cow::Borrowed(&[])),
+        Operator::I64TruncSatF32U => Ok(Cow::Borrowed(&[])),
+        Operator::I64TruncSatF64S => Ok(Cow::Borrowed(&[])),
+        Operator::I64TruncSatF64U => Ok(Cow::Borrowed(&[])),
+        Operator::F32ReinterpretI32 => Ok(Cow::Borrowed(&[])),
+        Operator::F64ReinterpretI64 => Ok(Cow::Borrowed(&[])),
+        Operator::I32ReinterpretF32 => Ok(Cow::Borrowed(&[])),
+        Operator::I64ReinterpretF64 => Ok(Cow::Borrowed(&[])),
+        Operator::TableGet { table_index, .. } => Ok(vec![ReadTable(*table_index), Trap].into()),
+        Operator::TableSet { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap].into()),
+        Operator::TableGrow { table_index, .. } => Ok(vec![WriteTable(*table_index), Trap].into()),
+        Operator::TableSize { table_index, .. } => Ok(vec![ReadTable(*table_index)].into()),
+        Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[ReadMem])),
+        Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[WriteMem, Trap])),
     }
 }
 
