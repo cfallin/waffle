@@ -4,7 +4,11 @@ use super::{FuncDecl, FunctionBody, Module, ValueDef};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub struct FunctionBodyDisplay<'a>(pub(crate) &'a FunctionBody, pub(crate) &'a str);
+pub struct FunctionBodyDisplay<'a>(
+    pub(crate) &'a FunctionBody,
+    pub(crate) &'a str,
+    pub(crate) bool,
+);
 
 impl<'a> Display for FunctionBodyDisplay<'a> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
@@ -29,10 +33,34 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
             ret_tys.join(", ")
         )?;
 
+        let verbose = self.2;
         for (value, value_def) in self.0.values.entries() {
             match value_def {
-                ValueDef::Operator(..) | ValueDef::BlockParam(..) => {}
-                ValueDef::Alias(_alias_target) => {}
+                ValueDef::Operator(op, args, tys) if verbose => writeln!(
+                    f,
+                    "{}    {} = {} {} # {}",
+                    self.1,
+                    value,
+                    op,
+                    args.iter()
+                        .map(|arg| format!("{}", arg))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    tys.iter()
+                        .map(|arg| format!("{}", arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?,
+                ValueDef::BlockParam(block, idx, ty) if verbose => writeln!(
+                    f,
+                    "{}    {} = blockparam {}, {} # {}",
+                    self.1, value, block, idx, ty
+                )?,
+                ValueDef::Alias(alias_target) => {
+                    if verbose {
+                        writeln!(f, "{}    {} = {}", self.1, value, alias_target)?
+                    }
+                }
                 ValueDef::PickOutput(val, idx, ty) => {
                     writeln!(f, "{}    {} = {}.{} # {}", self.1, value, val, idx, ty)?
                 }
@@ -40,6 +68,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     writeln!(f, "{}    {} = placeholder # {}", self.1, value, ty)?
                 }
                 ValueDef::None => panic!(),
+                _ => {}
             }
         }
 

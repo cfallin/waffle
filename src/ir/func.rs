@@ -66,7 +66,9 @@ impl FunctionBody {
 
     pub fn add_value(&mut self, value: ValueDef) -> Value {
         log::trace!("add_value: def {:?}", value);
-        self.values.push(value)
+        let value = self.values.push(value);
+        log::trace!(" -> {}", value);
+        value
     }
 
     pub fn set_alias(&mut self, value: Value, to: Value) {
@@ -140,7 +142,11 @@ impl FunctionBody {
     }
 
     pub fn display<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
-        FunctionBodyDisplay(self, indent)
+        FunctionBodyDisplay(self, indent, /* verbose = */ false)
+    }
+
+    pub fn display_verbose<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
+        FunctionBodyDisplay(self, indent, /* verbose = */ true)
     }
 }
 

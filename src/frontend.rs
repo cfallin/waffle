@@ -131,9 +131,7 @@ fn parse_body<'a>(
     for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
         let local_idx = Local::new(arg_idx);
         builder.body.add_blockparam(entry, arg_ty);
-        let value = builder
-            .body
-            .add_value(ValueDef::BlockParam(entry, arg_idx, arg_ty));
+        let value = builder.body.blocks[entry].params.last().unwrap().1;
         trace!("defining local {} to value {}", local_idx, value);
         builder.locals.declare(local_idx, arg_ty);
         builder.locals.set(local_idx, value);
@@ -321,6 +319,12 @@ impl LocalTracker {
             _ => todo!("unsupported type: {:?}", ty),
         };
         body.blocks[at_block].insts.push(val);
+        log::trace!(
+            "created default value {} of type {} at block {}",
+            val,
+            ty,
+            at_block
+        );
         val
     }
 
