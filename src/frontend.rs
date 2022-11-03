@@ -27,6 +27,24 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     Ok(module)
 }
 
+fn parse_init_expr<'a>(init_expr: &wasmparser::InitExpr<'a>) -> Result<usize> {
+    let operators = init_expr
+        .get_operators_reader()
+        .into_iter()
+        .collect::<Result<Vec<wasmparser::Operator>, _>>()?;
+    if operators.len() != 2 || !matches!(&operators[1], &wasmparser::Operator::End) {
+        anyhow::bail!(
+            "Unsupported operator seq in base-address expr: {:?}",
+            operators
+        );
+    }
+    Ok(match &operators[0] {
+        &wasmparser::Operator::I32Const { value } => value as usize,
+        &wasmparser::Operator::I64Const { value } => value as usize,
+        op => anyhow::bail!("Unsupported data segment base-address operator: {:?}", op),
+    })
+}
+
 fn handle_payload<'a>(
     module: &mut Module<'a>,
     payload: Payload<'a>,
@@ -138,26 +156,7 @@ fn handle_payload<'a>(
                     } => {
                         let data = segment.data.to_vec();
                         let memory = Memory::from(*memory_index);
-                        let operators = init_expr
-                            .get_operators_reader()
-                            .into_iter()
-                            .collect::<Result<Vec<wasmparser::Operator>, _>>()?;
-                        if operators.len() != 2
-                            || !matches!(&operators[1], &wasmparser::Operator::End)
-                        {
-                            anyhow::bail!(
-                                "Unsupported operator seq in base-address expr: {:?}",
-                                operators
-                            );
-                        }
-                        let offset = match &operators[0] {
-                            &wasmparser::Operator::I32Const { value } => value as usize,
-                            &wasmparser::Operator::I64Const { value } => value as usize,
-                            op => anyhow::bail!(
-                                "Unsupported data segment base-address operator: {:?}",
-                                op
-                            ),
-                        };
+                        let offset = parse_init_expr(init_expr)?;
                         module
                             .frontend_memory_mut(memory)
                             .segments
@@ -166,7 +165,54 @@ fn handle_payload<'a>(
                 }
             }
         }
-        _ => {}
+        Payload::CustomSection { .. } => {}
+        Payload::CodeSectionStart { .. } => {}
+        Payload::Version { .. } => {}
+        Payload::ElementSection(reader) => {
+            for element in reader {
+                let element = element?;
+                if element.ty != wasmparser::Type::FuncRef {
+                    anyhow::bail!("Unsupported table type: {:?}", element.ty);
+                }
+                match &element.kind {
+                    wasmparser::ElementKind::Passive => {}
+                    wasmparser::ElementKind::Declared => {}
+                    wasmparser::ElementKind::Active {
+                        table_index,
+                        init_expr,
+                    } => {
+                        let table = Table::from(*table_index);
+                        let offset = parse_init_expr(&init_expr)?;
+                        let items = element
+                            .items
+                            .get_items_reader()?
+                            .into_iter()
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let mut funcs = vec![];
+                        for item in items {
+                            let func = match item {
+                                wasmparser::ElementItem::Func(func_idx) => Func::from(func_idx),
+                                _ => anyhow::bail!("Unsupported element item: {:?}", item),
+                            };
+                            funcs.push(func);
+                        }
+
+                        let table_items = module
+                            .frontend_table_mut(table)
+                            .func_elements
+                            .as_mut()
+                            .unwrap();
+                        if (offset + funcs.len()) > table_items.len() {
+                            table_items.resize(offset + funcs.len(), Func::invalid());
+                        }
+                        table_items[offset..(offset + funcs.len())].copy_from_slice(&funcs[..]);
+                    }
+                }
+            }
+        }
+        payload => {
+            log::warn!("Skipping section: {:?}", payload);
+        }
     }
 
     Ok(())

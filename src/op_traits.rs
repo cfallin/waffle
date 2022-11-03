@@ -1,7 +1,7 @@
 //! Metadata on operators.
 
 use crate::entity::EntityVec;
-use crate::ir::{Global, Local, Module, Signature, Table, Value, Type};
+use crate::ir::{Global, Local, Module, Signature, Table, Type, Value};
 use crate::Operator;
 use anyhow::Result;
 
@@ -216,7 +216,7 @@ pub fn op_inputs(
         Operator::I32ReinterpretF32 => Ok(vec![Type::F32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::F64]),
         Operator::TableGet { .. } => Ok(vec![Type::I32]),
-        Operator::TableSet { table_index } => Ok(vec![Type::I32, module.table_ty(*table_index)]),
+        Operator::TableSet { table_index } => Ok(vec![Type::I32, module.table(*table_index).ty]),
         Operator::TableGrow { .. } => Ok(vec![Type::I32]),
         Operator::TableSize { .. } => Ok(vec![]),
         Operator::MemorySize { .. } => Ok(vec![]),
@@ -425,7 +425,7 @@ pub fn op_outputs(
         Operator::F64ReinterpretI64 => Ok(vec![Type::F64]),
         Operator::I32ReinterpretF32 => Ok(vec![Type::I32]),
         Operator::I64ReinterpretF64 => Ok(vec![Type::I64]),
-        Operator::TableGet { table_index } => Ok(vec![module.table_ty(*table_index)]),
+        Operator::TableGet { table_index } => Ok(vec![module.table(*table_index).ty]),
         Operator::TableSet { .. } => Ok(vec![]),
         Operator::TableGrow { .. } => Ok(vec![]),
         Operator::TableSize { .. } => Ok(vec![Type::I32]),

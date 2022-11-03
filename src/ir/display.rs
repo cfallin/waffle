@@ -155,8 +155,13 @@ impl<'a> Display for ModuleDisplay<'a> {
         for (global, global_ty) in self.0.globals() {
             writeln!(f, "  {}: {}", global, global_ty)?;
         }
-        for (table, table_ty) in self.0.tables() {
-            writeln!(f, "  {}: {}", table, table_ty)?;
+        for (table, table_data) in self.0.tables() {
+            writeln!(f, "  {}: {}", table, table_data.ty)?;
+            if let Some(funcs) = &table_data.func_elements {
+                for (i, &func) in funcs.iter().enumerate() {
+                    writeln!(f, "    {}[{}]: {}", table, i, func)?;
+                }
+            }
         }
         for (memory, memory_data) in self.0.memories() {
             writeln!(

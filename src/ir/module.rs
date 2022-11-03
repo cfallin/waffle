@@ -10,7 +10,7 @@ pub struct Module<'a> {
     funcs: EntityVec<Func, FuncDecl>,
     signatures: EntityVec<Signature, SignatureData>,
     globals: EntityVec<Global, Type>,
-    tables: EntityVec<Table, Type>,
+    tables: EntityVec<Table, TableData>,
     imports: Vec<Import>,
     exports: Vec<Export>,
     memories: EntityVec<Memory, MemoryData>,
@@ -35,6 +35,12 @@ pub struct MemoryData {
 pub struct MemorySegment {
     pub offset: usize,
     pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TableData {
+    pub ty: Type,
+    pub func_elements: Option<Vec<Func>>,
 }
 
 impl From<&wasmparser::FuncType> for SignatureData {
@@ -149,11 +155,11 @@ impl<'a> Module<'a> {
     pub fn globals<'b>(&'b self) -> impl Iterator<Item = (Global, Type)> + 'b {
         self.globals.entries().map(|(id, ty)| (id, *ty))
     }
-    pub fn table_ty(&self, id: Table) -> Type {
-        self.tables[id]
+    pub fn table<'b>(&'b self, id: Table) -> &'b TableData {
+        &self.tables[id]
     }
-    pub fn tables<'b>(&'b self) -> impl Iterator<Item = (Table, Type)> + 'b {
-        self.tables.entries().map(|(id, ty)| (id, *ty))
+    pub fn tables<'b>(&'b self) -> impl Iterator<Item = (Table, &'b TableData)> + 'b {
+        self.tables.entries()
     }
     pub fn memories<'b>(&'b self) -> impl Iterator<Item = (Memory, &'b MemoryData)> + 'b {
         self.memories.entries()
@@ -172,7 +178,15 @@ impl<'a> Module<'a> {
         self.funcs.push(body)
     }
     pub(crate) fn frontend_add_table(&mut self, ty: Type) -> Table {
-        self.tables.push(ty)
+        let func_elements = if ty == Type::FuncRef {
+            Some(vec![])
+        } else {
+            None
+        };
+        self.tables.push(TableData { ty, func_elements })
+    }
+    pub(crate) fn frontend_table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
+        &mut self.tables[table]
     }
     pub(crate) fn frontend_add_global(&mut self, ty: Type) -> Global {
         self.globals.push(ty)
