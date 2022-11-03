@@ -247,7 +247,7 @@ impl LocalTracker {
             }
 
             if body.blocks[at_block].preds.is_empty() {
-                let value = self.create_default_value(body, ty);
+                let value = self.create_default_value(body, ty, at_block);
                 log::trace!(" -> created default: {:?}", value);
                 return value;
             }
@@ -283,13 +283,17 @@ impl LocalTracker {
         if let Some(block) = self.cur_block {
             self.get_in_block(body, block, local)
         } else {
-            let ty = body.locals[local];
-            self.create_default_value(body, ty)
+            Value::invalid()
         }
     }
 
-    fn create_default_value(&mut self, body: &mut FunctionBody, ty: Type) -> Value {
-        match ty {
+    fn create_default_value(
+        &mut self,
+        body: &mut FunctionBody,
+        ty: Type,
+        at_block: Block,
+    ) -> Value {
+        let val = match ty {
             Type::I32 => body.add_value(ValueDef::Operator(
                 Operator::I32Const { value: 0 },
                 vec![],
@@ -315,7 +319,9 @@ impl LocalTracker {
                 vec![ty],
             )),
             _ => todo!("unsupported type: {:?}", ty),
-        }
+        };
+        body.blocks[at_block].insts.push(val);
+        val
     }
 
     fn compute_blockparam(
@@ -533,10 +539,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         self.op_stack.pop().unwrap().1
     }
 
-    fn block_results(&mut self, tys: &[Type], start_depth: usize) -> Vec<Value> {
+    fn block_results(&mut self, tys: &[Type], start_depth: usize, at_block: Block) -> Vec<Value> {
         if self.op_stack.len() < start_depth + tys.len() {
             tys.iter()
-                .map(|&ty| self.locals.create_default_value(&mut self.body, ty))
+                .map(|&ty| {
+                    self.locals
+                        .create_default_value(&mut self.body, ty, at_block)
+                })
                 .collect()
         } else {
             self.pop_n(tys.len())
@@ -784,8 +793,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(&results[..], *start_depth);
-                        self.emit_branch(*out, &result_values[..]);
+                        if let Some(cur_block) = self.cur_block {
+                            let result_values =
+                                self.block_results(&results[..], *start_depth, cur_block);
+                            self.emit_branch(*out, &result_values[..]);
+                        }
                         self.op_stack.truncate(*start_depth);
                         // Seal the out-block: no more edges will be
                         // added to it. Also, if we're ending a loop,
@@ -809,8 +821,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(&results[..], *start_depth);
-                        self.emit_branch(*out, &result_values[..]);
+                        if let Some(cur_block) = self.cur_block {
+                            let result_values =
+                                self.block_results(&results[..], *start_depth, cur_block);
+                            self.emit_branch(*out, &result_values[..]);
+                        }
                         self.op_stack.truncate(*start_depth);
                         // No `else`, so we need to generate a trivial
                         // branch in the else-block. If the if-block-type
@@ -838,8 +853,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
-                        let result_values = self.block_results(&results[..], *start_depth);
-                        self.emit_branch(*out, &result_values[..]);
+                        if let Some(cur_block) = self.cur_block {
+                            let result_values =
+                                self.block_results(&results[..], *start_depth, cur_block);
+                            self.emit_branch(*out, &result_values[..]);
+                        }
                         self.op_stack.truncate(*start_depth);
                         self.cur_block = Some(*out);
                         self.locals.seal_block_preds(*out, &mut self.body);
@@ -917,8 +935,10 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     results,
                 } = self.ctrl_stack.pop().unwrap()
                 {
-                    let if_results = self.block_results(&results[..], start_depth);
-                    self.emit_branch(out, &if_results[..]);
+                    if let Some(cur_block) = self.cur_block {
+                        let if_results = self.block_results(&results[..], start_depth, cur_block);
+                        self.emit_branch(out, &if_results[..]);
+                    }
                     self.op_stack.truncate(start_depth);
                     self.op_stack.extend(param_values);
                     self.ctrl_stack.push(Frame::Else {
