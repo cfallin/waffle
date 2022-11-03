@@ -176,10 +176,10 @@ impl<'a> Module<'a> {
     pub fn exports<'b>(&'b self) -> impl Iterator<Item = &'b Export> + 'b {
         self.exports.iter()
     }
-    pub(crate) fn table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
+    pub fn table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
         &mut self.tables[table]
     }
-    pub(crate) fn memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
+    pub fn memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
         &mut self.memories[memory]
     }
 
