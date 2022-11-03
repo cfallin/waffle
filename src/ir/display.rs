@@ -158,6 +158,36 @@ impl<'a> Display for ModuleDisplay<'a> {
         for (table, table_ty) in self.0.tables() {
             writeln!(f, "  {}: {}", table, table_ty)?;
         }
+        for (memory, memory_data) in self.0.memories() {
+            writeln!(
+                f,
+                "  {}: initial {} max {:?}",
+                memory, memory_data.initial_pages, memory_data.maximum_pages
+            )?;
+            for seg in &memory_data.segments {
+                writeln!(
+                    f,
+                    "    {} offset {}: [{}]",
+                    memory,
+                    seg.offset,
+                    seg.data
+                        .iter()
+                        .map(|&byte| format!("0x{:02x}", byte))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?;
+            }
+        }
+        for import in self.0.imports() {
+            writeln!(
+                f,
+                "  import \"{}\".\"{}\": {}",
+                import.module, import.name, import.kind
+            )?;
+        }
+        for export in self.0.exports() {
+            writeln!(f, "  export \"{}\": {}", export.name, export.kind)?;
+        }
         for (func, func_decl) in self.0.funcs() {
             match func_decl {
                 FuncDecl::Body(sig, body) => {

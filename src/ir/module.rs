@@ -1,16 +1,19 @@
-use super::{Func, FuncDecl, Global, ModuleDisplay, Signature, Table, Type};
+use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
 use crate::entity::EntityVec;
 use crate::frontend;
 use anyhow::Result;
 use fxhash::FxHashSet;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Module<'a> {
     orig_bytes: &'a [u8],
     funcs: EntityVec<Func, FuncDecl>,
     signatures: EntityVec<Signature, SignatureData>,
     globals: EntityVec<Global, Type>,
     tables: EntityVec<Table, Type>,
+    imports: Vec<Import>,
+    exports: Vec<Export>,
+    memories: EntityVec<Memory, MemoryData>,
 
     dirty_funcs: FxHashSet<Func>,
 }
@@ -19,6 +22,19 @@ pub struct Module<'a> {
 pub struct SignatureData {
     pub params: Vec<Type>,
     pub returns: Vec<Type>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MemoryData {
+    pub initial_pages: usize,
+    pub maximum_pages: Option<usize>,
+    pub segments: Vec<MemorySegment>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MemorySegment {
+    pub offset: usize,
+    pub data: Vec<u8>,
 }
 
 impl From<&wasmparser::FuncType> for SignatureData {
@@ -43,11 +59,70 @@ impl From<wasmparser::FuncType> for SignatureData {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Import {
+    pub module: String,
+    pub name: String,
+    pub kind: ImportKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ImportKind {
+    Table(Table),
+    Func(Func),
+    Global(Global),
+}
+
+impl std::fmt::Display for ImportKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ImportKind::Table(table) => write!(f, "{}", table)?,
+            ImportKind::Func(func) => write!(f, "{}", func)?,
+            ImportKind::Global(global) => write!(f, "{}", global)?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Export {
+    pub name: String,
+    pub kind: ExportKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum ExportKind {
+    Table(Table),
+    Func(Func),
+    Global(Global),
+    Memory(Memory),
+}
+
+impl std::fmt::Display for ExportKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ExportKind::Table(table) => write!(f, "{}", table)?,
+            ExportKind::Func(func) => write!(f, "{}", func)?,
+            ExportKind::Global(global) => write!(f, "{}", global)?,
+            ExportKind::Memory(memory) => write!(f, "{}", memory)?,
+        }
+        Ok(())
+    }
+}
+
 impl<'a> Module<'a> {
     pub(crate) fn with_orig_bytes(orig_bytes: &'a [u8]) -> Module<'a> {
-        let mut m = Module::default();
-        m.orig_bytes = orig_bytes;
-        m
+        Module {
+            orig_bytes,
+            funcs: EntityVec::default(),
+            signatures: EntityVec::default(),
+            globals: EntityVec::default(),
+            tables: EntityVec::default(),
+            imports: vec![],
+            exports: vec![],
+            memories: EntityVec::default(),
+            dirty_funcs: FxHashSet::default(),
+        }
     }
 }
 
@@ -80,18 +155,39 @@ impl<'a> Module<'a> {
     pub fn tables<'b>(&'b self) -> impl Iterator<Item = (Table, Type)> + 'b {
         self.tables.entries().map(|(id, ty)| (id, *ty))
     }
+    pub fn memories<'b>(&'b self) -> impl Iterator<Item = (Memory, &'b MemoryData)> + 'b {
+        self.memories.entries()
+    }
+    pub fn imports<'b>(&'b self) -> impl Iterator<Item = &'b Import> + 'b {
+        self.imports.iter()
+    }
+    pub fn exports<'b>(&'b self) -> impl Iterator<Item = &'b Export> + 'b {
+        self.exports.iter()
+    }
 
     pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
         self.signatures.push(ty);
     }
-    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) {
-        self.funcs.push(body);
+    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) -> Func {
+        self.funcs.push(body)
     }
-    pub(crate) fn frontend_add_table(&mut self, ty: Type) {
-        self.tables.push(ty);
+    pub(crate) fn frontend_add_table(&mut self, ty: Type) -> Table {
+        self.tables.push(ty)
     }
-    pub(crate) fn frontend_add_global(&mut self, ty: Type) {
-        self.globals.push(ty);
+    pub(crate) fn frontend_add_global(&mut self, ty: Type) -> Global {
+        self.globals.push(ty)
+    }
+    pub(crate) fn frontend_add_import(&mut self, import: Import) {
+        self.imports.push(import);
+    }
+    pub(crate) fn frontend_add_export(&mut self, export: Export) {
+        self.exports.push(export);
+    }
+    pub(crate) fn frontend_add_memory(&mut self, memory: MemoryData) -> Memory {
+        self.memories.push(memory)
+    }
+    pub(crate) fn frontend_memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
+        &mut self.memories[memory]
     }
 
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {

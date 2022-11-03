@@ -11,7 +11,8 @@ use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
 use std::convert::TryFrom;
 use wasmparser::{
-    Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, TypeDef, TypeOrFuncType,
+    DataKind, ExternalKind, Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, TypeDef,
+    TypeOrFuncType,
 };
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
@@ -33,46 +34,60 @@ fn handle_payload<'a>(
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
-        Payload::TypeSection(mut reader) => {
-            for _ in 0..reader.get_count() {
-                let ty = reader.read()?;
+        Payload::TypeSection(reader) => {
+            for ty in reader {
+                let ty = ty?;
                 if let TypeDef::Func(fty) = ty {
                     module.frontend_add_signature(fty.into());
                 }
             }
         }
-        Payload::ImportSection(mut reader) => {
-            for _ in 0..reader.get_count() {
-                match reader.read()?.ty {
+        Payload::ImportSection(reader) => {
+            for import in reader {
+                let import = import?;
+                let module_name = import.module.to_owned();
+                let name = import.field.unwrap_or("").to_owned();
+                let kind = match import.ty {
                     ImportSectionEntryType::Function(sig_idx) => {
-                        module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
+                        let func =
+                            module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
                         *next_func += 1;
+                        Some(ImportKind::Func(func))
                     }
                     ImportSectionEntryType::Global(ty) => {
-                        module.frontend_add_global(ty.content_type.into());
+                        let global = module.frontend_add_global(ty.content_type.into());
+                        Some(ImportKind::Global(global))
                     }
                     ImportSectionEntryType::Table(ty) => {
-                        module.frontend_add_table(ty.element_type.into());
+                        let table = module.frontend_add_table(ty.element_type.into());
+                        Some(ImportKind::Table(table))
                     }
-                    _ => {}
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    module.frontend_add_import(Import {
+                        module: module_name,
+                        name,
+                        kind,
+                    });
                 }
             }
         }
-        Payload::GlobalSection(mut reader) => {
-            for _ in 0..reader.get_count() {
-                let global = reader.read()?;
+        Payload::GlobalSection(reader) => {
+            for global in reader {
+                let global = global?;
                 module.frontend_add_global(global.ty.content_type.into());
             }
         }
-        Payload::TableSection(mut reader) => {
-            for _ in 0..reader.get_count() {
-                let table = reader.read()?;
+        Payload::TableSection(reader) => {
+            for table in reader {
+                let table = table?;
                 module.frontend_add_table(table.element_type.into());
             }
         }
-        Payload::FunctionSection(mut reader) => {
-            for _ in 0..reader.get_count() {
-                let sig_idx = Signature::from(reader.read()?);
+        Payload::FunctionSection(reader) => {
+            for sig_idx in reader {
+                let sig_idx = Signature::from(sig_idx?);
                 module.frontend_add_func(FuncDecl::Body(sig_idx, FunctionBody::default()));
             }
         }
@@ -85,6 +100,71 @@ fn handle_payload<'a>(
 
             let existing_body = module.func_mut(func_idx).body_mut().unwrap();
             *existing_body = body;
+        }
+        Payload::ExportSection(reader) => {
+            for export in reader {
+                let export = export?;
+                let name = export.field.to_owned();
+                let kind = match export.kind {
+                    ExternalKind::Function => Some(ExportKind::Func(Func::from(export.index))),
+                    ExternalKind::Table => Some(ExportKind::Table(Table::from(export.index))),
+                    ExternalKind::Global => Some(ExportKind::Global(Global::from(export.index))),
+                    ExternalKind::Memory => Some(ExportKind::Memory(Memory::from(export.index))),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    module.frontend_add_export(Export { name, kind });
+                }
+            }
+        }
+        Payload::MemorySection(reader) => {
+            for memory in reader {
+                let memory = memory?;
+                module.frontend_add_memory(MemoryData {
+                    initial_pages: memory.initial as usize,
+                    maximum_pages: memory.maximum.map(|max| max as usize),
+                    segments: vec![],
+                });
+            }
+        }
+        Payload::DataSection(reader) => {
+            for segment in reader {
+                let segment = segment?;
+                match &segment.kind {
+                    DataKind::Passive => {}
+                    DataKind::Active {
+                        memory_index,
+                        init_expr,
+                    } => {
+                        let data = segment.data.to_vec();
+                        let memory = Memory::from(*memory_index);
+                        let operators = init_expr
+                            .get_operators_reader()
+                            .into_iter()
+                            .collect::<Result<Vec<wasmparser::Operator>, _>>()?;
+                        if operators.len() != 2
+                            || !matches!(&operators[1], &wasmparser::Operator::End)
+                        {
+                            anyhow::bail!(
+                                "Unsupported operator seq in base-address expr: {:?}",
+                                operators
+                            );
+                        }
+                        let offset = match &operators[0] {
+                            &wasmparser::Operator::I32Const { value } => value as usize,
+                            &wasmparser::Operator::I64Const { value } => value as usize,
+                            op => anyhow::bail!(
+                                "Unsupported data segment base-address operator: {:?}",
+                                op
+                            ),
+                        };
+                        module
+                            .frontend_memory_mut(memory)
+                            .segments
+                            .push(MemorySegment { offset, data });
+                    }
+                }
+            }
         }
         _ => {}
     }
