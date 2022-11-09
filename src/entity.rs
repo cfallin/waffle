@@ -19,12 +19,12 @@ pub trait EntityRef: Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Hash {
 }
 
 #[macro_export]
-macro_rules! entity {
+macro_rules! declare_entity {
     ($name:tt, $prefix:tt) => {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(u32);
 
-        impl crate::entity::EntityRef for $name {
+        impl $crate::entity::EntityRef for $name {
             fn new(value: usize) -> Self {
                 use std::convert::TryFrom;
                 let value = u32::try_from(value).unwrap();
@@ -41,13 +41,13 @@ macro_rules! entity {
 
         impl std::convert::From<u32> for $name {
             fn from(val: u32) -> Self {
-                <Self as crate::entity::EntityRef>::new(val as usize)
+                <Self as $crate::entity::EntityRef>::new(val as usize)
             }
         }
 
         impl std::default::Default for $name {
             fn default() -> Self {
-                <Self as crate::entity::EntityRef>::invalid()
+                <Self as $crate::entity::EntityRef>::invalid()
             }
         }
 

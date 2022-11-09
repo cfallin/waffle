@@ -36,12 +36,12 @@
 //! ensure that (e.g.) block 4 above is visited first when considering
 //! successors of block 2.
 
-use crate::entity;
+use crate::declare_entity;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::ir::{Block, FunctionBody};
 use std::collections::{HashMap, HashSet};
 
-entity!(RPOIndex, "rpo");
+declare_entity!(RPOIndex, "rpo");
 
 impl RPOIndex {
     fn prev(self) -> RPOIndex {

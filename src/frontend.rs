@@ -1353,6 +1353,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let pick = self
                     .body
                     .add_value(ValueDef::PickOutput(value, i, output_ty));
+                if let Some(block) = self.cur_block {
+                    self.body.blocks[block].insts.push(pick);
+                }
                 self.op_stack.push((output_ty, pick));
                 log::trace!(" -> pick {}: {:?} ty {:?}", i, pick, output_ty);
             }

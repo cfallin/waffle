@@ -1,6 +1,7 @@
 use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
 use crate::entity::EntityVec;
 use crate::frontend;
+use crate::ir::FunctionBody;
 use anyhow::Result;
 use fxhash::FxHashSet;
 
@@ -232,5 +233,9 @@ impl<'a> Module<'a> {
         'b: 'a,
     {
         ModuleDisplay(self)
+    }
+
+    pub fn add_func(&mut self, sig: Signature, func: FunctionBody) -> Func {
+        self.funcs.push(FuncDecl::Body(sig, func))
     }
 }

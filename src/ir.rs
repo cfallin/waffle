@@ -1,6 +1,6 @@
 //! Intermediate representation for Wasm.
 
-use crate::entity;
+use crate::declare_entity;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Type {
@@ -39,14 +39,14 @@ impl std::fmt::Display for Type {
     }
 }
 
-entity!(Signature, "sig");
-entity!(Func, "func");
-entity!(Block, "block");
-entity!(Local, "local");
-entity!(Global, "global");
-entity!(Table, "table");
-entity!(Memory, "memory");
-entity!(Value, "v");
+declare_entity!(Signature, "sig");
+declare_entity!(Func, "func");
+declare_entity!(Block, "block");
+declare_entity!(Local, "local");
+declare_entity!(Global, "global");
+declare_entity!(Table, "table");
+declare_entity!(Memory, "memory");
+declare_entity!(Value, "v");
 
 mod module;
 pub use module::*;

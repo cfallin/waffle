@@ -1,4 +1,4 @@
-use super::{Block, FunctionBodyDisplay, Local, Signature, Type, Value, ValueDef};
+use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
 use crate::entity::EntityVec;
 
 #[derive(Clone, Debug)]
@@ -48,6 +48,27 @@ pub struct FunctionBody {
 }
 
 impl FunctionBody {
+    pub fn new(module: &Module, sig: Signature) -> FunctionBody {
+        let locals = EntityVec::from(module.signature(sig).params.clone());
+        let n_params = locals.len();
+        let rets = module.signature(sig).returns.clone();
+        let mut blocks = EntityVec::default();
+        let entry = blocks.push(BlockDef::default());
+        let mut values = EntityVec::default();
+        for (i, &arg_ty) in locals.values().enumerate() {
+            let value = values.push(ValueDef::BlockParam(entry, i, arg_ty));
+            blocks[entry].params.push((arg_ty, value));
+        }
+        FunctionBody {
+            n_params,
+            rets,
+            locals,
+            entry,
+            blocks,
+            values,
+        }
+    }
+
     pub fn add_block(&mut self) -> Block {
         let id = self.blocks.push(BlockDef::default());
         log::trace!("add_block: block {}", id);

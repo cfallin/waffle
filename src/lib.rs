@@ -6,8 +6,8 @@
 pub use wasmparser;
 
 mod backend;
-mod cfg;
-mod entity;
+pub mod cfg;
+pub mod entity;
 mod frontend;
 mod ir;
 mod op_traits;
