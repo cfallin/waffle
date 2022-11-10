@@ -452,7 +452,7 @@ impl LocalTracker {
             )),
             _ => todo!("unsupported type: {:?}", ty),
         };
-        body.blocks[at_block].insts.push(val);
+        body.append_to_block(at_block, val);
         log::trace!(
             "created default value {} of type {} at block {}",
             val,
@@ -1342,7 +1342,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         log::trace!(" -> value: {:?}", value);
 
         if let Some(block) = self.cur_block {
-            self.body.blocks[block].insts.push(value);
+            self.body.append_to_block(block, value);
         }
 
         if n_outputs == 1 {
@@ -1354,7 +1354,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     .body
                     .add_value(ValueDef::PickOutput(value, i, output_ty));
                 if let Some(block) = self.cur_block {
-                    self.body.blocks[block].insts.push(pick);
+                    self.body.append_to_block(block, pick);
                 }
                 self.op_stack.push((output_ty, pick));
                 log::trace!(" -> pick {}: {:?} ty {:?}", i, pick, output_ty);

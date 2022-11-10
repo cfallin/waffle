@@ -1,5 +1,5 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
-use crate::entity::EntityVec;
+use crate::entity::{EntityVec, PerEntity};
 
 #[derive(Clone, Debug)]
 pub enum FuncDecl {
@@ -45,6 +45,8 @@ pub struct FunctionBody {
     pub blocks: EntityVec<Block, BlockDef>,
     /// Value definitions, indexed by `Value`.
     pub values: EntityVec<Value, ValueDef>,
+    /// Blocks in which values are computed. Each may be `Block::invalid()` if not placed.
+    pub value_blocks: PerEntity<Value, Block>,
 }
 
 impl FunctionBody {
@@ -55,9 +57,11 @@ impl FunctionBody {
         let mut blocks = EntityVec::default();
         let entry = blocks.push(BlockDef::default());
         let mut values = EntityVec::default();
+        let mut value_blocks = PerEntity::default();
         for (i, &arg_ty) in locals.values().enumerate() {
             let value = values.push(ValueDef::BlockParam(entry, i, arg_ty));
             blocks[entry].params.push((arg_ty, value));
+            value_blocks[value] = entry;
         }
         FunctionBody {
             n_params,
@@ -66,6 +70,7 @@ impl FunctionBody {
             entry,
             blocks,
             values,
+            value_blocks,
         }
     }
 
@@ -119,6 +124,7 @@ impl FunctionBody {
         let index = self.blocks[block].params.len();
         let value = self.add_value(ValueDef::BlockParam(block, index, ty));
         self.blocks[block].params.push((ty, value));
+        self.value_blocks[value] = block;
         value
     }
 
@@ -149,6 +155,7 @@ impl FunctionBody {
 
     pub fn append_to_block(&mut self, block: Block, value: Value) {
         self.blocks[block].insts.push(value);
+        self.value_blocks[value] = block;
     }
 
     pub fn end_block(&mut self, block: Block, terminator: Terminator) {
