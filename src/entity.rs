@@ -148,12 +148,14 @@ pub struct PerEntity<Idx: EntityRef, T: Clone + Debug + Default>(Vec<T>, Phantom
 impl<Idx: EntityRef, T: Clone + Debug + Default> Index<Idx> for PerEntity<Idx, T> {
     type Output = T;
     fn index(&self, idx: Idx) -> &T {
+        debug_assert!(idx.is_valid());
         self.0.get(idx.index()).unwrap_or(&self.2)
     }
 }
 
 impl<Idx: EntityRef, T: Clone + Debug + Default> IndexMut<Idx> for PerEntity<Idx, T> {
     fn index_mut(&mut self, idx: Idx) -> &mut T {
+        debug_assert!(idx.is_valid());
         if idx.index() >= self.0.len() {
             self.0.resize(idx.index() + 1, T::default());
         }
