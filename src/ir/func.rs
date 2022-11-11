@@ -47,6 +47,8 @@ pub struct FunctionBody {
     pub values: EntityVec<Value, ValueDef>,
     /// Blocks in which values are computed. Each may be `Block::invalid()` if not placed.
     pub value_blocks: PerEntity<Value, Block>,
+    /// Wasm locals that values correspond to, if any.
+    pub value_locals: PerEntity<Value, Option<Local>>,
 }
 
 impl FunctionBody {
@@ -71,6 +73,7 @@ impl FunctionBody {
             blocks,
             values,
             value_blocks,
+            value_locals: PerEntity::default(),
         }
     }
 
@@ -140,6 +143,10 @@ impl FunctionBody {
         };
         self.blocks[block].params.push((ty, value));
         self.values[value] = ValueDef::BlockParam(block, index, ty);
+    }
+
+    pub fn mark_value_as_local(&mut self, value: Value, local: Local) {
+        self.value_locals[value] = Some(local);
     }
 
     pub fn resolve_and_update_alias(&mut self, value: Value) -> Value {

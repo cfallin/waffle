@@ -101,7 +101,15 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     .collect::<Vec<_>>()
                     .join(", ")
             )?;
+            for (_, param) in &block.params {
+                if let Some(local) = self.0.value_locals[*param] {
+                    writeln!(f, "{}    # {}: {}", self.1, param, local)?;
+                }
+            }
             for &inst in &block.insts {
+                if let Some(local) = self.0.value_locals[inst] {
+                    writeln!(f, "{}    # {}: {}", self.1, inst, local)?;
+                }
                 match &self.0.values[inst] {
                     ValueDef::Operator(op, args, tys) => {
                         let args = args.iter().map(|&v| format!("{}", v)).collect::<Vec<_>>();

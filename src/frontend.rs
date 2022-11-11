@@ -385,6 +385,7 @@ impl LocalTracker {
             }
 
             let placeholder = body.add_placeholder(ty);
+            body.mark_value_as_local(placeholder, local);
             self.block_end
                 .entry(at_block)
                 .or_insert_with(|| FxHashMap::default())
@@ -393,7 +394,15 @@ impl LocalTracker {
             self.compute_blockparam(body, at_block, local, placeholder);
             placeholder
         } else {
+            if let Some(end_mapping) = self.block_end.get(&at_block) {
+                if let Some(&value) = end_mapping.get(&local) {
+                    log::trace!(" -> from end_mapping: {:?}", value);
+                    return value;
+                }
+            }
+
             let placeholder = body.add_placeholder(ty);
+            body.mark_value_as_local(placeholder, local);
             self.block_end
                 .entry(at_block)
                 .or_insert_with(|| FxHashMap::default())
