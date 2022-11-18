@@ -1,5 +1,7 @@
 //! Binaryen bindings.
 
+use crate::entity::EntityRef;
+use crate::ir;
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use libc::{c_char, c_void};
@@ -118,14 +120,14 @@ impl Function {
 
     pub fn create(
         module: &mut Module,
-        params: impl Iterator<Item = wasmparser::Type>,
-        results: impl Iterator<Item = wasmparser::Type>,
-        locals: impl Iterator<Item = wasmparser::Type>,
+        params: impl Iterator<Item = ir::Type>,
+        results: impl Iterator<Item = ir::Type>,
+        locals: impl Iterator<Item = ir::Type>,
         body: Expression,
     ) -> Function {
         let params = tys_to_binaryen(params);
         let results = tys_to_binaryen(results);
-        let locals: Vec<BinaryenType> = locals.map(|ty| Type::from(ty).to_kind()).collect();
+        let locals: Vec<BinaryenType> = locals.map(|ty| Type::from(ty).to_binaryen()).collect();
         let ptr = unsafe {
             BinaryenAddFunc(
                 module.0,
@@ -140,8 +142,8 @@ impl Function {
         Function(module.0, ptr)
     }
 
-    pub fn add_local(&mut self, ty: wasmparser::Type) -> usize {
-        (unsafe { BinaryenFunctionAddVar(self.1, Type::from(ty).to_kind()) }) as usize
+    pub fn add_local(&mut self, ty: ir::Type) -> usize {
+        (unsafe { BinaryenFunctionAddVar(self.1, Type::from(ty).to_binaryen()) }) as usize
     }
 }
 
@@ -264,7 +266,7 @@ pub enum Type {
 }
 
 impl Type {
-    fn from_kind(kind: BinaryenType) -> Option<Type> {
+    fn from_binaryen(kind: BinaryenType) -> Option<Type> {
         let tys = &*TYPE_IDS;
         if kind == tys.none_t {
             Some(Type::None)
@@ -281,7 +283,7 @@ impl Type {
         }
     }
 
-    pub(crate) fn to_kind(&self) -> BinaryenType {
+    pub(crate) fn to_binaryen(&self) -> BinaryenType {
         let tys = &*TYPE_IDS;
         match self {
             &Type::None => tys.none_t,
@@ -294,21 +296,21 @@ impl Type {
     }
 }
 
-impl From<wasmparser::Type> for Type {
-    fn from(ty: wasmparser::Type) -> Self {
+impl From<ir::Type> for Type {
+    fn from(ty: ir::Type) -> Self {
         match ty {
-            wasmparser::Type::I32 => Type::I32,
-            wasmparser::Type::I64 => Type::I64,
-            wasmparser::Type::F32 => Type::F32,
-            wasmparser::Type::F64 => Type::F64,
-            wasmparser::Type::V128 => Type::V128,
+            ir::Type::I32 => Type::I32,
+            ir::Type::I64 => Type::I64,
+            ir::Type::F32 => Type::F32,
+            ir::Type::F64 => Type::F64,
+            ir::Type::V128 => Type::V128,
             _ => unimplemented!(),
         }
     }
 }
 
-pub fn tys_to_binaryen(tys: impl Iterator<Item = wasmparser::Type>) -> BinaryenType {
-    let tys: Vec<BinaryenType> = tys.map(|ty| Type::from(ty).to_kind()).collect();
+pub fn tys_to_binaryen(tys: impl Iterator<Item = ir::Type>) -> BinaryenType {
+    let tys: Vec<BinaryenType> = tys.map(|ty| Type::from(ty).to_binaryen()).collect();
     unsafe { BinaryenTypeCreate(tys.as_ptr(), tys.len() as BinaryenIndex) }
 }
 
@@ -322,7 +324,7 @@ fn name_to_string(name: *const c_char) -> Option<String> {
 
 impl Expression {
     pub fn ty(&self) -> Type {
-        Type::from_kind(unsafe { BinaryenExpressionGetType(self.1) }).unwrap()
+        Type::from_binaryen(unsafe { BinaryenExpressionGetType(self.1) }).unwrap()
     }
 
     pub fn deep_clone(&self) -> Self {
@@ -344,6 +346,44 @@ impl Expression {
                 BinaryenUndefined(),
             )
         })
+    }
+
+    pub fn block_append_child(&mut self, child: Expression) {
+        unsafe {
+            BinaryenBlockAppendChild(self.1, child.1);
+        }
+    }
+
+    pub fn unreachable(module: &Module) -> Expression {
+        Expression(module.0, unsafe { BinaryenUnreachable(module.0) })
+    }
+
+    pub fn local_get(module: &Module, local: ir::Local, ty: ir::Type) -> Expression {
+        let local = local.index() as BinaryenIndex;
+        let ty = Type::from(ty).to_binaryen();
+        let expr = unsafe { BinaryenLocalGet(module.0, local, ty) };
+        Expression(module.0, expr)
+    }
+
+    pub fn local_set(module: &Module, local: ir::Local, value: Expression) -> Expression {
+        let local = local.index() as BinaryenIndex;
+        let expr = unsafe { BinaryenLocalSet(module.0, local, value.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn ret(module: &Module, values: &[Expression]) -> Expression {
+        let expr = if values.len() == 0 {
+            unsafe { BinaryenReturn(module.0, std::ptr::null()) }
+        } else if values.len() == 1 {
+            unsafe { BinaryenReturn(module.0, values[0].1) }
+        } else {
+            let exprs = values.iter().map(|e| e.1).collect::<Vec<_>>();
+            let tuple = unsafe {
+                BinaryenTupleMake(module.0, exprs.as_ptr(), exprs.len() as BinaryenIndex)
+            };
+            unsafe { BinaryenReturn(module.0, tuple) }
+        };
+        Expression(module.0, expr)
     }
 }
 
@@ -387,13 +427,13 @@ lazy_static! {
 }
 
 impl UnaryOp {
-    fn from_kind(kind: u32) -> UnaryOp {
+    fn from_binaryen(kind: u32) -> UnaryOp {
         UnaryOp::Other(kind)
     }
 }
 
 impl BinaryOp {
-    fn from_kind(kind: u32) -> BinaryOp {
+    fn from_binaryen(kind: u32) -> BinaryOp {
         let ids = &*OP_IDS;
         if kind == ids.i32_add {
             BinaryOp::I32Add
@@ -447,9 +487,6 @@ pub struct Relooper(BinaryenModule, BinaryenRelooper);
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RelooperBlock(BinaryenRelooperBlock);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct RelooperBlockWithSwitch(BinaryenRelooperBlock);
-
 impl Relooper {
     pub fn new(module: &Module) -> Relooper {
         let ptr = unsafe { RelooperCreate(module.0) };
@@ -467,12 +504,8 @@ impl Relooper {
         RelooperBlock(unsafe { RelooperAddBlock(self.1, expr.1) })
     }
 
-    pub fn add_block_with_switch(
-        &mut self,
-        expr: Expression,
-        sel: Expression,
-    ) -> RelooperBlockWithSwitch {
-        RelooperBlockWithSwitch(unsafe { RelooperAddBlockWithSwitch(self.1, expr.1, sel.1) })
+    pub fn add_block_with_switch(&mut self, expr: Expression, sel: Expression) -> RelooperBlock {
+        RelooperBlock(unsafe { RelooperAddBlockWithSwitch(self.1, expr.1, sel.1) })
     }
 }
 
@@ -488,9 +521,7 @@ impl RelooperBlock {
             RelooperAddBranch(self.0, to.0, std::ptr::null(), edge.1);
         }
     }
-}
 
-impl RelooperBlockWithSwitch {
     pub fn switch(&self, to: RelooperBlock, edge: Expression, indices: &[BinaryenIndex]) {
         unsafe {
             RelooperAddBranchForSwitch(
@@ -548,6 +579,10 @@ extern "C" {
     fn BinaryenBlockGetNumChildren(ptr: BinaryenExpression) -> u32;
     fn BinaryenBlockGetChildAt(ptr: BinaryenExpression, index: u32) -> BinaryenExpression;
     fn BinaryenBlockGetName(ptr: BinaryenExpression) -> *const c_char;
+    fn BinaryenBlockAppendChild(
+        ptr: BinaryenExpression,
+        child: BinaryenExpression,
+    ) -> BinaryenIndex;
 
     fn BinaryenLoopGetBody(ptr: BinaryenExpression) -> BinaryenExpression;
     fn BinaryenLoopGetName(ptr: BinaryenExpression) -> *const c_char;
@@ -654,6 +689,12 @@ extern "C" {
     fn BinaryenShrSInt32() -> u32;
 
     fn BinaryenConst(module: BinaryenModule, lit: BinaryenLiteral) -> BinaryenExpression;
+    fn BinaryenUnreachable(module: BinaryenModule) -> BinaryenExpression;
+    fn BinaryenLocalGet(
+        module: BinaryenModule,
+        local: BinaryenIndex,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
     fn BinaryenLocalSet(
         module: BinaryenModule,
         index: u32,
@@ -666,6 +707,12 @@ extern "C" {
         n_children: BinaryenIndex,
         ty: BinaryenType,
     ) -> BinaryenExpression;
+    fn BinaryenTupleMake(
+        module: BinaryenModule,
+        operands: *const BinaryenExpression,
+        n_operands: BinaryenIndex,
+    ) -> BinaryenExpression;
+    fn BinaryenReturn(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
 
     fn BinaryenAddFunc(
         module: BinaryenModule,

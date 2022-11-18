@@ -1,10 +1,9 @@
-/*
 use crate::backend::binaryen;
 use crate::entity::EntityRef;
 use crate::ir::*;
 use crate::Operator;
 use fxhash::FxHashMap;
-use wasmparser::Type;
+use std::collections::BTreeMap;
 
 /// Creates a body expression for a function. Returns that expression,
 /// and new locals (as their types) that were created as temporaries
@@ -16,29 +15,125 @@ pub(crate) fn generate_body(
     let mut ctx = ElabCtx::new(body, into_mod);
 
     // For each block, generate an expr.
-    let mut block_exprs: FxHashMap<Block, binaryen::Expression> = FxHashMap::default();
+    let mut block_exprs: BTreeMap<Block, binaryen::Expression> = BTreeMap::default();
     for (block_id, block) in body.blocks.entries() {
-        let exprs = block
-            .insts
-            .iter()
-            .flat_map(|&inst| {
-                let inst = body.resolve_alias(inst);
-                ctx.elaborate_value(into_mod, inst)
-            })
-            .collect::<Vec<binaryen::Expression>>();
+        let mut exprs = vec![];
+        for (i, (ty, _param)) in block.params.iter().enumerate() {
+            let val = binaryen::Expression::local_get(
+                into_mod,
+                *ctx.block_param_next_locals.get(&(block_id, i)).unwrap(),
+                *ty,
+            );
+            let set = binaryen::Expression::local_set(
+                into_mod,
+                *ctx.block_param_locals.get(&(block_id, i)).unwrap(),
+                val,
+            );
+            exprs.push(set);
+        }
+        for &inst in &block.insts {
+            let inst = body.resolve_alias(inst);
+            if let Some(expr) = ctx.elaborate_value(into_mod, inst) {
+                exprs.push(expr);
+            }
+        }
         block_exprs.insert(block_id, binaryen::Expression::block(into_mod, &exprs[..]));
     }
 
     // Combine blocks into a single body expression, using the
     // relooper/stackifier support built into Binaryen.
     let mut relooper = binaryen::Relooper::new(into_mod);
-    let mut entry = None;
-    let mut relooper_blocks: FxHashMap<Block, binaryen::RelooperBlock> = FxHashMap::default();
-    for (block_id, block_expr) in block_exprs {}
+
+    // Create the blocks.
+    let mut relooper_blocks: FxHashMap<Block, (binaryen::Expression, binaryen::RelooperBlock)> =
+        FxHashMap::default();
+    for (block_id, block_expr) in &mut block_exprs {
+        let block = match &body.blocks[*block_id].terminator {
+            &Terminator::Select { value, .. } => {
+                let sel = ctx.get_val(value, into_mod);
+                relooper.add_block_with_switch(block_expr.clone(), sel)
+            }
+            _ => relooper.add_block(block_expr.clone()),
+        };
+        relooper_blocks.insert(*block_id, (block_expr.clone(), block));
+    }
+
+    // Add edges.
+    for &block_id in block_exprs.keys() {
+        let (mut block_expr, block) = relooper_blocks.get(&block_id).unwrap().clone();
+        match &body.blocks[block_id].terminator {
+            &Terminator::Br { ref target } => {
+                let (target_block, edge) = build_ssa_edge(&ctx, target, &relooper_blocks, into_mod);
+                block.branch(target_block, edge);
+            }
+            &Terminator::CondBr {
+                cond,
+                ref if_true,
+                ref if_false,
+            } => {
+                let (true_block, true_edge) =
+                    build_ssa_edge(&ctx, if_true, &relooper_blocks, into_mod);
+                let (false_block, false_edge) =
+                    build_ssa_edge(&ctx, if_false, &relooper_blocks, into_mod);
+                let cond = ctx.get_val(cond, into_mod);
+                block.cond_branch(true_block, cond, true_edge);
+                block.branch(false_block, false_edge);
+            }
+            &Terminator::Select {
+                value: _,
+                ref targets,
+                ref default,
+            } => {
+                for (i, target) in targets.iter().enumerate() {
+                    let (target_block, edge) =
+                        build_ssa_edge(&ctx, target, &relooper_blocks, into_mod);
+                    block.switch(target_block, edge, &[i as u32]);
+                }
+                let (target_block, edge) =
+                    build_ssa_edge(&ctx, default, &relooper_blocks, into_mod);
+                block.switch(target_block, edge, &[]);
+            }
+            &Terminator::Return { ref values } => {
+                let values = values
+                    .iter()
+                    .map(|value| ctx.get_val(*value, into_mod))
+                    .collect::<Vec<_>>();
+                block_expr.block_append_child(binaryen::Expression::ret(into_mod, &values[..]));
+            }
+            &Terminator::Unreachable | &Terminator::None => {
+                block_expr.block_append_child(binaryen::Expression::unreachable(into_mod));
+            }
+        }
+    }
 
     let index_var = ctx.new_local(Type::I32);
-    let expr = relooper.construct(entry.unwrap(), index_var.index());
+    let entry = relooper_blocks.get(&ctx.body.entry).unwrap().1.clone();
+    let expr = relooper.construct(entry, index_var.index());
     (ctx.new_locals, expr)
+}
+
+fn build_ssa_edge(
+    ctx: &ElabCtx<'_>,
+    target: &BlockTarget,
+    blocks: &FxHashMap<Block, (binaryen::Expression, binaryen::RelooperBlock)>,
+    into_mod: &mut binaryen::Module,
+) -> (binaryen::RelooperBlock, binaryen::Expression) {
+    // Copy all block args to the "next" locals. Build an edge block
+    // with these get-set pairs.
+    let mut sets = vec![];
+    for (i, arg) in target.args.iter().enumerate() {
+        let value = ctx.get_val(*arg, into_mod);
+        let set = binaryen::Expression::local_set(
+            into_mod,
+            *ctx.block_param_next_locals.get(&(target.block, i)).unwrap(),
+            value,
+        );
+        sets.push(set);
+    }
+
+    let edge_block = binaryen::Expression::block(into_mod, &sets[..]);
+    let block = blocks.get(&target.block).unwrap().1.clone();
+    (block, edge_block)
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +141,7 @@ struct ElabCtx<'a> {
     body: &'a FunctionBody,
     op_result_locals: FxHashMap<(Value, usize), Local>,
     block_param_locals: FxHashMap<(Block, usize), Local>,
+    block_param_next_locals: FxHashMap<(Block, usize), Local>,
     new_locals: Vec<Type>,
 }
 
@@ -93,7 +189,6 @@ impl<'a> ElabCtx<'a> {
 
     fn get_val_local(&self, value: Value) -> Local {
         match &self.body.values[value] {
-            &ValueDef::Arg(idx, _) => Local::new(idx),
             &ValueDef::BlockParam(block, idx, _) => {
                 self.block_param_locals.get(&(block, idx)).copied().unwrap()
             }
@@ -102,8 +197,13 @@ impl<'a> ElabCtx<'a> {
                 self.op_result_locals.get(&(value, idx)).copied().unwrap()
             }
             &ValueDef::Alias(val) => self.get_val_local(val),
-            &ValueDef::Placeholder(_) => unreachable!(),
+            &ValueDef::Placeholder(_) | &ValueDef::None => unreachable!(),
         }
+    }
+
+    fn get_val(&self, value: Value, into_mod: &mut binaryen::Module) -> binaryen::Expression {
+        let local = self.get_val_local(value);
+        binaryen::Expression::local_get(into_mod, local, self.body.values[value].ty().unwrap())
     }
 
     fn new_local(&mut self, ty: Type) -> Local {
@@ -152,4 +252,3 @@ pub(crate) fn create_new_func(
         body_expr,
     );
 }
-*/

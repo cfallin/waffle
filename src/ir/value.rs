@@ -13,6 +13,17 @@ pub enum ValueDef {
 }
 
 impl ValueDef {
+    pub fn ty(&self) -> Option<Type> {
+        match self {
+            &ValueDef::BlockParam(_, _, ty) => Some(ty),
+            &ValueDef::Operator(_, _, ref tys) if tys.len() == 0 => None,
+            &ValueDef::Operator(_, _, ref tys) if tys.len() == 1 => Some(tys[0]),
+            &ValueDef::PickOutput(_, _, ty) => Some(ty),
+            &ValueDef::Placeholder(ty) => Some(ty),
+            _ => None,
+        }
+    }
+
     pub fn visit_uses<F: FnMut(Value)>(&self, mut f: F) {
         match self {
             &ValueDef::BlockParam { .. } => {}
