@@ -12,7 +12,7 @@ pub(crate) fn generate_body(
     body: &FunctionBody,
     into_mod: &mut binaryen::Module,
 ) -> (Vec<Type>, binaryen::Expression) {
-    let mut ctx = ElabCtx::new(body, into_mod);
+    let mut ctx = ElabCtx::new(body);
 
     // For each block, generate an expr.
     let mut block_exprs: BTreeMap<Block, binaryen::Expression> = BTreeMap::default();
@@ -146,8 +146,35 @@ struct ElabCtx<'a> {
 }
 
 impl<'a> ElabCtx<'a> {
-    fn new(body: &'a FunctionBody, into_mod: &mut binaryen::Module) -> ElabCtx<'a> {
-        todo!()
+    fn new(body: &'a FunctionBody) -> ElabCtx<'a> {
+        let mut this = ElabCtx {
+            body,
+            op_result_locals: FxHashMap::default(),
+            block_param_locals: FxHashMap::default(),
+            block_param_next_locals: FxHashMap::default(),
+            new_locals: vec![],
+        };
+
+        // Create operator result locals.
+        for (value, def) in body.values.entries() {
+            for (i, &ty) in def.tys().iter().enumerate() {
+                let new_local = this.new_local(ty);
+                this.op_result_locals.insert((value, i), new_local);
+            }
+        }
+
+        // Create blockparam cur-value and next-value locals.
+        for (block, def) in body.blocks.entries() {
+            for (param, &(ty, _)) in def.params.iter().enumerate() {
+                let cur_value = this.new_local(ty);
+                let next_value = this.new_local(ty);
+                this.block_param_locals.insert((block, param), cur_value);
+                this.block_param_next_locals
+                    .insert((block, param), next_value);
+            }
+        }
+
+        this
     }
 
     fn elaborate_value(
@@ -155,7 +182,6 @@ impl<'a> ElabCtx<'a> {
         into_mod: &binaryen::Module,
         value: Value,
     ) -> Option<binaryen::Expression> {
-        /*
         let value = self.body.resolve_alias(value);
 
         match &self.body.values[value] {
@@ -164,7 +190,13 @@ impl<'a> ElabCtx<'a> {
                 let args = args.iter().map(|&arg| self.get_val_local(arg));
                 // Create `get_local` expressions for each arg.
                 let binaryen_args = args
-                    .map(|arg_local| into_mod.expr_local_get(arg_local, self.local_ty(arg_local)))
+                    .map(|arg_local| {
+                        binaryen::Expression::local_get(
+                            into_mod,
+                            arg_local,
+                            self.local_ty(arg_local),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 // Create operator.
                 let expr = self.create_binaryen_op(op, binaryen_args, tys);
@@ -172,19 +204,17 @@ impl<'a> ElabCtx<'a> {
                 // Set local(s) as appropriate.
                 if tys.len() == 0 {
                     // Nothing. Create a `drop` expr that wraps the actual operator.
-                    Some(into_mod.expr_drop(expr))
+                    Some(binaryen::Expression::expr_drop(into_mod, expr))
                 } else if tys.len() == 1 {
                     // Set value directly.
                     let local = self.get_val_local(value);
-                    Some(into_mod.expr_local_set(local, expr))
+                    Some(binaryen::Expression::local_set(into_mod, local, expr))
                 } else {
                     todo!("support multivalue")
                 }
             }
             _ => None,
         }
-         */
-        todo!()
     }
 
     fn get_val_local(&self, value: Value) -> Local {

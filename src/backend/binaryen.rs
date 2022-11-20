@@ -371,6 +371,10 @@ impl Expression {
         Expression(module.0, expr)
     }
 
+    pub fn expr_drop(module: &Module, value: Expression) -> Expression {
+        Expression(module.0, unsafe { BinaryenDrop(module.0, value.1) })
+    }
+
     pub fn ret(module: &Module, values: &[Expression]) -> Expression {
         let expr = if values.len() == 0 {
             unsafe { BinaryenReturn(module.0, std::ptr::null()) }
@@ -713,6 +717,7 @@ extern "C" {
         n_operands: BinaryenIndex,
     ) -> BinaryenExpression;
     fn BinaryenReturn(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
+    fn BinaryenDrop(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
 
     fn BinaryenAddFunc(
         module: BinaryenModule,

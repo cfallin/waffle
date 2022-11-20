@@ -24,6 +24,16 @@ impl ValueDef {
         }
     }
 
+    pub fn tys(&self) -> &[Type] {
+        match self {
+            &ValueDef::Operator(_, _, ref tys) => &tys[..],
+            &ValueDef::BlockParam(_, _, ref ty)
+            | &ValueDef::PickOutput(_, _, ref ty)
+            | &ValueDef::Placeholder(ref ty) => std::slice::from_ref(ty),
+            _ => &[],
+        }
+    }
+
     pub fn visit_uses<F: FnMut(Value)>(&self, mut f: F) {
         match self {
             &ValueDef::BlockParam { .. } => {}
