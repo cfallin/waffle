@@ -169,66 +169,6 @@ impl Export {
     }
 }
 
-struct ExprIds {
-    nop: u32,
-    block: u32,
-    if_: u32,
-    loop_: u32,
-    break_: u32,
-    switch: u32,
-    call: u32,
-    call_indirect: u32,
-    local_get: u32,
-    local_set: u32,
-    global_get: u32,
-    global_set: u32,
-    table_get: u32,
-    table_set: u32,
-    load: u32,
-    store: u32,
-    const_: u32,
-    unary: u32,
-    binary: u32,
-    select: u32,
-    drop_: u32,
-    return_: u32,
-    unreachable: u32,
-}
-
-impl ExprIds {
-    fn get() -> Self {
-        Self {
-            nop: unsafe { BinaryenNopId() },
-            block: unsafe { BinaryenBlockId() },
-            if_: unsafe { BinaryenIfId() },
-            loop_: unsafe { BinaryenLoopId() },
-            break_: unsafe { BinaryenBreakId() },
-            switch: unsafe { BinaryenSwitchId() },
-            call: unsafe { BinaryenCallId() },
-            call_indirect: unsafe { BinaryenCallIndirectId() },
-            local_get: unsafe { BinaryenLocalGetId() },
-            local_set: unsafe { BinaryenLocalSetId() },
-            global_get: unsafe { BinaryenGlobalGetId() },
-            global_set: unsafe { BinaryenGlobalSetId() },
-            table_get: unsafe { BinaryenTableGetId() },
-            table_set: unsafe { BinaryenTableSetId() },
-            load: unsafe { BinaryenLoadId() },
-            store: unsafe { BinaryenStoreId() },
-            const_: unsafe { BinaryenConstId() },
-            unary: unsafe { BinaryenUnaryId() },
-            binary: unsafe { BinaryenBinaryId() },
-            select: unsafe { BinaryenSelectId() },
-            drop_: unsafe { BinaryenDropId() },
-            return_: unsafe { BinaryenReturnId() },
-            unreachable: unsafe { BinaryenUnreachableId() },
-        }
-    }
-}
-
-lazy_static! {
-    static ref EXPR_IDS: ExprIds = ExprIds::get();
-}
-
 struct TypeIds {
     none_t: BinaryenType,
     i32_t: BinaryenType,
@@ -354,8 +294,67 @@ impl Expression {
         }
     }
 
+    pub fn nop(module: &Module) -> Expression {
+        Expression(module.0, unsafe { BinaryenNop(module.0) })
+    }
     pub fn unreachable(module: &Module) -> Expression {
         Expression(module.0, unsafe { BinaryenUnreachable(module.0) })
+    }
+    pub fn call(
+        module: &Module,
+        func: ir::Func,
+        args: &[Expression],
+        tys: &[ir::Type],
+    ) -> Expression {
+        // Look up the function's name.
+        let func_name = unsafe {
+            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
+                module.0,
+                func.index() as BinaryenIndex,
+            ))
+        };
+        // Create the appropriate type for return.
+        let ret_tuple_ty = tys_to_binaryen(tys.iter().copied());
+        let args = args.iter().map(|expr| expr.1).collect::<Vec<_>>();
+        let expr = unsafe {
+            BinaryenCall(
+                module.0,
+                func_name,
+                args.as_ptr(),
+                args.len() as BinaryenIndex,
+                ret_tuple_ty,
+            )
+        };
+        Expression(module.0, expr)
+    }
+    pub fn call_indirect(
+        module: &Module,
+        table: ir::Table,
+        sig: &ir::SignatureData,
+        target: Expression,
+        args: &[Expression],
+    ) -> Expression {
+        let param_tuple_ty = tys_to_binaryen(sig.params.iter().copied());
+        let ret_tuple_ty = tys_to_binaryen(sig.returns.iter().copied());
+        let args = args.iter().map(|expr| expr.1).collect::<Vec<_>>();
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(
+                module.0,
+                table.index() as BinaryenIndex,
+            ))
+        };
+        let expr = unsafe {
+            BinaryenCallIndirect(
+                module.0,
+                table_name,
+                target.1,
+                args.as_ptr(),
+                args.len() as BinaryenIndex,
+                param_tuple_ty,
+                ret_tuple_ty,
+            )
+        };
+        Expression(module.0, expr)
     }
 
     pub fn local_get(module: &Module, local: ir::Local, ty: ir::Type) -> Expression {
@@ -368,6 +367,43 @@ impl Expression {
     pub fn local_set(module: &Module, local: ir::Local, value: Expression) -> Expression {
         let local = local.index() as BinaryenIndex;
         let expr = unsafe { BinaryenLocalSet(module.0, local, value.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn local_tee(
+        module: &Module,
+        local: ir::Local,
+        value: Expression,
+        ty: ir::Type,
+    ) -> Expression {
+        let local = local.index() as BinaryenIndex;
+        let ty = Type::from(ty).to_binaryen();
+        let expr = unsafe { BinaryenLocalTee(module.0, local, value.1, ty) };
+        Expression(module.0, expr)
+    }
+
+    pub fn global_get(module: &Module, global: ir::Global, ty: ir::Type) -> Expression {
+        let global = global.index() as BinaryenIndex;
+        let ty = Type::from(ty).to_binaryen();
+        let expr = unsafe { BinaryenGlobalGet(module.0, global, ty) };
+        Expression(module.0, expr)
+    }
+
+    pub fn global_set(module: &Module, global: ir::Global, value: Expression) -> Expression {
+        let global = global.index() as BinaryenIndex;
+        let expr = unsafe { BinaryenGlobalSet(module.0, global, value.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn select(
+        module: &Module,
+        cond: Expression,
+        if_true: Expression,
+        if_false: Expression,
+        ty: ir::Type,
+    ) -> Expression {
+        let ty = Type::from(ty).to_binaryen();
+        let expr = unsafe { BinaryenSelect(module.0, cond.1, if_true.1, if_false.1, ty) };
         Expression(module.0, expr)
     }
 
@@ -469,6 +505,7 @@ type BinaryenExpression = *const c_void;
 type BinaryenExport = *const c_void;
 type BinaryenRelooper = *const c_void;
 type BinaryenRelooperBlock = *const c_void;
+type BinaryenTable = *const c_void;
 
 #[repr(C)]
 struct BinaryenModuleAllocateAndWriteResult {
@@ -567,6 +604,9 @@ extern "C" {
     fn BinaryenExportGetValue(ptr: BinaryenFunction) -> *const c_char;
     fn BinaryenExportGetKind(ptr: BinaryenFunction) -> u32;
     fn BinaryenExternalFunction() -> u32;
+    fn BinaryenGetTableByIndex(ptr: BinaryenModule, index: BinaryenIndex) -> BinaryenTable;
+
+    fn BinaryenTableGetName(table: BinaryenTable) -> *const c_char;
 
     fn BinaryenExpressionGetId(ptr: BinaryenExpression) -> u32;
     fn BinaryenExpressionGetType(ptr: BinaryenExpression) -> BinaryenType;
@@ -650,33 +690,6 @@ extern "C" {
     fn BinaryenGetMemorySegmentByteLength(module: BinaryenModule, index: u32) -> usize;
     fn BinaryenCopyMemorySegmentData(module: BinaryenModule, index: u32, buffer: *mut u8);
 
-    fn BinaryenNopId() -> u32;
-    fn BinaryenBlockId() -> u32;
-    fn BinaryenIfId() -> u32;
-    fn BinaryenLoopId() -> u32;
-    fn BinaryenBreakId() -> u32;
-    fn BinaryenSwitchId() -> u32;
-    fn BinaryenCallId() -> u32;
-    fn BinaryenCallIndirectId() -> u32;
-    fn BinaryenLocalGetId() -> u32;
-    fn BinaryenLocalSetId() -> u32;
-    fn BinaryenGlobalGetId() -> u32;
-    fn BinaryenGlobalSetId() -> u32;
-    fn BinaryenTableGetId() -> u32;
-    fn BinaryenTableSetId() -> u32;
-    fn BinaryenLoadId() -> u32;
-    fn BinaryenStoreId() -> u32;
-    fn BinaryenConstId() -> u32;
-    fn BinaryenUnaryId() -> u32;
-    fn BinaryenBinaryId() -> u32;
-    fn BinaryenSelectId() -> u32;
-    fn BinaryenDropId() -> u32;
-    fn BinaryenReturnId() -> u32;
-    fn BinaryenMemorySizeId() -> u32;
-    fn BinaryenMemoryGrowId() -> u32;
-    fn BinaryenUnreachableId() -> u32;
-    fn BinaryenPopId() -> u32;
-
     fn BinaryenTypeNone() -> BinaryenType;
     fn BinaryenTypeInt32() -> BinaryenType;
     fn BinaryenTypeInt64() -> BinaryenType;
@@ -694,6 +707,7 @@ extern "C" {
 
     fn BinaryenConst(module: BinaryenModule, lit: BinaryenLiteral) -> BinaryenExpression;
     fn BinaryenUnreachable(module: BinaryenModule) -> BinaryenExpression;
+    fn BinaryenNop(module: BinaryenModule) -> BinaryenExpression;
     fn BinaryenLocalGet(
         module: BinaryenModule,
         local: BinaryenIndex,
@@ -701,8 +715,31 @@ extern "C" {
     ) -> BinaryenExpression;
     fn BinaryenLocalSet(
         module: BinaryenModule,
-        index: u32,
+        local: BinaryenIndex,
         value: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenLocalTee(
+        module: BinaryenModule,
+        local: BinaryenIndex,
+        value: BinaryenExpression,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
+    fn BinaryenGlobalGet(
+        module: BinaryenModule,
+        local: BinaryenIndex,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
+    fn BinaryenGlobalSet(
+        module: BinaryenModule,
+        local: BinaryenIndex,
+        value: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenSelect(
+        module: BinaryenModule,
+        cond: BinaryenExpression,
+        if_true: BinaryenExpression,
+        if_false: BinaryenExpression,
+        ty: BinaryenType,
     ) -> BinaryenExpression;
     fn BinaryenBlock(
         module: BinaryenModule,
@@ -718,6 +755,33 @@ extern "C" {
     ) -> BinaryenExpression;
     fn BinaryenReturn(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
     fn BinaryenDrop(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
+    fn BinaryenUnary(
+        module: BinaryenModule,
+        op: BinaryenOp,
+        arg: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenBinary(
+        module: BinaryenModule,
+        op: BinaryenOp,
+        left: BinaryenExpression,
+        right: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenCall(
+        module: BinaryenModule,
+        target: *const c_char,
+        operands: *const BinaryenExpression,
+        n_operands: BinaryenIndex,
+        ret_type: BinaryenType,
+    ) -> BinaryenExpression;
+    fn BinaryenCallIndirect(
+        module: BinaryenModule,
+        table: *const c_char,
+        target: BinaryenExpression,
+        operands: *const BinaryenExpression,
+        n_operands: BinaryenIndex,
+        param_type: BinaryenType,
+        ret_type: BinaryenType,
+    ) -> BinaryenExpression;
 
     fn BinaryenAddFunc(
         module: BinaryenModule,
@@ -768,3 +832,5 @@ struct BinaryenLiteral {
     _pad0: usize,
     _pad1: [u8; 16],
 }
+
+type BinaryenOp = i32;

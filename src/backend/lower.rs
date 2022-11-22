@@ -9,10 +9,11 @@ use std::collections::BTreeMap;
 /// and new locals (as their types) that were created as temporaries
 /// and need to be appended to `body.locals`.
 pub(crate) fn generate_body(
+    module: &Module,
     body: &FunctionBody,
     into_mod: &mut binaryen::Module,
 ) -> (Vec<Type>, binaryen::Expression) {
-    let mut ctx = ElabCtx::new(body);
+    let mut ctx = ElabCtx::new(module, body);
 
     // For each block, generate an expr.
     let mut block_exprs: BTreeMap<Block, binaryen::Expression> = BTreeMap::default();
@@ -138,6 +139,7 @@ fn build_ssa_edge(
 
 #[derive(Clone, Debug)]
 struct ElabCtx<'a> {
+    module: &'a Module<'a>,
     body: &'a FunctionBody,
     op_result_locals: FxHashMap<(Value, usize), Local>,
     block_param_locals: FxHashMap<(Block, usize), Local>,
@@ -146,8 +148,9 @@ struct ElabCtx<'a> {
 }
 
 impl<'a> ElabCtx<'a> {
-    fn new(body: &'a FunctionBody) -> ElabCtx<'a> {
+    fn new(module: &'a Module<'a>, body: &'a FunctionBody) -> ElabCtx<'a> {
         let mut this = ElabCtx {
+            module,
             body,
             op_result_locals: FxHashMap::default(),
             block_param_locals: FxHashMap::default(),
@@ -199,7 +202,7 @@ impl<'a> ElabCtx<'a> {
                     })
                     .collect::<Vec<_>>();
                 // Create operator.
-                let expr = self.create_binaryen_op(op, binaryen_args, tys);
+                let expr = self.create_binaryen_op(op, binaryen_args, tys, into_mod);
 
                 // Set local(s) as appropriate.
                 if tys.len() == 0 {
@@ -247,8 +250,231 @@ impl<'a> ElabCtx<'a> {
         op: Operator,
         args: Vec<binaryen::Expression>,
         tys: &[Type],
+        into_mod: &binaryen::Module,
     ) -> binaryen::Expression {
-        todo!()
+        match op {
+            Unreachable => binaryen::Expression::unreachable(into_mod),
+            Nop => binaryen::Expression::nop(into_mod),
+
+            Operator::Call { function_index } => {
+                binaryen::Expression::call(into_mod, function_index, &args[..], tys)
+            }
+            Operator::CallIndirect {
+                sig_index,
+                table_index,
+            } => binaryen::Expression::call_indirect(
+                into_mod,
+                table_index,
+                self.module.signature(sig_index),
+                args[0],
+                &args[1..],
+            ),
+            Operator::Return => binaryen::Expression::ret(into_mod, &args[..]),
+            Operator::LocalSet { local_index } => {
+                binaryen::Expression::local_set(into_mod, local_index, args[0])
+            }
+            Operator::LocalTee { local_index } => {
+                binaryen::Expression::local_tee(into_mod, local_index, args[0], tys[0])
+            }
+            Operator::LocalGet { local_index } => {
+                binaryen::Expression::local_get(into_mod, local_index, tys[0])
+            }
+            Operator::Select | Operator::TypedSelect { .. } => {
+                binaryen::Expression::select(into_mod, args[0], args[1], args[2], tys[0])
+            }
+            Operator::GlobalGet { global_index } => {
+                binaryen::Expression::global_get(into_mod, global_index, tys[0])
+            }
+            Operator::GlobalSet { global_index } => {
+                binaryen::Expression::global_set(into_mod, global_index, args[0])
+            }
+
+            Operator::I32Load { memory } => todo!(),
+            Operator::I64Load { memory } => todo!(),
+            Operator::F32Load { memory } => todo!(),
+            Operator::F64Load { memory } => todo!(),
+            Operator::I32Load8S { memory } => todo!(),
+            Operator::I32Load8U { memory } => todo!(),
+            Operator::I32Load16S { memory } => todo!(),
+            Operator::I32Load16U { memory } => todo!(),
+            Operator::I64Load8S { memory } => todo!(),
+            Operator::I64Load8U { memory } => todo!(),
+            Operator::I64Load16S { memory } => todo!(),
+            Operator::I64Load16U { memory } => todo!(),
+            Operator::I64Load32S { memory } => todo!(),
+            Operator::I64Load32U { memory } => todo!(),
+
+            Operator::I32Store { memory } => todo!(),
+            Operator::I64Store { memory } => todo!(),
+            Operator::F32Store { memory } => todo!(),
+            Operator::F64Store { memory } => todo!(),
+            Operator::I32Store8 { memory } => todo!(),
+            Operator::I32Store16 { memory } => todo!(),
+            Operator::I64Store8 { memory } => todo!(),
+            Operator::I64Store16 { memory } => todo!(),
+            Operator::I64Store32 { memory } => todo!(),
+
+            Operator::I32Const { value } => todo!(),
+            Operator::I64Const { value } => todo!(),
+            Operator::F32Const { value } => todo!(),
+            Operator::F64Const { value } => todo!(),
+
+            Operator::I32Eqz => todo!(),
+            Operator::I32Eq => todo!(),
+            Operator::I32Ne => todo!(),
+            Operator::I32LtS => todo!(),
+            Operator::I32LtU => todo!(),
+            Operator::I32GtS => todo!(),
+            Operator::I32GtU => todo!(),
+            Operator::I32LeS => todo!(),
+            Operator::I32LeU => todo!(),
+            Operator::I32GeS => todo!(),
+            Operator::I32GeU => todo!(),
+
+            Operator::I64Eqz => todo!(),
+
+            Operator::I64Eq => todo!(),
+            Operator::I64Ne => todo!(),
+            Operator::I64LtS => todo!(),
+            Operator::I64LtU => todo!(),
+            Operator::I64GtU => todo!(),
+            Operator::I64GtS => todo!(),
+            Operator::I64LeS => todo!(),
+            Operator::I64LeU => todo!(),
+            Operator::I64GeS => todo!(),
+            Operator::I64GeU => todo!(),
+
+            Operator::F32Eq => todo!(),
+            Operator::F32Ne => todo!(),
+            Operator::F32Lt => todo!(),
+            Operator::F32Gt => todo!(),
+            Operator::F32Le => todo!(),
+            Operator::F32Ge => todo!(),
+
+            Operator::F64Eq => todo!(),
+            Operator::F64Ne => todo!(),
+            Operator::F64Lt => todo!(),
+            Operator::F64Gt => todo!(),
+            Operator::F64Le => todo!(),
+            Operator::F64Ge => todo!(),
+
+            Operator::I32Clz => todo!(),
+            Operator::I32Ctz => todo!(),
+            Operator::I32Popcnt => todo!(),
+
+            Operator::I32Add => todo!(),
+            Operator::I32Sub => todo!(),
+            Operator::I32Mul => todo!(),
+            Operator::I32DivS => todo!(),
+            Operator::I32DivU => todo!(),
+            Operator::I32RemS => todo!(),
+            Operator::I32RemU => todo!(),
+            Operator::I32And => todo!(),
+            Operator::I32Or => todo!(),
+            Operator::I32Xor => todo!(),
+            Operator::I32Shl => todo!(),
+            Operator::I32ShrS => todo!(),
+            Operator::I32ShrU => todo!(),
+            Operator::I32Rotl => todo!(),
+            Operator::I32Rotr => todo!(),
+
+            Operator::I64Clz => todo!(),
+            Operator::I64Ctz => todo!(),
+            Operator::I64Popcnt => todo!(),
+
+            Operator::I64Add => todo!(),
+            Operator::I64Sub => todo!(),
+            Operator::I64Mul => todo!(),
+            Operator::I64DivS => todo!(),
+            Operator::I64DivU => todo!(),
+            Operator::I64RemS => todo!(),
+            Operator::I64RemU => todo!(),
+            Operator::I64And => todo!(),
+            Operator::I64Or => todo!(),
+            Operator::I64Xor => todo!(),
+            Operator::I64Shl => todo!(),
+            Operator::I64ShrS => todo!(),
+            Operator::I64ShrU => todo!(),
+            Operator::I64Rotl => todo!(),
+            Operator::I64Rotr => todo!(),
+
+            Operator::F32Abs => todo!(),
+            Operator::F32Neg => todo!(),
+            Operator::F32Ceil => todo!(),
+            Operator::F32Floor => todo!(),
+            Operator::F32Trunc => todo!(),
+            Operator::F32Nearest => todo!(),
+            Operator::F32Sqrt => todo!(),
+
+            Operator::F32Add => todo!(),
+            Operator::F32Sub => todo!(),
+            Operator::F32Mul => todo!(),
+            Operator::F32Div => todo!(),
+            Operator::F32Min => todo!(),
+            Operator::F32Max => todo!(),
+            Operator::F32Copysign => todo!(),
+
+            Operator::F64Abs => todo!(),
+            Operator::F64Neg => todo!(),
+            Operator::F64Ceil => todo!(),
+            Operator::F64Floor => todo!(),
+            Operator::F64Trunc => todo!(),
+            Operator::F64Nearest => todo!(),
+            Operator::F64Sqrt => todo!(),
+
+            Operator::F64Add => todo!(),
+            Operator::F64Sub => todo!(),
+            Operator::F64Mul => todo!(),
+            Operator::F64Div => todo!(),
+            Operator::F64Min => todo!(),
+            Operator::F64Max => todo!(),
+            Operator::F64Copysign => todo!(),
+
+            Operator::I32WrapI64 => todo!(),
+            Operator::I32TruncF32S => todo!(),
+            Operator::I32TruncF32U => todo!(),
+            Operator::I32TruncF64S => todo!(),
+            Operator::I32TruncF64U => todo!(),
+            Operator::I64ExtendI32S => todo!(),
+            Operator::I64ExtendI32U => todo!(),
+            Operator::I64TruncF32S => todo!(),
+            Operator::I64TruncF32U => todo!(),
+            Operator::I64TruncF64S => todo!(),
+            Operator::I64TruncF64U => todo!(),
+            Operator::F32ConvertI32S => todo!(),
+            Operator::F32ConvertI32U => todo!(),
+            Operator::F32ConvertI64S => todo!(),
+            Operator::F32ConvertI64U => todo!(),
+            Operator::F32DemoteF64 => todo!(),
+            Operator::F64ConvertI32S => todo!(),
+            Operator::F64ConvertI32U => todo!(),
+            Operator::F64ConvertI64S => todo!(),
+            Operator::F64ConvertI64U => todo!(),
+            Operator::F64PromoteF32 => todo!(),
+            Operator::I32Extend8S => todo!(),
+            Operator::I32Extend16S => todo!(),
+            Operator::I64Extend8S => todo!(),
+            Operator::I64Extend16S => todo!(),
+            Operator::I64Extend32S => todo!(),
+            Operator::I32TruncSatF32S => todo!(),
+            Operator::I32TruncSatF32U => todo!(),
+            Operator::I32TruncSatF64S => todo!(),
+            Operator::I32TruncSatF64U => todo!(),
+            Operator::I64TruncSatF32S => todo!(),
+            Operator::I64TruncSatF32U => todo!(),
+            Operator::I64TruncSatF64S => todo!(),
+            Operator::I64TruncSatF64U => todo!(),
+            Operator::F32ReinterpretI32 => todo!(),
+            Operator::F64ReinterpretI64 => todo!(),
+            Operator::I32ReinterpretF32 => todo!(),
+            Operator::I64ReinterpretF64 => todo!(),
+            Operator::TableGet { table_index } => todo!(),
+            Operator::TableSet { table_index } => todo!(),
+            Operator::TableGrow { table_index } => todo!(),
+            Operator::TableSize { table_index } => todo!(),
+            Operator::MemorySize { mem } => todo!(),
+            Operator::MemoryGrow { mem } => todo!(),
+        }
     }
 
     fn local_ty(&self, local: Local) -> Type {
