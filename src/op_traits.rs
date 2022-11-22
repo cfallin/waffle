@@ -224,7 +224,9 @@ pub fn op_inputs(
         Operator::TableSet { table_index } => {
             Ok(vec![Type::I32, module.table(*table_index).ty].into())
         }
-        Operator::TableGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::TableGrow { table_index } => {
+            Ok(vec![Type::I32, module.table(*table_index).ty].into())
+        }
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),

@@ -264,14 +264,6 @@ fn name_to_string(name: *const c_char) -> Option<String> {
 }
 
 impl Expression {
-    pub fn ty(&self) -> Type {
-        Type::from_binaryen(unsafe { BinaryenExpressionGetType(self.1) }).unwrap()
-    }
-
-    pub fn deep_clone(&self) -> Self {
-        Expression(self.0, unsafe { BinaryenExpressionCopy(self.0, self.1) })
-    }
-
     pub fn module(&self) -> BinaryenModule {
         self.0
     }
@@ -479,79 +471,235 @@ impl Expression {
             unsafe { BinaryenConst(module.0, BinaryenLiteralFloat64Bits(value.bits() as i64)) };
         Expression(module.0, expr)
     }
+
+    pub fn table_get(
+        module: &Module,
+        table: ir::Table,
+        index: Expression,
+        ty: ir::Type,
+    ) -> Expression {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(module.0, table.index() as u32))
+        };
+        let ty = Type::from(ty).to_binaryen();
+        let expr = unsafe { BinaryenTableGet(module.0, table_name, index.1, ty) };
+        Expression(module.0, expr)
+    }
+
+    pub fn table_set(
+        module: &Module,
+        table: ir::Table,
+        index: Expression,
+        value: Expression,
+    ) -> Expression {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(module.0, table.index() as u32))
+        };
+        let expr = unsafe { BinaryenTableSet(module.0, table_name, index.1, value.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn table_grow(
+        module: &Module,
+        table: ir::Table,
+        delta: Expression,
+        value: Expression,
+    ) -> Expression {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(module.0, table.index() as u32))
+        };
+        let expr = unsafe { BinaryenTableGrow(module.0, table_name, value.1, delta.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn table_size(module: &Module, table: ir::Table) -> Expression {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(module.0, table.index() as u32))
+        };
+        let expr = unsafe { BinaryenTableSize(module.0, table_name) };
+        Expression(module.0, expr)
+    }
+
+    pub fn memory_size(module: &Module, mem: ir::Memory) -> Expression {
+        assert_eq!(mem.index(), 0);
+        Expression(module.0, unsafe { BinaryenMemorySize(module.0) })
+    }
+
+    pub fn memory_grow(module: &Module, mem: ir::Memory, delta: Expression) -> Expression {
+        assert_eq!(mem.index(), 0);
+        Expression(module.0, unsafe { BinaryenMemoryGrow(module.0, delta.1) })
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UnaryOp {
-    Other(u32),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BinaryOp {
-    I32Add,
-    I32Sub,
-    I32Shl,
-    I32ShrU,
-    I32ShrS,
-    Other(u32),
-}
-
-struct OpIds {
-    i32_add: u32,
-    i32_sub: u32,
-    i32_shl: u32,
-    i32_shr_u: u32,
-    i32_shr_s: u32,
-}
-
-impl OpIds {
-    fn get() -> Self {
-        OpIds {
-            i32_add: unsafe { BinaryenAddInt32() },
-            i32_sub: unsafe { BinaryenSubInt32() },
-            i32_shl: unsafe { BinaryenShlInt32() },
-            i32_shr_u: unsafe { BinaryenShrUInt32() },
-            i32_shr_s: unsafe { BinaryenShrSInt32() },
+macro_rules! operator {
+    (unary $name:tt, $bin_name:tt) => {
+        impl Expression {
+            pub fn $name(module: &Module, arg: Expression) -> Expression {
+                Expression(module.0, unsafe {
+                    BinaryenUnary(module.0, $bin_name(), arg.1)
+                })
+            }
         }
-    }
-}
-
-lazy_static! {
-    static ref OP_IDS: OpIds = OpIds::get();
-}
-
-impl UnaryOp {
-    fn from_binaryen(kind: u32) -> UnaryOp {
-        UnaryOp::Other(kind)
-    }
-}
-
-impl BinaryOp {
-    fn from_binaryen(kind: u32) -> BinaryOp {
-        let ids = &*OP_IDS;
-        if kind == ids.i32_add {
-            BinaryOp::I32Add
-        } else if kind == ids.i32_sub {
-            BinaryOp::I32Sub
-        } else if kind == ids.i32_shl {
-            BinaryOp::I32Shl
-        } else if kind == ids.i32_shr_s {
-            BinaryOp::I32ShrS
-        } else if kind == ids.i32_shr_u {
-            BinaryOp::I32ShrU
-        } else {
-            BinaryOp::Other(kind)
+    };
+    (binary $name:tt, $bin_name:tt) => {
+        impl Expression {
+            pub fn $name(module: &Module, arg0: Expression, arg1: Expression) -> Expression {
+                Expression(module.0, unsafe {
+                    BinaryenBinary(module.0, $bin_name(), arg0.1, arg1.1)
+                })
+            }
         }
-    }
+    };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Value {
-    I32(i32),
-    I64(i64),
-    F32(u32),
-    F64(u64),
-}
+operator!(unary i32_eqz, BinaryenEqZInt32);
+operator!(binary i32_eq, BinaryenEqInt32);
+operator!(binary i32_ne, BinaryenNeInt32);
+operator!(binary i32_lt_s, BinaryenLtSInt32);
+operator!(binary i32_lt_u, BinaryenLtUInt32);
+operator!(binary i32_gt_s, BinaryenGtSInt32);
+operator!(binary i32_gt_u, BinaryenGtUInt32);
+operator!(binary i32_le_s, BinaryenLeSInt32);
+operator!(binary i32_le_u, BinaryenLeUInt32);
+operator!(binary i32_ge_s, BinaryenGeSInt32);
+operator!(binary i32_ge_u, BinaryenGeUInt32);
+
+operator!(unary i64_eqz, BinaryenEqZInt64);
+operator!(binary i64_eq, BinaryenEqInt64);
+operator!(binary i64_ne, BinaryenNeInt64);
+operator!(binary i64_lt_s, BinaryenLtSInt64);
+operator!(binary i64_lt_u, BinaryenLtUInt64);
+operator!(binary i64_gt_s, BinaryenGtSInt64);
+operator!(binary i64_gt_u, BinaryenGtUInt64);
+operator!(binary i64_le_s, BinaryenLeSInt64);
+operator!(binary i64_le_u, BinaryenLeUInt64);
+operator!(binary i64_ge_s, BinaryenGeSInt64);
+operator!(binary i64_ge_u, BinaryenGeUInt64);
+
+operator!(binary f32_eq, BinaryenEqFloat32);
+operator!(binary f32_ne, BinaryenNeFloat32);
+operator!(binary f32_lt, BinaryenLtFloat32);
+operator!(binary f32_gt, BinaryenGtFloat32);
+operator!(binary f32_le, BinaryenLeFloat32);
+operator!(binary f32_ge, BinaryenGeFloat32);
+
+operator!(binary f64_eq, BinaryenEqFloat64);
+operator!(binary f64_ne, BinaryenNeFloat64);
+operator!(binary f64_lt, BinaryenLtFloat64);
+operator!(binary f64_gt, BinaryenGtFloat64);
+operator!(binary f64_le, BinaryenLeFloat64);
+operator!(binary f64_ge, BinaryenGeFloat64);
+
+operator!(unary i32_clz, BinaryenClzInt32);
+operator!(unary i32_ctz, BinaryenCtzInt32);
+operator!(unary i32_popcnt, BinaryenPopcntInt32);
+
+operator!(binary i32_add, BinaryenAddInt32);
+operator!(binary i32_sub, BinaryenSubInt32);
+operator!(binary i32_mul, BinaryenMulInt32);
+operator!(binary i32_div_s, BinaryenDivSInt32);
+operator!(binary i32_div_u, BinaryenDivUInt32);
+operator!(binary i32_rem_s, BinaryenRemSInt32);
+operator!(binary i32_rem_u, BinaryenRemUInt32);
+operator!(binary i32_and, BinaryenAndInt32);
+operator!(binary i32_or, BinaryenOrInt32);
+operator!(binary i32_xor, BinaryenXorInt32);
+operator!(binary i32_shl, BinaryenShlInt32);
+operator!(binary i32_shr_s, BinaryenShrSInt32);
+operator!(binary i32_shr_u, BinaryenShrUInt32);
+operator!(binary i32_rotl, BinaryenRotLInt32);
+operator!(binary i32_rotr, BinaryenRotRInt32);
+
+operator!(unary i64_clz, BinaryenClzInt64);
+operator!(unary i64_ctz, BinaryenCtzInt64);
+operator!(unary i64_popcnt, BinaryenPopcntInt64);
+
+operator!(binary i64_add, BinaryenAddInt64);
+operator!(binary i64_sub, BinaryenSubInt64);
+operator!(binary i64_mul, BinaryenMulInt64);
+operator!(binary i64_div_s, BinaryenDivSInt64);
+operator!(binary i64_div_u, BinaryenDivUInt64);
+operator!(binary i64_rem_s, BinaryenRemSInt64);
+operator!(binary i64_rem_u, BinaryenRemUInt64);
+operator!(binary i64_and, BinaryenAndInt64);
+operator!(binary i64_or, BinaryenOrInt64);
+operator!(binary i64_xor, BinaryenXorInt64);
+operator!(binary i64_shl, BinaryenShlInt64);
+operator!(binary i64_shr_s, BinaryenShrSInt64);
+operator!(binary i64_shr_u, BinaryenShrUInt64);
+operator!(binary i64_rotl, BinaryenRotLInt64);
+operator!(binary i64_rotr, BinaryenRotRInt64);
+
+operator!(unary f32_abs, BinaryenAbsFloat32);
+operator!(unary f32_neg, BinaryenNegFloat32);
+operator!(unary f32_ceil, BinaryenCeilFloat32);
+operator!(unary f32_floor, BinaryenFloorFloat32);
+operator!(unary f32_trunc, BinaryenTruncFloat32);
+operator!(unary f32_nearest, BinaryenNearestFloat32);
+operator!(unary f32_sqrt, BinaryenSqrtFloat32);
+
+operator!(binary f32_add, BinaryenAddFloat32);
+operator!(binary f32_sub, BinaryenSubFloat32);
+operator!(binary f32_mul, BinaryenMulFloat32);
+operator!(binary f32_div, BinaryenDivFloat32);
+operator!(binary f32_min, BinaryenMinFloat32);
+operator!(binary f32_max, BinaryenMaxFloat32);
+operator!(binary f32_copysign, BinaryenCopySignFloat32);
+
+operator!(unary f64_abs, BinaryenAbsFloat64);
+operator!(unary f64_neg, BinaryenNegFloat64);
+operator!(unary f64_ceil, BinaryenCeilFloat64);
+operator!(unary f64_floor, BinaryenFloorFloat64);
+operator!(unary f64_trunc, BinaryenTruncFloat64);
+operator!(unary f64_nearest, BinaryenNearestFloat64);
+operator!(unary f64_sqrt, BinaryenSqrtFloat64);
+
+operator!(binary f64_add, BinaryenAddFloat64);
+operator!(binary f64_sub, BinaryenSubFloat64);
+operator!(binary f64_mul, BinaryenMulFloat64);
+operator!(binary f64_div, BinaryenDivFloat64);
+operator!(binary f64_min, BinaryenMinFloat64);
+operator!(binary f64_max, BinaryenMaxFloat64);
+operator!(binary f64_copysign, BinaryenCopySignFloat64);
+
+operator!(unary i32_wrap_i64, BinaryenWrapInt64);
+operator!(unary i32_trunc_f32_s, BinaryenTruncSFloat32ToInt32);
+operator!(unary i32_trunc_f32_u, BinaryenTruncUFloat32ToInt32);
+operator!(unary i32_trunc_f64_s, BinaryenTruncSFloat64ToInt32);
+operator!(unary i32_trunc_f64_u, BinaryenTruncUFloat64ToInt32);
+operator!(unary i64_extend_i32_s, BinaryenExtendSInt32);
+operator!(unary i64_extend_i32_u, BinaryenExtendUInt32);
+operator!(unary i64_trunc_f32_s, BinaryenTruncSFloat32ToInt64);
+operator!(unary i64_trunc_f32_u, BinaryenTruncUFloat32ToInt64);
+operator!(unary i64_trunc_f64_s, BinaryenTruncSFloat64ToInt64);
+operator!(unary i64_trunc_f64_u, BinaryenTruncUFloat64ToInt64);
+operator!(unary f32_convert_i32_s, BinaryenConvertSInt32ToFloat32);
+operator!(unary f32_convert_i32_u, BinaryenConvertUInt32ToFloat32);
+operator!(unary f32_convert_i64_s, BinaryenConvertSInt64ToFloat32);
+operator!(unary f32_convert_i64_u, BinaryenConvertUInt64ToFloat32);
+operator!(unary f32_demote_f64, BinaryenDemoteFloat64);
+operator!(unary f64_convert_i32_s, BinaryenConvertSInt32ToFloat64);
+operator!(unary f64_convert_i32_u, BinaryenConvertUInt32ToFloat64);
+operator!(unary f64_convert_i64_s, BinaryenConvertSInt64ToFloat64);
+operator!(unary f64_convert_i64_u, BinaryenConvertUInt64ToFloat64);
+operator!(unary f64_promote_f32, BinaryenPromoteFloat32);
+operator!(unary i32_extend_8_s, BinaryenExtendS8Int32);
+operator!(unary i32_extend_16_s, BinaryenExtendS16Int32);
+operator!(unary i64_extend_8_s, BinaryenExtendS8Int64);
+operator!(unary i64_extend_16_s, BinaryenExtendS16Int64);
+operator!(unary i64_extend_32_s, BinaryenExtendS32Int64);
+operator!(unary i32_trunc_sat_f32_s, BinaryenTruncSatSFloat32ToInt32);
+operator!(unary i32_trunc_sat_f32_u, BinaryenTruncSatUFloat32ToInt32);
+operator!(unary i32_trunc_sat_f64_s, BinaryenTruncSatSFloat64ToInt32);
+operator!(unary i32_trunc_sat_f64_u, BinaryenTruncSatUFloat64ToInt32);
+operator!(unary i64_trunc_sat_f32_s, BinaryenTruncSatSFloat32ToInt64);
+operator!(unary i64_trunc_sat_f32_u, BinaryenTruncSatUFloat32ToInt64);
+operator!(unary i64_trunc_sat_f64_s, BinaryenTruncSatSFloat64ToInt64);
+operator!(unary i64_trunc_sat_f64_u, BinaryenTruncSatUFloat64ToInt64);
+operator!(unary f32_reinterpret_i32, BinaryenReinterpretInt32);
+operator!(unary f64_reinterpret_i64, BinaryenReinterpretInt64);
+operator!(unary i32_reinterpret_f32, BinaryenReinterpretFloat32);
+operator!(unary i64_reinterpret_f64, BinaryenReinterpretFloat64);
 
 pub type BinaryenModule = *const c_void;
 type BinaryenFunction = *const c_void;
@@ -662,82 +810,11 @@ extern "C" {
 
     fn BinaryenTableGetName(table: BinaryenTable) -> *const c_char;
 
-    fn BinaryenExpressionGetId(ptr: BinaryenExpression) -> u32;
-    fn BinaryenExpressionGetType(ptr: BinaryenExpression) -> BinaryenType;
-    fn BinaryenExpressionCopy(
-        ptr: BinaryenExpression,
-        module: BinaryenModule,
-    ) -> BinaryenExpression;
-
-    fn BinaryenConstGetValueI32(ptr: BinaryenExpression) -> i32;
-    fn BinaryenConstGetValueI64(ptr: BinaryenExpression) -> i64;
-    fn BinaryenConstGetValueF32(ptr: BinaryenExpression) -> f32;
-    fn BinaryenConstGetValueF64(ptr: BinaryenExpression) -> f64;
-
     fn BinaryenBlockGetNumChildren(ptr: BinaryenExpression) -> u32;
-    fn BinaryenBlockGetChildAt(ptr: BinaryenExpression, index: u32) -> BinaryenExpression;
-    fn BinaryenBlockGetName(ptr: BinaryenExpression) -> *const c_char;
     fn BinaryenBlockAppendChild(
         ptr: BinaryenExpression,
         child: BinaryenExpression,
     ) -> BinaryenIndex;
-
-    fn BinaryenLoopGetBody(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenLoopGetName(ptr: BinaryenExpression) -> *const c_char;
-
-    fn BinaryenIfGetCondition(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenIfGetIfTrue(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenIfGetIfFalse(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenBreakGetName(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenBreakGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenDropGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenSwitchGetNumNames(ptr: BinaryenExpression) -> u32;
-    fn BinaryenSwitchGetNameAt(ptr: BinaryenExpression, index: u32) -> *const c_char;
-    fn BinaryenSwitchGetDefaultName(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenSwitchGetCondition(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenSwitchGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenCallGetTarget(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenCallGetNumOperands(ptr: BinaryenExpression) -> u32;
-    fn BinaryenCallGetOperandAt(ptr: BinaryenExpression, index: u32) -> BinaryenExpression;
-
-    fn BinaryenCallIndirectGetTarget(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenCallIndirectGetNumOperands(ptr: BinaryenExpression) -> u32;
-    fn BinaryenCallIndirectGetOperandAt(ptr: BinaryenExpression, index: u32) -> BinaryenExpression;
-
-    fn BinaryenLocalGetGetIndex(ptr: BinaryenExpression) -> u32;
-    fn BinaryenLocalSetGetIndex(ptr: BinaryenExpression) -> u32;
-    fn BinaryenLocalSetGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenGlobalGetGetName(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenGlobalSetGetName(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenGlobalSetGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenTableGetGetTable(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenTableGetGetIndex(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenTableSetGetTable(ptr: BinaryenExpression) -> *const c_char;
-    fn BinaryenTableSetGetIndex(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenTableSetGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenLoadGetPtr(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenLoadGetOffset(ptr: BinaryenExpression) -> u32;
-    fn BinaryenStoreGetPtr(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenStoreGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenStoreGetOffset(ptr: BinaryenExpression) -> u32;
-
-    fn BinaryenUnaryGetOp(ptr: BinaryenExpression) -> u32;
-    fn BinaryenUnaryGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenBinaryGetOp(ptr: BinaryenExpression) -> u32;
-    fn BinaryenBinaryGetLeft(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenBinaryGetRight(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenSelectGetIfTrue(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenSelectGetIfFalse(ptr: BinaryenExpression) -> BinaryenExpression;
-    fn BinaryenSelectGetCondition(ptr: BinaryenExpression) -> BinaryenExpression;
-
-    fn BinaryenReturnGetValue(ptr: BinaryenExpression) -> BinaryenExpression;
 
     fn BinaryenGetNumMemorySegments(module: BinaryenModule) -> u32;
     fn BinaryenGetMemorySegmentByteOffset(module: BinaryenModule, index: u32) -> u32;
@@ -752,12 +829,6 @@ extern "C" {
     fn BinaryenTypeVec128() -> BinaryenType;
 
     fn BinaryenTypeCreate(tys: *const BinaryenType, n_tys: BinaryenIndex) -> BinaryenType;
-
-    fn BinaryenAddInt32() -> u32;
-    fn BinaryenSubInt32() -> u32;
-    fn BinaryenShlInt32() -> u32;
-    fn BinaryenShrUInt32() -> u32;
-    fn BinaryenShrSInt32() -> u32;
 
     fn BinaryenConst(module: BinaryenModule, lit: BinaryenLiteral) -> BinaryenExpression;
     fn BinaryenUnreachable(module: BinaryenModule) -> BinaryenExpression;
@@ -856,6 +927,25 @@ extern "C" {
     ) -> BinaryenExpression;
     fn BinaryenMemorySize(module: BinaryenModule) -> BinaryenExpression;
     fn BinaryenMemoryGrow(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
+    fn BinaryenTableGet(
+        module: BinaryenModule,
+        name: *const c_char,
+        index: BinaryenExpression,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
+    fn BinaryenTableSet(
+        module: BinaryenModule,
+        name: *const c_char,
+        index: BinaryenExpression,
+        value: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenTableGrow(
+        module: BinaryenModule,
+        name: *const c_char,
+        value: BinaryenExpression,
+        delta: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenTableSize(module: BinaryenModule, name: *const c_char) -> BinaryenExpression;
 
     fn BinaryenAddFunc(
         module: BinaryenModule,
@@ -899,6 +989,390 @@ extern "C" {
         n_indices: BinaryenIndex,
         edge_code: BinaryenExpression,
     );
+
+    fn BinaryenClzInt32() -> BinaryenOp;
+    fn BinaryenCtzInt32() -> BinaryenOp;
+    fn BinaryenPopcntInt32() -> BinaryenOp;
+    fn BinaryenNegFloat32() -> BinaryenOp;
+    fn BinaryenAbsFloat32() -> BinaryenOp;
+    fn BinaryenCeilFloat32() -> BinaryenOp;
+    fn BinaryenFloorFloat32() -> BinaryenOp;
+    fn BinaryenTruncFloat32() -> BinaryenOp;
+    fn BinaryenNearestFloat32() -> BinaryenOp;
+    fn BinaryenSqrtFloat32() -> BinaryenOp;
+    fn BinaryenEqZInt32() -> BinaryenOp;
+    fn BinaryenClzInt64() -> BinaryenOp;
+    fn BinaryenCtzInt64() -> BinaryenOp;
+    fn BinaryenPopcntInt64() -> BinaryenOp;
+    fn BinaryenNegFloat64() -> BinaryenOp;
+    fn BinaryenAbsFloat64() -> BinaryenOp;
+    fn BinaryenCeilFloat64() -> BinaryenOp;
+    fn BinaryenFloorFloat64() -> BinaryenOp;
+    fn BinaryenTruncFloat64() -> BinaryenOp;
+    fn BinaryenNearestFloat64() -> BinaryenOp;
+    fn BinaryenSqrtFloat64() -> BinaryenOp;
+    fn BinaryenEqZInt64() -> BinaryenOp;
+    fn BinaryenExtendSInt32() -> BinaryenOp;
+    fn BinaryenExtendUInt32() -> BinaryenOp;
+    fn BinaryenWrapInt64() -> BinaryenOp;
+    fn BinaryenTruncSFloat32ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSFloat32ToInt64() -> BinaryenOp;
+    fn BinaryenTruncUFloat32ToInt32() -> BinaryenOp;
+    fn BinaryenTruncUFloat32ToInt64() -> BinaryenOp;
+    fn BinaryenTruncSFloat64ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSFloat64ToInt64() -> BinaryenOp;
+    fn BinaryenTruncUFloat64ToInt32() -> BinaryenOp;
+    fn BinaryenTruncUFloat64ToInt64() -> BinaryenOp;
+    fn BinaryenReinterpretFloat32() -> BinaryenOp;
+    fn BinaryenReinterpretFloat64() -> BinaryenOp;
+    fn BinaryenConvertSInt32ToFloat32() -> BinaryenOp;
+    fn BinaryenConvertSInt32ToFloat64() -> BinaryenOp;
+    fn BinaryenConvertUInt32ToFloat32() -> BinaryenOp;
+    fn BinaryenConvertUInt32ToFloat64() -> BinaryenOp;
+    fn BinaryenConvertSInt64ToFloat32() -> BinaryenOp;
+    fn BinaryenConvertSInt64ToFloat64() -> BinaryenOp;
+    fn BinaryenConvertUInt64ToFloat32() -> BinaryenOp;
+    fn BinaryenConvertUInt64ToFloat64() -> BinaryenOp;
+    fn BinaryenPromoteFloat32() -> BinaryenOp;
+    fn BinaryenDemoteFloat64() -> BinaryenOp;
+    fn BinaryenReinterpretInt32() -> BinaryenOp;
+    fn BinaryenReinterpretInt64() -> BinaryenOp;
+    fn BinaryenExtendS8Int32() -> BinaryenOp;
+    fn BinaryenExtendS16Int32() -> BinaryenOp;
+    fn BinaryenExtendS8Int64() -> BinaryenOp;
+    fn BinaryenExtendS16Int64() -> BinaryenOp;
+    fn BinaryenExtendS32Int64() -> BinaryenOp;
+    fn BinaryenAddInt32() -> BinaryenOp;
+    fn BinaryenSubInt32() -> BinaryenOp;
+    fn BinaryenMulInt32() -> BinaryenOp;
+    fn BinaryenDivSInt32() -> BinaryenOp;
+    fn BinaryenDivUInt32() -> BinaryenOp;
+    fn BinaryenRemSInt32() -> BinaryenOp;
+    fn BinaryenRemUInt32() -> BinaryenOp;
+    fn BinaryenAndInt32() -> BinaryenOp;
+    fn BinaryenOrInt32() -> BinaryenOp;
+    fn BinaryenXorInt32() -> BinaryenOp;
+    fn BinaryenShlInt32() -> BinaryenOp;
+    fn BinaryenShrUInt32() -> BinaryenOp;
+    fn BinaryenShrSInt32() -> BinaryenOp;
+    fn BinaryenRotLInt32() -> BinaryenOp;
+    fn BinaryenRotRInt32() -> BinaryenOp;
+    fn BinaryenEqInt32() -> BinaryenOp;
+    fn BinaryenNeInt32() -> BinaryenOp;
+    fn BinaryenLtSInt32() -> BinaryenOp;
+    fn BinaryenLtUInt32() -> BinaryenOp;
+    fn BinaryenLeSInt32() -> BinaryenOp;
+    fn BinaryenLeUInt32() -> BinaryenOp;
+    fn BinaryenGtSInt32() -> BinaryenOp;
+    fn BinaryenGtUInt32() -> BinaryenOp;
+    fn BinaryenGeSInt32() -> BinaryenOp;
+    fn BinaryenGeUInt32() -> BinaryenOp;
+    fn BinaryenAddInt64() -> BinaryenOp;
+    fn BinaryenSubInt64() -> BinaryenOp;
+    fn BinaryenMulInt64() -> BinaryenOp;
+    fn BinaryenDivSInt64() -> BinaryenOp;
+    fn BinaryenDivUInt64() -> BinaryenOp;
+    fn BinaryenRemSInt64() -> BinaryenOp;
+    fn BinaryenRemUInt64() -> BinaryenOp;
+    fn BinaryenAndInt64() -> BinaryenOp;
+    fn BinaryenOrInt64() -> BinaryenOp;
+    fn BinaryenXorInt64() -> BinaryenOp;
+    fn BinaryenShlInt64() -> BinaryenOp;
+    fn BinaryenShrUInt64() -> BinaryenOp;
+    fn BinaryenShrSInt64() -> BinaryenOp;
+    fn BinaryenRotLInt64() -> BinaryenOp;
+    fn BinaryenRotRInt64() -> BinaryenOp;
+    fn BinaryenEqInt64() -> BinaryenOp;
+    fn BinaryenNeInt64() -> BinaryenOp;
+    fn BinaryenLtSInt64() -> BinaryenOp;
+    fn BinaryenLtUInt64() -> BinaryenOp;
+    fn BinaryenLeSInt64() -> BinaryenOp;
+    fn BinaryenLeUInt64() -> BinaryenOp;
+    fn BinaryenGtSInt64() -> BinaryenOp;
+    fn BinaryenGtUInt64() -> BinaryenOp;
+    fn BinaryenGeSInt64() -> BinaryenOp;
+    fn BinaryenGeUInt64() -> BinaryenOp;
+    fn BinaryenAddFloat32() -> BinaryenOp;
+    fn BinaryenSubFloat32() -> BinaryenOp;
+    fn BinaryenMulFloat32() -> BinaryenOp;
+    fn BinaryenDivFloat32() -> BinaryenOp;
+    fn BinaryenCopySignFloat32() -> BinaryenOp;
+    fn BinaryenMinFloat32() -> BinaryenOp;
+    fn BinaryenMaxFloat32() -> BinaryenOp;
+    fn BinaryenEqFloat32() -> BinaryenOp;
+    fn BinaryenNeFloat32() -> BinaryenOp;
+    fn BinaryenLtFloat32() -> BinaryenOp;
+    fn BinaryenLeFloat32() -> BinaryenOp;
+    fn BinaryenGtFloat32() -> BinaryenOp;
+    fn BinaryenGeFloat32() -> BinaryenOp;
+    fn BinaryenAddFloat64() -> BinaryenOp;
+    fn BinaryenSubFloat64() -> BinaryenOp;
+    fn BinaryenMulFloat64() -> BinaryenOp;
+    fn BinaryenDivFloat64() -> BinaryenOp;
+    fn BinaryenCopySignFloat64() -> BinaryenOp;
+    fn BinaryenMinFloat64() -> BinaryenOp;
+    fn BinaryenMaxFloat64() -> BinaryenOp;
+    fn BinaryenEqFloat64() -> BinaryenOp;
+    fn BinaryenNeFloat64() -> BinaryenOp;
+    fn BinaryenLtFloat64() -> BinaryenOp;
+    fn BinaryenLeFloat64() -> BinaryenOp;
+    fn BinaryenGtFloat64() -> BinaryenOp;
+    fn BinaryenGeFloat64() -> BinaryenOp;
+    fn BinaryenAtomicRMWAdd() -> BinaryenOp;
+    fn BinaryenAtomicRMWSub() -> BinaryenOp;
+    fn BinaryenAtomicRMWAnd() -> BinaryenOp;
+    fn BinaryenAtomicRMWOr() -> BinaryenOp;
+    fn BinaryenAtomicRMWXor() -> BinaryenOp;
+    fn BinaryenAtomicRMWXchg() -> BinaryenOp;
+    fn BinaryenTruncSatSFloat32ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSatSFloat32ToInt64() -> BinaryenOp;
+    fn BinaryenTruncSatUFloat32ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSatUFloat32ToInt64() -> BinaryenOp;
+    fn BinaryenTruncSatSFloat64ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSatSFloat64ToInt64() -> BinaryenOp;
+    fn BinaryenTruncSatUFloat64ToInt32() -> BinaryenOp;
+    fn BinaryenTruncSatUFloat64ToInt64() -> BinaryenOp;
+    fn BinaryenSplatVecI8x16() -> BinaryenOp;
+    fn BinaryenExtractLaneSVecI8x16() -> BinaryenOp;
+    fn BinaryenExtractLaneUVecI8x16() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecI8x16() -> BinaryenOp;
+    fn BinaryenSplatVecI16x8() -> BinaryenOp;
+    fn BinaryenExtractLaneSVecI16x8() -> BinaryenOp;
+    fn BinaryenExtractLaneUVecI16x8() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecI16x8() -> BinaryenOp;
+    fn BinaryenSplatVecI32x4() -> BinaryenOp;
+    fn BinaryenExtractLaneVecI32x4() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecI32x4() -> BinaryenOp;
+    fn BinaryenSplatVecI64x2() -> BinaryenOp;
+    fn BinaryenExtractLaneVecI64x2() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecI64x2() -> BinaryenOp;
+    fn BinaryenSplatVecF32x4() -> BinaryenOp;
+    fn BinaryenExtractLaneVecF32x4() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecF32x4() -> BinaryenOp;
+    fn BinaryenSplatVecF64x2() -> BinaryenOp;
+    fn BinaryenExtractLaneVecF64x2() -> BinaryenOp;
+    fn BinaryenReplaceLaneVecF64x2() -> BinaryenOp;
+    fn BinaryenEqVecI8x16() -> BinaryenOp;
+    fn BinaryenNeVecI8x16() -> BinaryenOp;
+    fn BinaryenLtSVecI8x16() -> BinaryenOp;
+    fn BinaryenLtUVecI8x16() -> BinaryenOp;
+    fn BinaryenGtSVecI8x16() -> BinaryenOp;
+    fn BinaryenGtUVecI8x16() -> BinaryenOp;
+    fn BinaryenLeSVecI8x16() -> BinaryenOp;
+    fn BinaryenLeUVecI8x16() -> BinaryenOp;
+    fn BinaryenGeSVecI8x16() -> BinaryenOp;
+    fn BinaryenGeUVecI8x16() -> BinaryenOp;
+    fn BinaryenEqVecI16x8() -> BinaryenOp;
+    fn BinaryenNeVecI16x8() -> BinaryenOp;
+    fn BinaryenLtSVecI16x8() -> BinaryenOp;
+    fn BinaryenLtUVecI16x8() -> BinaryenOp;
+    fn BinaryenGtSVecI16x8() -> BinaryenOp;
+    fn BinaryenGtUVecI16x8() -> BinaryenOp;
+    fn BinaryenLeSVecI16x8() -> BinaryenOp;
+    fn BinaryenLeUVecI16x8() -> BinaryenOp;
+    fn BinaryenGeSVecI16x8() -> BinaryenOp;
+    fn BinaryenGeUVecI16x8() -> BinaryenOp;
+    fn BinaryenEqVecI32x4() -> BinaryenOp;
+    fn BinaryenNeVecI32x4() -> BinaryenOp;
+    fn BinaryenLtSVecI32x4() -> BinaryenOp;
+    fn BinaryenLtUVecI32x4() -> BinaryenOp;
+    fn BinaryenGtSVecI32x4() -> BinaryenOp;
+    fn BinaryenGtUVecI32x4() -> BinaryenOp;
+    fn BinaryenLeSVecI32x4() -> BinaryenOp;
+    fn BinaryenLeUVecI32x4() -> BinaryenOp;
+    fn BinaryenGeSVecI32x4() -> BinaryenOp;
+    fn BinaryenGeUVecI32x4() -> BinaryenOp;
+    fn BinaryenEqVecI64x2() -> BinaryenOp;
+    fn BinaryenNeVecI64x2() -> BinaryenOp;
+    fn BinaryenLtSVecI64x2() -> BinaryenOp;
+    fn BinaryenGtSVecI64x2() -> BinaryenOp;
+    fn BinaryenLeSVecI64x2() -> BinaryenOp;
+    fn BinaryenGeSVecI64x2() -> BinaryenOp;
+    fn BinaryenEqVecF32x4() -> BinaryenOp;
+    fn BinaryenNeVecF32x4() -> BinaryenOp;
+    fn BinaryenLtVecF32x4() -> BinaryenOp;
+    fn BinaryenGtVecF32x4() -> BinaryenOp;
+    fn BinaryenLeVecF32x4() -> BinaryenOp;
+    fn BinaryenGeVecF32x4() -> BinaryenOp;
+    fn BinaryenEqVecF64x2() -> BinaryenOp;
+    fn BinaryenNeVecF64x2() -> BinaryenOp;
+    fn BinaryenLtVecF64x2() -> BinaryenOp;
+    fn BinaryenGtVecF64x2() -> BinaryenOp;
+    fn BinaryenLeVecF64x2() -> BinaryenOp;
+    fn BinaryenGeVecF64x2() -> BinaryenOp;
+    fn BinaryenNotVec128() -> BinaryenOp;
+    fn BinaryenAndVec128() -> BinaryenOp;
+    fn BinaryenOrVec128() -> BinaryenOp;
+    fn BinaryenXorVec128() -> BinaryenOp;
+    fn BinaryenAndNotVec128() -> BinaryenOp;
+    fn BinaryenBitselectVec128() -> BinaryenOp;
+    fn BinaryenAnyTrueVec128() -> BinaryenOp;
+    fn BinaryenPopcntVecI8x16() -> BinaryenOp;
+    fn BinaryenAbsVecI8x16() -> BinaryenOp;
+    fn BinaryenNegVecI8x16() -> BinaryenOp;
+    fn BinaryenAllTrueVecI8x16() -> BinaryenOp;
+    fn BinaryenBitmaskVecI8x16() -> BinaryenOp;
+    fn BinaryenShlVecI8x16() -> BinaryenOp;
+    fn BinaryenShrSVecI8x16() -> BinaryenOp;
+    fn BinaryenShrUVecI8x16() -> BinaryenOp;
+    fn BinaryenAddVecI8x16() -> BinaryenOp;
+    fn BinaryenAddSatSVecI8x16() -> BinaryenOp;
+    fn BinaryenAddSatUVecI8x16() -> BinaryenOp;
+    fn BinaryenSubVecI8x16() -> BinaryenOp;
+    fn BinaryenSubSatSVecI8x16() -> BinaryenOp;
+    fn BinaryenSubSatUVecI8x16() -> BinaryenOp;
+    fn BinaryenMinSVecI8x16() -> BinaryenOp;
+    fn BinaryenMinUVecI8x16() -> BinaryenOp;
+    fn BinaryenMaxSVecI8x16() -> BinaryenOp;
+    fn BinaryenMaxUVecI8x16() -> BinaryenOp;
+    fn BinaryenAvgrUVecI8x16() -> BinaryenOp;
+    fn BinaryenAbsVecI16x8() -> BinaryenOp;
+    fn BinaryenNegVecI16x8() -> BinaryenOp;
+    fn BinaryenAllTrueVecI16x8() -> BinaryenOp;
+    fn BinaryenBitmaskVecI16x8() -> BinaryenOp;
+    fn BinaryenShlVecI16x8() -> BinaryenOp;
+    fn BinaryenShrSVecI16x8() -> BinaryenOp;
+    fn BinaryenShrUVecI16x8() -> BinaryenOp;
+    fn BinaryenAddVecI16x8() -> BinaryenOp;
+    fn BinaryenAddSatSVecI16x8() -> BinaryenOp;
+    fn BinaryenAddSatUVecI16x8() -> BinaryenOp;
+    fn BinaryenSubVecI16x8() -> BinaryenOp;
+    fn BinaryenSubSatSVecI16x8() -> BinaryenOp;
+    fn BinaryenSubSatUVecI16x8() -> BinaryenOp;
+    fn BinaryenMulVecI16x8() -> BinaryenOp;
+    fn BinaryenMinSVecI16x8() -> BinaryenOp;
+    fn BinaryenMinUVecI16x8() -> BinaryenOp;
+    fn BinaryenMaxSVecI16x8() -> BinaryenOp;
+    fn BinaryenMaxUVecI16x8() -> BinaryenOp;
+    fn BinaryenAvgrUVecI16x8() -> BinaryenOp;
+    fn BinaryenQ15MulrSatSVecI16x8() -> BinaryenOp;
+    fn BinaryenExtMulLowSVecI16x8() -> BinaryenOp;
+    fn BinaryenExtMulHighSVecI16x8() -> BinaryenOp;
+    fn BinaryenExtMulLowUVecI16x8() -> BinaryenOp;
+    fn BinaryenExtMulHighUVecI16x8() -> BinaryenOp;
+    fn BinaryenAbsVecI32x4() -> BinaryenOp;
+    fn BinaryenNegVecI32x4() -> BinaryenOp;
+    fn BinaryenAllTrueVecI32x4() -> BinaryenOp;
+    fn BinaryenBitmaskVecI32x4() -> BinaryenOp;
+    fn BinaryenShlVecI32x4() -> BinaryenOp;
+    fn BinaryenShrSVecI32x4() -> BinaryenOp;
+    fn BinaryenShrUVecI32x4() -> BinaryenOp;
+    fn BinaryenAddVecI32x4() -> BinaryenOp;
+    fn BinaryenSubVecI32x4() -> BinaryenOp;
+    fn BinaryenMulVecI32x4() -> BinaryenOp;
+    fn BinaryenMinSVecI32x4() -> BinaryenOp;
+    fn BinaryenMinUVecI32x4() -> BinaryenOp;
+    fn BinaryenMaxSVecI32x4() -> BinaryenOp;
+    fn BinaryenMaxUVecI32x4() -> BinaryenOp;
+    fn BinaryenDotSVecI16x8ToVecI32x4() -> BinaryenOp;
+    fn BinaryenExtMulLowSVecI32x4() -> BinaryenOp;
+    fn BinaryenExtMulHighSVecI32x4() -> BinaryenOp;
+    fn BinaryenExtMulLowUVecI32x4() -> BinaryenOp;
+    fn BinaryenExtMulHighUVecI32x4() -> BinaryenOp;
+    fn BinaryenAbsVecI64x2() -> BinaryenOp;
+    fn BinaryenNegVecI64x2() -> BinaryenOp;
+    fn BinaryenAllTrueVecI64x2() -> BinaryenOp;
+    fn BinaryenBitmaskVecI64x2() -> BinaryenOp;
+    fn BinaryenShlVecI64x2() -> BinaryenOp;
+    fn BinaryenShrSVecI64x2() -> BinaryenOp;
+    fn BinaryenShrUVecI64x2() -> BinaryenOp;
+    fn BinaryenAddVecI64x2() -> BinaryenOp;
+    fn BinaryenSubVecI64x2() -> BinaryenOp;
+    fn BinaryenMulVecI64x2() -> BinaryenOp;
+    fn BinaryenExtMulLowSVecI64x2() -> BinaryenOp;
+    fn BinaryenExtMulHighSVecI64x2() -> BinaryenOp;
+    fn BinaryenExtMulLowUVecI64x2() -> BinaryenOp;
+    fn BinaryenExtMulHighUVecI64x2() -> BinaryenOp;
+    fn BinaryenAbsVecF32x4() -> BinaryenOp;
+    fn BinaryenNegVecF32x4() -> BinaryenOp;
+    fn BinaryenSqrtVecF32x4() -> BinaryenOp;
+    fn BinaryenAddVecF32x4() -> BinaryenOp;
+    fn BinaryenSubVecF32x4() -> BinaryenOp;
+    fn BinaryenMulVecF32x4() -> BinaryenOp;
+    fn BinaryenDivVecF32x4() -> BinaryenOp;
+    fn BinaryenMinVecF32x4() -> BinaryenOp;
+    fn BinaryenMaxVecF32x4() -> BinaryenOp;
+    fn BinaryenPMinVecF32x4() -> BinaryenOp;
+    fn BinaryenPMaxVecF32x4() -> BinaryenOp;
+    fn BinaryenCeilVecF32x4() -> BinaryenOp;
+    fn BinaryenFloorVecF32x4() -> BinaryenOp;
+    fn BinaryenTruncVecF32x4() -> BinaryenOp;
+    fn BinaryenNearestVecF32x4() -> BinaryenOp;
+    fn BinaryenAbsVecF64x2() -> BinaryenOp;
+    fn BinaryenNegVecF64x2() -> BinaryenOp;
+    fn BinaryenSqrtVecF64x2() -> BinaryenOp;
+    fn BinaryenAddVecF64x2() -> BinaryenOp;
+    fn BinaryenSubVecF64x2() -> BinaryenOp;
+    fn BinaryenMulVecF64x2() -> BinaryenOp;
+    fn BinaryenDivVecF64x2() -> BinaryenOp;
+    fn BinaryenMinVecF64x2() -> BinaryenOp;
+    fn BinaryenMaxVecF64x2() -> BinaryenOp;
+    fn BinaryenPMinVecF64x2() -> BinaryenOp;
+    fn BinaryenPMaxVecF64x2() -> BinaryenOp;
+    fn BinaryenCeilVecF64x2() -> BinaryenOp;
+    fn BinaryenFloorVecF64x2() -> BinaryenOp;
+    fn BinaryenTruncVecF64x2() -> BinaryenOp;
+    fn BinaryenNearestVecF64x2() -> BinaryenOp;
+    fn BinaryenExtAddPairwiseSVecI8x16ToI16x8() -> BinaryenOp;
+    fn BinaryenExtAddPairwiseUVecI8x16ToI16x8() -> BinaryenOp;
+    fn BinaryenExtAddPairwiseSVecI16x8ToI32x4() -> BinaryenOp;
+    fn BinaryenExtAddPairwiseUVecI16x8ToI32x4() -> BinaryenOp;
+    fn BinaryenTruncSatSVecF32x4ToVecI32x4() -> BinaryenOp;
+    fn BinaryenTruncSatUVecF32x4ToVecI32x4() -> BinaryenOp;
+    fn BinaryenConvertSVecI32x4ToVecF32x4() -> BinaryenOp;
+    fn BinaryenConvertUVecI32x4ToVecF32x4() -> BinaryenOp;
+    fn BinaryenLoad8SplatVec128() -> BinaryenOp;
+    fn BinaryenLoad16SplatVec128() -> BinaryenOp;
+    fn BinaryenLoad32SplatVec128() -> BinaryenOp;
+    fn BinaryenLoad64SplatVec128() -> BinaryenOp;
+    fn BinaryenLoad8x8SVec128() -> BinaryenOp;
+    fn BinaryenLoad8x8UVec128() -> BinaryenOp;
+    fn BinaryenLoad16x4SVec128() -> BinaryenOp;
+    fn BinaryenLoad16x4UVec128() -> BinaryenOp;
+    fn BinaryenLoad32x2SVec128() -> BinaryenOp;
+    fn BinaryenLoad32x2UVec128() -> BinaryenOp;
+    fn BinaryenLoad32ZeroVec128() -> BinaryenOp;
+    fn BinaryenLoad64ZeroVec128() -> BinaryenOp;
+    fn BinaryenLoad8LaneVec128() -> BinaryenOp;
+    fn BinaryenLoad16LaneVec128() -> BinaryenOp;
+    fn BinaryenLoad32LaneVec128() -> BinaryenOp;
+    fn BinaryenLoad64LaneVec128() -> BinaryenOp;
+    fn BinaryenStore8LaneVec128() -> BinaryenOp;
+    fn BinaryenStore16LaneVec128() -> BinaryenOp;
+    fn BinaryenStore32LaneVec128() -> BinaryenOp;
+    fn BinaryenStore64LaneVec128() -> BinaryenOp;
+    fn BinaryenNarrowSVecI16x8ToVecI8x16() -> BinaryenOp;
+    fn BinaryenNarrowUVecI16x8ToVecI8x16() -> BinaryenOp;
+    fn BinaryenNarrowSVecI32x4ToVecI16x8() -> BinaryenOp;
+    fn BinaryenNarrowUVecI32x4ToVecI16x8() -> BinaryenOp;
+    fn BinaryenExtendLowSVecI8x16ToVecI16x8() -> BinaryenOp;
+    fn BinaryenExtendHighSVecI8x16ToVecI16x8() -> BinaryenOp;
+    fn BinaryenExtendLowUVecI8x16ToVecI16x8() -> BinaryenOp;
+    fn BinaryenExtendHighUVecI8x16ToVecI16x8() -> BinaryenOp;
+    fn BinaryenExtendLowSVecI16x8ToVecI32x4() -> BinaryenOp;
+    fn BinaryenExtendHighSVecI16x8ToVecI32x4() -> BinaryenOp;
+    fn BinaryenExtendLowUVecI16x8ToVecI32x4() -> BinaryenOp;
+    fn BinaryenExtendHighUVecI16x8ToVecI32x4() -> BinaryenOp;
+    fn BinaryenExtendLowSVecI32x4ToVecI64x2() -> BinaryenOp;
+    fn BinaryenExtendHighSVecI32x4ToVecI64x2() -> BinaryenOp;
+    fn BinaryenExtendLowUVecI32x4ToVecI64x2() -> BinaryenOp;
+    fn BinaryenExtendHighUVecI32x4ToVecI64x2() -> BinaryenOp;
+    fn BinaryenConvertLowSVecI32x4ToVecF64x2() -> BinaryenOp;
+    fn BinaryenConvertLowUVecI32x4ToVecF64x2() -> BinaryenOp;
+    fn BinaryenTruncSatZeroSVecF64x2ToVecI32x4() -> BinaryenOp;
+    fn BinaryenTruncSatZeroUVecF64x2ToVecI32x4() -> BinaryenOp;
+    fn BinaryenDemoteZeroVecF64x2ToVecF32x4() -> BinaryenOp;
+    fn BinaryenPromoteLowVecF32x4ToVecF64x2() -> BinaryenOp;
+    fn BinaryenSwizzleVec8x16() -> BinaryenOp;
+    fn BinaryenRefIsNull() -> BinaryenOp;
+    fn BinaryenRefIsFunc() -> BinaryenOp;
+    fn BinaryenRefIsData() -> BinaryenOp;
+    fn BinaryenRefIsI31() -> BinaryenOp;
+    fn BinaryenRefAsNonNull() -> BinaryenOp;
+    fn BinaryenRefAsFunc() -> BinaryenOp;
+    fn BinaryenRefAsData() -> BinaryenOp;
+    fn BinaryenRefAsI31() -> BinaryenOp;
+
 }
 
 #[repr(C)]

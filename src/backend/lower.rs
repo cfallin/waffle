@@ -253,8 +253,8 @@ impl<'a> ElabCtx<'a> {
         into_mod: &binaryen::Module,
     ) -> binaryen::Expression {
         match op {
-            Unreachable => binaryen::Expression::unreachable(into_mod),
-            Nop => binaryen::Expression::nop(into_mod),
+            Operator::Unreachable => binaryen::Expression::unreachable(into_mod),
+            Operator::Nop => binaryen::Expression::nop(into_mod),
 
             Operator::Call { function_index } => {
                 binaryen::Expression::call(into_mod, function_index, &args[..], tys)
@@ -526,161 +526,194 @@ impl<'a> ElabCtx<'a> {
             Operator::F32Const { value } => binaryen::Expression::const_f32(into_mod, value),
             Operator::F64Const { value } => binaryen::Expression::const_f64(into_mod, value),
 
-            Operator::I32Eqz => todo!(),
-            Operator::I32Eq => todo!(),
-            Operator::I32Ne => todo!(),
-            Operator::I32LtS => todo!(),
-            Operator::I32LtU => todo!(),
-            Operator::I32GtS => todo!(),
-            Operator::I32GtU => todo!(),
-            Operator::I32LeS => todo!(),
-            Operator::I32LeU => todo!(),
-            Operator::I32GeS => todo!(),
-            Operator::I32GeU => todo!(),
+            Operator::I32Eqz => binaryen::Expression::i32_eqz(into_mod, args[0]),
+            Operator::I32Eq => binaryen::Expression::i32_eq(into_mod, args[0], args[1]),
+            Operator::I32Ne => binaryen::Expression::i32_ne(into_mod, args[0], args[1]),
+            Operator::I32LtS => binaryen::Expression::i32_lt_s(into_mod, args[0], args[1]),
+            Operator::I32LtU => binaryen::Expression::i32_lt_u(into_mod, args[0], args[1]),
+            Operator::I32GtS => binaryen::Expression::i32_gt_s(into_mod, args[0], args[1]),
+            Operator::I32GtU => binaryen::Expression::i32_gt_u(into_mod, args[0], args[1]),
+            Operator::I32LeS => binaryen::Expression::i32_le_s(into_mod, args[0], args[1]),
+            Operator::I32LeU => binaryen::Expression::i32_le_u(into_mod, args[0], args[1]),
+            Operator::I32GeS => binaryen::Expression::i32_ge_s(into_mod, args[0], args[1]),
+            Operator::I32GeU => binaryen::Expression::i32_ge_u(into_mod, args[0], args[1]),
 
-            Operator::I64Eqz => todo!(),
+            Operator::I64Eqz => binaryen::Expression::i64_eqz(into_mod, args[0]),
+            Operator::I64Eq => binaryen::Expression::i64_eq(into_mod, args[0], args[1]),
+            Operator::I64Ne => binaryen::Expression::i64_ne(into_mod, args[0], args[1]),
+            Operator::I64LtS => binaryen::Expression::i64_lt_s(into_mod, args[0], args[1]),
+            Operator::I64LtU => binaryen::Expression::i64_lt_u(into_mod, args[0], args[1]),
+            Operator::I64GtS => binaryen::Expression::i64_gt_s(into_mod, args[0], args[1]),
+            Operator::I64GtU => binaryen::Expression::i64_gt_u(into_mod, args[0], args[1]),
+            Operator::I64LeS => binaryen::Expression::i64_le_s(into_mod, args[0], args[1]),
+            Operator::I64LeU => binaryen::Expression::i64_le_u(into_mod, args[0], args[1]),
+            Operator::I64GeS => binaryen::Expression::i64_ge_s(into_mod, args[0], args[1]),
+            Operator::I64GeU => binaryen::Expression::i64_ge_u(into_mod, args[0], args[1]),
 
-            Operator::I64Eq => todo!(),
-            Operator::I64Ne => todo!(),
-            Operator::I64LtS => todo!(),
-            Operator::I64LtU => todo!(),
-            Operator::I64GtU => todo!(),
-            Operator::I64GtS => todo!(),
-            Operator::I64LeS => todo!(),
-            Operator::I64LeU => todo!(),
-            Operator::I64GeS => todo!(),
-            Operator::I64GeU => todo!(),
+            Operator::F32Eq => binaryen::Expression::f32_eq(into_mod, args[0], args[1]),
+            Operator::F32Ne => binaryen::Expression::f32_ne(into_mod, args[0], args[1]),
+            Operator::F32Lt => binaryen::Expression::f32_lt(into_mod, args[0], args[1]),
+            Operator::F32Gt => binaryen::Expression::f32_gt(into_mod, args[0], args[1]),
+            Operator::F32Le => binaryen::Expression::f32_le(into_mod, args[0], args[1]),
+            Operator::F32Ge => binaryen::Expression::f32_ge(into_mod, args[0], args[1]),
 
-            Operator::F32Eq => todo!(),
-            Operator::F32Ne => todo!(),
-            Operator::F32Lt => todo!(),
-            Operator::F32Gt => todo!(),
-            Operator::F32Le => todo!(),
-            Operator::F32Ge => todo!(),
+            Operator::F64Eq => binaryen::Expression::f64_eq(into_mod, args[0], args[1]),
+            Operator::F64Ne => binaryen::Expression::f64_ne(into_mod, args[0], args[1]),
+            Operator::F64Lt => binaryen::Expression::f64_lt(into_mod, args[0], args[1]),
+            Operator::F64Gt => binaryen::Expression::f64_gt(into_mod, args[0], args[1]),
+            Operator::F64Le => binaryen::Expression::f64_le(into_mod, args[0], args[1]),
+            Operator::F64Ge => binaryen::Expression::f64_ge(into_mod, args[0], args[1]),
 
-            Operator::F64Eq => todo!(),
-            Operator::F64Ne => todo!(),
-            Operator::F64Lt => todo!(),
-            Operator::F64Gt => todo!(),
-            Operator::F64Le => todo!(),
-            Operator::F64Ge => todo!(),
+            Operator::I32Clz => binaryen::Expression::i32_clz(into_mod, args[0]),
+            Operator::I32Ctz => binaryen::Expression::i32_ctz(into_mod, args[0]),
+            Operator::I32Popcnt => binaryen::Expression::i32_popcnt(into_mod, args[0]),
 
-            Operator::I32Clz => todo!(),
-            Operator::I32Ctz => todo!(),
-            Operator::I32Popcnt => todo!(),
+            Operator::I32Add => binaryen::Expression::i32_add(into_mod, args[0], args[1]),
+            Operator::I32Sub => binaryen::Expression::i32_sub(into_mod, args[0], args[1]),
+            Operator::I32Mul => binaryen::Expression::i32_mul(into_mod, args[0], args[1]),
+            Operator::I32DivS => binaryen::Expression::i32_div_s(into_mod, args[0], args[1]),
+            Operator::I32DivU => binaryen::Expression::i32_div_u(into_mod, args[0], args[1]),
+            Operator::I32RemS => binaryen::Expression::i32_rem_s(into_mod, args[0], args[1]),
+            Operator::I32RemU => binaryen::Expression::i32_rem_u(into_mod, args[0], args[1]),
+            Operator::I32And => binaryen::Expression::i32_and(into_mod, args[0], args[1]),
+            Operator::I32Or => binaryen::Expression::i32_or(into_mod, args[0], args[1]),
+            Operator::I32Xor => binaryen::Expression::i32_xor(into_mod, args[0], args[1]),
+            Operator::I32Shl => binaryen::Expression::i32_shl(into_mod, args[0], args[1]),
+            Operator::I32ShrS => binaryen::Expression::i32_shr_s(into_mod, args[0], args[1]),
+            Operator::I32ShrU => binaryen::Expression::i32_shr_u(into_mod, args[0], args[1]),
+            Operator::I32Rotl => binaryen::Expression::i32_rotl(into_mod, args[0], args[1]),
+            Operator::I32Rotr => binaryen::Expression::i32_rotr(into_mod, args[0], args[1]),
 
-            Operator::I32Add => todo!(),
-            Operator::I32Sub => todo!(),
-            Operator::I32Mul => todo!(),
-            Operator::I32DivS => todo!(),
-            Operator::I32DivU => todo!(),
-            Operator::I32RemS => todo!(),
-            Operator::I32RemU => todo!(),
-            Operator::I32And => todo!(),
-            Operator::I32Or => todo!(),
-            Operator::I32Xor => todo!(),
-            Operator::I32Shl => todo!(),
-            Operator::I32ShrS => todo!(),
-            Operator::I32ShrU => todo!(),
-            Operator::I32Rotl => todo!(),
-            Operator::I32Rotr => todo!(),
+            Operator::I64Clz => binaryen::Expression::i64_clz(into_mod, args[0]),
+            Operator::I64Ctz => binaryen::Expression::i64_ctz(into_mod, args[0]),
+            Operator::I64Popcnt => binaryen::Expression::i64_popcnt(into_mod, args[0]),
 
-            Operator::I64Clz => todo!(),
-            Operator::I64Ctz => todo!(),
-            Operator::I64Popcnt => todo!(),
+            Operator::I64Add => binaryen::Expression::i64_add(into_mod, args[0], args[1]),
+            Operator::I64Sub => binaryen::Expression::i64_sub(into_mod, args[0], args[1]),
+            Operator::I64Mul => binaryen::Expression::i64_mul(into_mod, args[0], args[1]),
+            Operator::I64DivS => binaryen::Expression::i64_div_s(into_mod, args[0], args[1]),
+            Operator::I64DivU => binaryen::Expression::i64_div_u(into_mod, args[0], args[1]),
+            Operator::I64RemS => binaryen::Expression::i64_rem_s(into_mod, args[0], args[1]),
+            Operator::I64RemU => binaryen::Expression::i64_rem_u(into_mod, args[0], args[1]),
+            Operator::I64And => binaryen::Expression::i64_and(into_mod, args[0], args[1]),
+            Operator::I64Or => binaryen::Expression::i64_or(into_mod, args[0], args[1]),
+            Operator::I64Xor => binaryen::Expression::i64_xor(into_mod, args[0], args[1]),
+            Operator::I64Shl => binaryen::Expression::i64_shl(into_mod, args[0], args[1]),
+            Operator::I64ShrS => binaryen::Expression::i64_shr_s(into_mod, args[0], args[1]),
+            Operator::I64ShrU => binaryen::Expression::i64_shr_u(into_mod, args[0], args[1]),
+            Operator::I64Rotl => binaryen::Expression::i64_rotl(into_mod, args[0], args[1]),
+            Operator::I64Rotr => binaryen::Expression::i64_rotr(into_mod, args[0], args[1]),
 
-            Operator::I64Add => todo!(),
-            Operator::I64Sub => todo!(),
-            Operator::I64Mul => todo!(),
-            Operator::I64DivS => todo!(),
-            Operator::I64DivU => todo!(),
-            Operator::I64RemS => todo!(),
-            Operator::I64RemU => todo!(),
-            Operator::I64And => todo!(),
-            Operator::I64Or => todo!(),
-            Operator::I64Xor => todo!(),
-            Operator::I64Shl => todo!(),
-            Operator::I64ShrS => todo!(),
-            Operator::I64ShrU => todo!(),
-            Operator::I64Rotl => todo!(),
-            Operator::I64Rotr => todo!(),
+            Operator::F32Abs => binaryen::Expression::f32_abs(into_mod, args[0]),
+            Operator::F32Neg => binaryen::Expression::f32_neg(into_mod, args[0]),
+            Operator::F32Ceil => binaryen::Expression::f32_ceil(into_mod, args[0]),
+            Operator::F32Floor => binaryen::Expression::f32_floor(into_mod, args[0]),
+            Operator::F32Trunc => binaryen::Expression::f32_trunc(into_mod, args[0]),
+            Operator::F32Nearest => binaryen::Expression::f32_nearest(into_mod, args[0]),
+            Operator::F32Sqrt => binaryen::Expression::f32_sqrt(into_mod, args[0]),
 
-            Operator::F32Abs => todo!(),
-            Operator::F32Neg => todo!(),
-            Operator::F32Ceil => todo!(),
-            Operator::F32Floor => todo!(),
-            Operator::F32Trunc => todo!(),
-            Operator::F32Nearest => todo!(),
-            Operator::F32Sqrt => todo!(),
+            Operator::F32Add => binaryen::Expression::f32_add(into_mod, args[0], args[1]),
+            Operator::F32Sub => binaryen::Expression::f32_sub(into_mod, args[0], args[1]),
+            Operator::F32Mul => binaryen::Expression::f32_mul(into_mod, args[0], args[1]),
+            Operator::F32Div => binaryen::Expression::f32_div(into_mod, args[0], args[1]),
+            Operator::F32Min => binaryen::Expression::f32_min(into_mod, args[0], args[1]),
+            Operator::F32Max => binaryen::Expression::f32_max(into_mod, args[0], args[1]),
+            Operator::F32Copysign => binaryen::Expression::f32_copysign(into_mod, args[0], args[1]),
 
-            Operator::F32Add => todo!(),
-            Operator::F32Sub => todo!(),
-            Operator::F32Mul => todo!(),
-            Operator::F32Div => todo!(),
-            Operator::F32Min => todo!(),
-            Operator::F32Max => todo!(),
-            Operator::F32Copysign => todo!(),
+            Operator::F64Abs => binaryen::Expression::f64_abs(into_mod, args[0]),
+            Operator::F64Neg => binaryen::Expression::f64_neg(into_mod, args[0]),
+            Operator::F64Ceil => binaryen::Expression::f64_ceil(into_mod, args[0]),
+            Operator::F64Floor => binaryen::Expression::f64_floor(into_mod, args[0]),
+            Operator::F64Trunc => binaryen::Expression::f64_trunc(into_mod, args[0]),
+            Operator::F64Nearest => binaryen::Expression::f64_nearest(into_mod, args[0]),
+            Operator::F64Sqrt => binaryen::Expression::f64_sqrt(into_mod, args[0]),
 
-            Operator::F64Abs => todo!(),
-            Operator::F64Neg => todo!(),
-            Operator::F64Ceil => todo!(),
-            Operator::F64Floor => todo!(),
-            Operator::F64Trunc => todo!(),
-            Operator::F64Nearest => todo!(),
-            Operator::F64Sqrt => todo!(),
+            Operator::F64Add => binaryen::Expression::f64_add(into_mod, args[0], args[1]),
+            Operator::F64Sub => binaryen::Expression::f64_sub(into_mod, args[0], args[1]),
+            Operator::F64Mul => binaryen::Expression::f64_mul(into_mod, args[0], args[1]),
+            Operator::F64Div => binaryen::Expression::f64_div(into_mod, args[0], args[1]),
+            Operator::F64Min => binaryen::Expression::f64_min(into_mod, args[0], args[1]),
+            Operator::F64Max => binaryen::Expression::f64_max(into_mod, args[0], args[1]),
+            Operator::F64Copysign => binaryen::Expression::f64_copysign(into_mod, args[0], args[1]),
 
-            Operator::F64Add => todo!(),
-            Operator::F64Sub => todo!(),
-            Operator::F64Mul => todo!(),
-            Operator::F64Div => todo!(),
-            Operator::F64Min => todo!(),
-            Operator::F64Max => todo!(),
-            Operator::F64Copysign => todo!(),
-
-            Operator::I32WrapI64 => todo!(),
-            Operator::I32TruncF32S => todo!(),
-            Operator::I32TruncF32U => todo!(),
-            Operator::I32TruncF64S => todo!(),
-            Operator::I32TruncF64U => todo!(),
-            Operator::I64ExtendI32S => todo!(),
-            Operator::I64ExtendI32U => todo!(),
-            Operator::I64TruncF32S => todo!(),
-            Operator::I64TruncF32U => todo!(),
-            Operator::I64TruncF64S => todo!(),
-            Operator::I64TruncF64U => todo!(),
-            Operator::F32ConvertI32S => todo!(),
-            Operator::F32ConvertI32U => todo!(),
-            Operator::F32ConvertI64S => todo!(),
-            Operator::F32ConvertI64U => todo!(),
-            Operator::F32DemoteF64 => todo!(),
-            Operator::F64ConvertI32S => todo!(),
-            Operator::F64ConvertI32U => todo!(),
-            Operator::F64ConvertI64S => todo!(),
-            Operator::F64ConvertI64U => todo!(),
-            Operator::F64PromoteF32 => todo!(),
-            Operator::I32Extend8S => todo!(),
-            Operator::I32Extend16S => todo!(),
-            Operator::I64Extend8S => todo!(),
-            Operator::I64Extend16S => todo!(),
-            Operator::I64Extend32S => todo!(),
-            Operator::I32TruncSatF32S => todo!(),
-            Operator::I32TruncSatF32U => todo!(),
-            Operator::I32TruncSatF64S => todo!(),
-            Operator::I32TruncSatF64U => todo!(),
-            Operator::I64TruncSatF32S => todo!(),
-            Operator::I64TruncSatF32U => todo!(),
-            Operator::I64TruncSatF64S => todo!(),
-            Operator::I64TruncSatF64U => todo!(),
-            Operator::F32ReinterpretI32 => todo!(),
-            Operator::F64ReinterpretI64 => todo!(),
-            Operator::I32ReinterpretF32 => todo!(),
-            Operator::I64ReinterpretF64 => todo!(),
-            Operator::TableGet { table_index } => todo!(),
-            Operator::TableSet { table_index } => todo!(),
-            Operator::TableGrow { table_index } => todo!(),
-            Operator::TableSize { table_index } => todo!(),
-            Operator::MemorySize { mem } => todo!(),
-            Operator::MemoryGrow { mem } => todo!(),
+            Operator::I32WrapI64 => binaryen::Expression::i32_wrap_i64(into_mod, args[0]),
+            Operator::I32TruncF32S => binaryen::Expression::i32_trunc_f32_s(into_mod, args[0]),
+            Operator::I32TruncF32U => binaryen::Expression::i32_trunc_f32_u(into_mod, args[0]),
+            Operator::I32TruncF64S => binaryen::Expression::i32_trunc_f64_s(into_mod, args[0]),
+            Operator::I32TruncF64U => binaryen::Expression::i32_trunc_f64_u(into_mod, args[0]),
+            Operator::I64ExtendI32S => binaryen::Expression::i64_extend_i32_s(into_mod, args[0]),
+            Operator::I64ExtendI32U => binaryen::Expression::i64_extend_i32_u(into_mod, args[0]),
+            Operator::I64TruncF32S => binaryen::Expression::i64_trunc_f32_s(into_mod, args[0]),
+            Operator::I64TruncF32U => binaryen::Expression::i64_trunc_f32_u(into_mod, args[0]),
+            Operator::I64TruncF64S => binaryen::Expression::i64_trunc_f64_s(into_mod, args[0]),
+            Operator::I64TruncF64U => binaryen::Expression::i64_trunc_f64_u(into_mod, args[0]),
+            Operator::F32ConvertI32S => binaryen::Expression::f32_convert_i32_s(into_mod, args[0]),
+            Operator::F32ConvertI32U => binaryen::Expression::f32_convert_i32_u(into_mod, args[0]),
+            Operator::F32ConvertI64S => binaryen::Expression::f32_convert_i64_s(into_mod, args[0]),
+            Operator::F32ConvertI64U => binaryen::Expression::f32_convert_i64_u(into_mod, args[0]),
+            Operator::F32DemoteF64 => binaryen::Expression::f32_demote_f64(into_mod, args[0]),
+            Operator::F64ConvertI32S => binaryen::Expression::f64_convert_i32_s(into_mod, args[0]),
+            Operator::F64ConvertI32U => binaryen::Expression::f64_convert_i32_u(into_mod, args[0]),
+            Operator::F64ConvertI64S => binaryen::Expression::f64_convert_i64_s(into_mod, args[0]),
+            Operator::F64ConvertI64U => binaryen::Expression::f64_convert_i64_u(into_mod, args[0]),
+            Operator::F64PromoteF32 => binaryen::Expression::f64_promote_f32(into_mod, args[0]),
+            Operator::I32Extend8S => binaryen::Expression::i32_extend_8_s(into_mod, args[0]),
+            Operator::I32Extend16S => binaryen::Expression::i32_extend_16_s(into_mod, args[0]),
+            Operator::I64Extend8S => binaryen::Expression::i64_extend_8_s(into_mod, args[0]),
+            Operator::I64Extend16S => binaryen::Expression::i64_extend_16_s(into_mod, args[0]),
+            Operator::I64Extend32S => binaryen::Expression::i64_extend_32_s(into_mod, args[0]),
+            Operator::I32TruncSatF32S => {
+                binaryen::Expression::i32_trunc_sat_f32_s(into_mod, args[0])
+            }
+            Operator::I32TruncSatF32U => {
+                binaryen::Expression::i32_trunc_sat_f32_u(into_mod, args[0])
+            }
+            Operator::I32TruncSatF64S => {
+                binaryen::Expression::i32_trunc_sat_f64_s(into_mod, args[0])
+            }
+            Operator::I32TruncSatF64U => {
+                binaryen::Expression::i32_trunc_sat_f64_u(into_mod, args[0])
+            }
+            Operator::I64TruncSatF32S => {
+                binaryen::Expression::i64_trunc_sat_f32_s(into_mod, args[0])
+            }
+            Operator::I64TruncSatF32U => {
+                binaryen::Expression::i64_trunc_sat_f32_u(into_mod, args[0])
+            }
+            Operator::I64TruncSatF64S => {
+                binaryen::Expression::i64_trunc_sat_f64_s(into_mod, args[0])
+            }
+            Operator::I64TruncSatF64U => {
+                binaryen::Expression::i64_trunc_sat_f64_u(into_mod, args[0])
+            }
+            Operator::F32ReinterpretI32 => {
+                binaryen::Expression::f32_reinterpret_i32(into_mod, args[0])
+            }
+            Operator::F64ReinterpretI64 => {
+                binaryen::Expression::f64_reinterpret_i64(into_mod, args[0])
+            }
+            Operator::I32ReinterpretF32 => {
+                binaryen::Expression::i32_reinterpret_f32(into_mod, args[0])
+            }
+            Operator::I64ReinterpretF64 => {
+                binaryen::Expression::i64_reinterpret_f64(into_mod, args[0])
+            }
+            Operator::TableGet { table_index } => {
+                binaryen::Expression::table_get(into_mod, table_index, args[0], tys[0])
+            }
+            Operator::TableSet { table_index } => {
+                binaryen::Expression::table_set(into_mod, table_index, args[0], args[1])
+            }
+            Operator::TableGrow { table_index } => {
+                binaryen::Expression::table_grow(into_mod, table_index, args[0], args[1])
+            }
+            Operator::TableSize { table_index } => {
+                binaryen::Expression::table_size(into_mod, table_index)
+            }
+            Operator::MemorySize { mem } => binaryen::Expression::memory_size(into_mod, mem),
+            Operator::MemoryGrow { mem } => {
+                binaryen::Expression::memory_grow(into_mod, mem, args[0])
+            }
         }
     }
 
