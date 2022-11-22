@@ -78,12 +78,17 @@ fn handle_payload<'a>(
                         Some(ImportKind::Func(func))
                     }
                     ImportSectionEntryType::Global(ty) => {
+                        let mutable = ty.mutable;
                         let ty = ty.content_type.into();
-                        let global = module.frontend_add_global(GlobalData { ty, value: None });
+                        let global = module.frontend_add_global(GlobalData {
+                            ty,
+                            value: None,
+                            mutable,
+                        });
                         Some(ImportKind::Global(global))
                     }
                     ImportSectionEntryType::Table(ty) => {
-                        let table = module.frontend_add_table(ty.element_type.into());
+                        let table = module.frontend_add_table(ty.element_type.into(), None);
                         Some(ImportKind::Table(table))
                     }
                     _ => None,
@@ -100,18 +105,20 @@ fn handle_payload<'a>(
         Payload::GlobalSection(reader) => {
             for global in reader {
                 let global = global?;
+                let mutable = global.ty.mutable;
                 let ty = global.ty.content_type.into();
                 let init_expr = parse_init_expr(&global.init_expr)?;
                 module.frontend_add_global(GlobalData {
                     ty,
                     value: init_expr,
+                    mutable,
                 });
             }
         }
         Payload::TableSection(reader) => {
             for table in reader {
                 let table = table?;
-                module.frontend_add_table(table.element_type.into());
+                module.frontend_add_table(table.element_type.into(), table.maximum);
             }
         }
         Payload::FunctionSection(reader) => {

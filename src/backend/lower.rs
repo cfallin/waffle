@@ -1,9 +1,83 @@
 use crate::backend::binaryen;
 use crate::entity::EntityRef;
+use crate::ir::ImportKind;
 use crate::ir::*;
 use crate::Operator;
+use anyhow::Result;
 use fxhash::FxHashMap;
 use std::collections::BTreeMap;
+
+pub(crate) fn lower(module: &Module) -> Result<binaryen::Module> {
+    let into_mod = binaryen::Module::new()?;
+
+    // Create globals.
+    for (global, data) in module.globals() {
+        let new_global = into_mod.add_global(data.ty, data.mutable, data.value);
+        assert_eq!(new_global, global);
+    }
+
+    // Create tables.
+    for (table, data) in module.tables() {
+        let new_table = into_mod.add_table(
+            data.ty,
+            data.func_elements
+                .as_ref()
+                .map(|elems| elems.len())
+                .unwrap_or(0),
+            data.max,
+        );
+        assert_eq!(new_table, table);
+        if let Some(elts) = data.func_elements.as_ref() {
+            for (i, &elt) in elts.iter().enumerate() {
+                if elt.is_valid() {
+                    into_mod.add_table_elem(new_table, i, elt);
+                }
+            }
+        }
+    }
+
+    // Create memories.
+    for (mem, data) in module.memories() {
+        let new_mem = into_mod.add_mem(data.initial_pages, data.maximum_pages, &data.segments[..]);
+        assert_eq!(new_mem, mem);
+    }
+
+    // Create function bodies.
+
+    // Create imports.
+    for import in module.imports() {
+        match &import.kind {
+            &ImportKind::Table(table) => {
+                into_mod.add_table_import(table, &import.module[..], &import.name[..]);
+            }
+            &ImportKind::Func(func) => {
+                let sig = module.func(func).sig();
+                let sigdata = module.signature(sig);
+                into_mod.add_func_import(
+                    func,
+                    &import.module[..],
+                    &import.name[..],
+                    &sigdata.params[..],
+                    &sigdata.returns[..],
+                );
+            }
+            &ImportKind::Global(global) => {
+                let globdata = module.global(global);
+                into_mod.add_global_import(
+                    global,
+                    &import.module[..],
+                    &import.name[..],
+                    globdata.ty,
+                    globdata.mutable,
+                );
+            }
+        }
+    }
+
+    // Create exports.
+
+    Ok(into_mod)
+}
 
 /// Creates a body expression for a function. Returns that expression,
 /// and new locals (as their types) that were created as temporaries

@@ -43,6 +43,14 @@ impl Module {
         Ok(slice.to_vec())
     }
 
+    pub fn new() -> Result<Module> {
+        let ptr = unsafe { BinaryenModuleCreate() };
+        if ptr.is_null() {
+            bail!("Failed to allocate module");
+        }
+        Ok(Module(ptr))
+    }
+
     pub fn num_funcs(&self) -> usize {
         unsafe { BinaryenGetNumFunctions(self.0) as usize }
     }
@@ -87,6 +95,178 @@ impl Module {
 
     pub fn module(&self) -> BinaryenModule {
         self.0
+    }
+
+    pub fn add_global(&self, ty: ir::Type, mutable: bool, value: Option<u64>) -> ir::Global {
+        let b_ty = Type::from(ty).to_binaryen();
+        let value = value.unwrap_or(0);
+        let init = match ty {
+            ir::Type::I32 => Expression::const_i32(self, value as i32),
+            ir::Type::I64 => Expression::const_i64(self, value as i64),
+            ir::Type::F32 => Expression::const_f32(self, Ieee32::from_bits(value as u32)),
+            ir::Type::F64 => Expression::const_f64(self, Ieee64::from_bits(value)),
+            _ => panic!("Unsupported type"),
+        };
+
+        let num = unsafe { BinaryenGetNumGlobals(self.0) };
+        let global = unsafe { BinaryenAddGlobal(self.0, std::ptr::null(), b_ty, mutable, init.1) };
+        assert!(!global.is_null());
+        ir::Global::from(num)
+    }
+
+    pub fn add_table(&self, ty: ir::Type, init: usize, max: Option<u32>) -> ir::Table {
+        let ty = Type::from(ty).to_binaryen();
+        let num = unsafe { BinaryenGetNumTables(self.0) };
+        let max = max.unwrap_or(0);
+        let table = unsafe {
+            BinaryenAddTable(
+                self.0,
+                std::ptr::null(),
+                init as BinaryenIndex,
+                max as BinaryenIndex,
+                ty,
+            )
+        };
+        assert!(!table.is_null());
+        ir::Table::from(num)
+    }
+
+    pub fn add_table_elem(&self, table: ir::Table, index: usize, elt: ir::Func) {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(
+                self.0,
+                table.index() as BinaryenIndex,
+            ))
+        };
+        let func_name = unsafe {
+            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
+                self.0,
+                elt.index() as BinaryenIndex,
+            ))
+        };
+        let offset = Expression::const_i32(self, index as i32);
+        let seg = unsafe {
+            BinaryenAddActiveElementSegment(
+                self.0,
+                table_name,
+                std::ptr::null(),
+                &func_name as *const *const c_char,
+                1,
+                offset.1,
+            )
+        };
+        assert!(!seg.is_null());
+    }
+
+    pub fn add_mem(
+        &self,
+        init_pages: usize,
+        max_pages: Option<usize>,
+        segments: &[ir::MemorySegment],
+    ) -> ir::Memory {
+        let seg_passive = vec![false; segments.len()];
+        let seg_offset = segments
+            .iter()
+            .map(|seg| Expression::const_i32(self, seg.offset as i32).1)
+            .collect::<Vec<_>>();
+        let seg_data = segments
+            .iter()
+            .map(|seg| seg.data.as_ptr() as *const c_char)
+            .collect::<Vec<_>>();
+        let seg_size = segments
+            .iter()
+            .map(|seg| seg.data.len() as BinaryenIndex)
+            .collect::<Vec<_>>();
+
+        // Binaryen does not support multi-memory.
+        unsafe {
+            BinaryenSetMemory(
+                self.0,
+                init_pages as BinaryenIndex,
+                max_pages.unwrap_or(0) as BinaryenIndex,
+                std::ptr::null(),
+                seg_data.as_ptr(),
+                seg_passive.as_ptr(),
+                seg_offset.as_ptr(),
+                seg_size.as_ptr(),
+                segments.len() as BinaryenIndex,
+                false,
+            );
+        }
+        ir::Memory::from(0)
+    }
+
+    pub fn add_table_import(&self, table: ir::Table, module: &str, name: &str) {
+        let table_name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(
+                self.0,
+                table.index() as BinaryenIndex,
+            ))
+        };
+        let c_module = std::ffi::CString::new(module).unwrap();
+        let c_name = std::ffi::CString::new(name).unwrap();
+        unsafe {
+            BinaryenAddTableImport(self.0, table_name, c_module.as_ptr(), c_name.as_ptr());
+        }
+    }
+
+    pub fn add_func_import(
+        &self,
+        func: ir::Func,
+        module: &str,
+        name: &str,
+        params: &[ir::Type],
+        results: &[ir::Type],
+    ) {
+        let func_name = unsafe {
+            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
+                self.0,
+                func.index() as BinaryenIndex,
+            ))
+        };
+        let c_module = std::ffi::CString::new(module).unwrap();
+        let c_name = std::ffi::CString::new(name).unwrap();
+        let params = tys_to_binaryen(params.iter().copied());
+        let results = tys_to_binaryen(results.iter().copied());
+        unsafe {
+            BinaryenAddFunctionImport(
+                self.0,
+                func_name,
+                c_module.as_ptr(),
+                c_name.as_ptr(),
+                params,
+                results,
+            );
+        }
+    }
+
+    pub fn add_global_import(
+        &self,
+        global: ir::Global,
+        module: &str,
+        name: &str,
+        ty: ir::Type,
+        mutable: bool,
+    ) {
+        let global_name = unsafe {
+            BinaryenGlobalGetName(BinaryenGetGlobalByIndex(
+                self.0,
+                global.index() as BinaryenIndex,
+            ))
+        };
+        let c_module = std::ffi::CString::new(module).unwrap();
+        let c_name = std::ffi::CString::new(name).unwrap();
+        let ty = Type::from(ty).to_binaryen();
+        unsafe {
+            BinaryenAddGlobalImport(
+                self.0,
+                global_name,
+                c_module.as_ptr(),
+                c_name.as_ptr(),
+                ty,
+                mutable,
+            );
+        }
     }
 }
 
@@ -708,6 +888,8 @@ type BinaryenExport = *const c_void;
 type BinaryenRelooper = *const c_void;
 type BinaryenRelooperBlock = *const c_void;
 type BinaryenTable = *const c_void;
+type BinaryenGlobal = *const c_void;
+type BinaryenElementSegment = *const c_void;
 
 #[repr(C)]
 struct BinaryenModuleAllocateAndWriteResult {
@@ -787,6 +969,7 @@ impl Drop for Relooper {
 #[link(name = "binaryen")]
 extern "C" {
     fn BinaryenModuleRead(data: *const u8, len: usize) -> BinaryenModule;
+    fn BinaryenModuleCreate() -> BinaryenModule;
     fn BinaryenModuleDispose(ptr: BinaryenModule);
     fn BinaryenModuleAllocateAndWrite(
         ptr: BinaryenModule,
@@ -1373,6 +1556,77 @@ extern "C" {
     fn BinaryenRefAsData() -> BinaryenOp;
     fn BinaryenRefAsI31() -> BinaryenOp;
 
+    fn BinaryenAddGlobal(
+        module: BinaryenModule,
+        name: *const c_char,
+        ty: BinaryenType,
+        mutable: bool,
+        init: BinaryenExpression,
+    ) -> BinaryenGlobal;
+    fn BinaryenGetNumGlobals(module: BinaryenModule) -> BinaryenIndex;
+
+    fn BinaryenAddTable(
+        module: BinaryenModule,
+        name: *const c_char,
+        initial: BinaryenIndex,
+        max: BinaryenIndex,
+        ty: BinaryenType,
+    ) -> BinaryenTable;
+    fn BinaryenGetNumTables(module: BinaryenModule) -> BinaryenIndex;
+
+    fn BinaryenAddActiveElementSegment(
+        module: BinaryenModule,
+        table: *const c_char,
+        name: *const c_char,
+        func_names: *const *const c_char,
+        num_funcs: BinaryenIndex,
+        offset: BinaryenExpression,
+    ) -> BinaryenElementSegment;
+
+    fn BinaryenSetMemory(
+        module: BinaryenModule,
+        init: BinaryenIndex,
+        max: BinaryenIndex,
+        export_name: *const c_char,
+        segments: *const *const c_char,
+        seg_passive: *const bool,
+        seg_offsets: *const BinaryenExpression,
+        sizes: *const BinaryenIndex,
+        n_segments: BinaryenIndex,
+        shared: bool,
+    );
+
+    fn BinaryenAddTableImport(
+        module: BinaryenModule,
+        name: *const c_char,
+        extern_module: *const c_char,
+        extern_name: *const c_char,
+    );
+    fn BinaryenAddMemoryImport(
+        module: BinaryenModule,
+        name: *const c_char,
+        extern_module: *const c_char,
+        extern_name: *const c_char,
+    );
+    fn BinaryenAddGlobalImport(
+        module: BinaryenModule,
+        name: *const c_char,
+        extern_module: *const c_char,
+        extern_name: *const c_char,
+        ty: BinaryenType,
+        mutable: bool,
+    );
+    fn BinaryenAddFunctionImport(
+        module: BinaryenModule,
+        name: *const c_char,
+        extern_module: *const c_char,
+        extern_name: *const c_char,
+        params: BinaryenType,
+        results: BinaryenType,
+    );
+
+    fn BinaryenGlobalGetName(global: BinaryenGlobal) -> *const c_char;
+    fn BinaryenGetGlobalByIndex(module: BinaryenModule, index: BinaryenIndex) -> BinaryenGlobal;
 }
 
 #[repr(C)]

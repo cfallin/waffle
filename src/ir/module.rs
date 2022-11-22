@@ -1,9 +1,8 @@
 use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
 use crate::entity::EntityVec;
-use crate::frontend;
 use crate::ir::FunctionBody;
+use crate::{backend, frontend};
 use anyhow::Result;
-use fxhash::FxHashSet;
 
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
@@ -15,8 +14,6 @@ pub struct Module<'a> {
     imports: Vec<Import>,
     exports: Vec<Export>,
     memories: EntityVec<Memory, MemoryData>,
-
-    dirty_funcs: FxHashSet<Func>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -41,6 +38,7 @@ pub struct MemorySegment {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TableData {
     pub ty: Type,
+    pub max: Option<u32>,
     pub func_elements: Option<Vec<Func>>,
 }
 
@@ -48,6 +46,7 @@ pub struct TableData {
 pub struct GlobalData {
     pub ty: Type,
     pub value: Option<u64>,
+    pub mutable: bool,
 }
 
 impl From<&wasmparser::FuncType> for SignatureData {
@@ -134,7 +133,6 @@ impl<'a> Module<'a> {
             imports: vec![],
             exports: vec![],
             memories: EntityVec::default(),
-            dirty_funcs: FxHashSet::default(),
         }
     }
 }
@@ -144,7 +142,6 @@ impl<'a> Module<'a> {
         &self.funcs[id]
     }
     pub fn func_mut<'b>(&'b mut self, id: Func) -> &'b mut FuncDecl {
-        self.dirty_funcs.insert(id);
         &mut self.funcs[id]
     }
     pub fn funcs<'b>(&'b self) -> impl Iterator<Item = (Func, &'b FuncDecl)> {
@@ -190,13 +187,17 @@ impl<'a> Module<'a> {
     pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) -> Func {
         self.funcs.push(body)
     }
-    pub(crate) fn frontend_add_table(&mut self, ty: Type) -> Table {
+    pub(crate) fn frontend_add_table(&mut self, ty: Type, max: Option<u32>) -> Table {
         let func_elements = if ty == Type::FuncRef {
             Some(vec![])
         } else {
             None
         };
-        self.tables.push(TableData { ty, func_elements })
+        self.tables.push(TableData {
+            ty,
+            func_elements,
+            max,
+        })
     }
     pub(crate) fn frontend_add_global(&mut self, global: GlobalData) -> Global {
         self.globals.push(global)
@@ -225,7 +226,8 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        todo!()
+        let module = backend::lower::lower(self)?;
+        module.write()
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>
