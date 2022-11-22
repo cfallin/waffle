@@ -1,65 +1,23 @@
 use crate::backend::binaryen;
 use crate::entity::EntityRef;
-use crate::ir::ImportKind;
 use crate::ir::*;
+use crate::ir::{ExportKind, FuncDecl, ImportKind};
 use crate::Operator;
 use anyhow::Result;
 use fxhash::FxHashMap;
 use std::collections::BTreeMap;
 
 pub(crate) fn lower(module: &Module) -> Result<binaryen::Module> {
-    let into_mod = binaryen::Module::new()?;
+    let mut into_mod = binaryen::Module::new()?;
 
-    // Create globals.
-    for (global, data) in module.globals() {
-        let new_global = into_mod.add_global(data.ty, data.mutable, data.value);
-        assert_eq!(new_global, global);
-    }
+    log::debug!("creating new module");
 
-    // Create tables.
-    for (table, data) in module.tables() {
-        let new_table = into_mod.add_table(
-            data.ty,
-            data.func_elements
-                .as_ref()
-                .map(|elems| elems.len())
-                .unwrap_or(0),
-            data.max,
-        );
-        assert_eq!(new_table, table);
-        if let Some(elts) = data.func_elements.as_ref() {
-            for (i, &elt) in elts.iter().enumerate() {
-                if elt.is_valid() {
-                    into_mod.add_table_elem(new_table, i, elt);
-                }
-            }
-        }
-    }
-
-    // Create memories.
-    for (mem, data) in module.memories() {
-        let new_mem = into_mod.add_mem(data.initial_pages, data.maximum_pages, &data.segments[..]);
-        assert_eq!(new_mem, mem);
-    }
-
-    // Create function bodies.
-
-    // Create imports.
+    // Create imported tables and globals.
     for import in module.imports() {
+        log::debug!("adding import: {:?}", import);
         match &import.kind {
             &ImportKind::Table(table) => {
                 into_mod.add_table_import(table, &import.module[..], &import.name[..]);
-            }
-            &ImportKind::Func(func) => {
-                let sig = module.func(func).sig();
-                let sigdata = module.signature(sig);
-                into_mod.add_func_import(
-                    func,
-                    &import.module[..],
-                    &import.name[..],
-                    &sigdata.params[..],
-                    &sigdata.returns[..],
-                );
             }
             &ImportKind::Global(global) => {
                 let globdata = module.global(global);
@@ -71,10 +29,100 @@ pub(crate) fn lower(module: &Module) -> Result<binaryen::Module> {
                     globdata.mutable,
                 );
             }
+            _ => {}
+        }
+    }
+
+    // Create globals.
+    for (global, data) in module.globals() {
+        log::debug!("adding global {}: {:?}", global, data);
+        let new_global = into_mod.add_global(data.ty, data.mutable, data.value);
+        assert_eq!(new_global, global);
+    }
+
+    // Create tables.
+    for (table, data) in module.tables() {
+        log::debug!("adding table {}: {:?}", table, data);
+        let new_table = into_mod.add_table(
+            data.ty,
+            data.func_elements
+                .as_ref()
+                .map(|elems| elems.len())
+                .unwrap_or(0),
+            data.max,
+        );
+        assert_eq!(new_table, table);
+    }
+
+    // Create memories.
+    for (mem, data) in module.memories() {
+        log::debug!("adding mem {}", mem);
+        let new_mem = into_mod.add_mem(data.initial_pages, data.maximum_pages, &data.segments[..]);
+        assert_eq!(new_mem, mem);
+    }
+
+    // Create function imports.
+    for import in module.imports() {
+        log::debug!("adding import: {:?}", import);
+        match &import.kind {
+            &ImportKind::Func(func) => {
+                let sig = module.func(func).sig();
+                let sigdata = module.signature(sig);
+                into_mod.add_func_import(
+                    func,
+                    &import.module[..],
+                    &import.name[..],
+                    &sigdata.params[..],
+                    &sigdata.returns[..],
+                );
+            }
+            _ => {}
+        }
+    }
+
+    // Create function bodies.
+    for (func, decl) in module.funcs() {
+        log::debug!("adding func {}: {:?}", func, decl);
+        match decl {
+            &FuncDecl::Body(sig, ref body) => {
+                let (new_locals, body_expr) = generate_body(module, body, &mut into_mod);
+                let _func =
+                    create_new_func(module, sig, body, &mut into_mod, body_expr, new_locals);
+            }
+            _ => {}
+        }
+    }
+
+    // Create table contents.
+    for (table, data) in module.tables() {
+        if let Some(elts) = data.func_elements.as_ref() {
+            log::debug!("adding elts to table {}: {:?}", table, elts);
+            for (i, &elt) in elts.iter().enumerate() {
+                if elt.is_valid() {
+                    into_mod.add_table_elem(table, i, elt);
+                }
+            }
         }
     }
 
     // Create exports.
+    for export in module.exports() {
+        log::debug!("adding export {:?}", export);
+        match &export.kind {
+            &ExportKind::Table(table) => {
+                into_mod.add_table_export(table, &export.name[..]);
+            }
+            &ExportKind::Func(func) => {
+                into_mod.add_func_export(func, &export.name[..]);
+            }
+            &ExportKind::Global(global) => {
+                into_mod.add_global_export(global, &export.name[..]);
+            }
+            &ExportKind::Memory(memory) => {
+                into_mod.add_memory_export(memory, &export.name[..]);
+            }
+        }
+    }
 
     Ok(into_mod)
 }

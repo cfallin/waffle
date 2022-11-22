@@ -51,52 +51,6 @@ impl Module {
         Ok(Module(ptr))
     }
 
-    pub fn num_funcs(&self) -> usize {
-        unsafe { BinaryenGetNumFunctions(self.0) as usize }
-    }
-
-    pub fn func(&self, index: usize) -> Function {
-        assert!(index < self.num_funcs());
-        let ptr = unsafe { BinaryenGetFunctionByIndex(self.0, index as u32) };
-        assert!(!ptr.is_null());
-        Function(self.0, ptr)
-    }
-
-    pub fn func_by_name(&self, name: &str) -> Option<Function> {
-        let c_str = CString::new(name).unwrap();
-        let ptr = unsafe { BinaryenGetFunction(self.0, c_str.as_ptr()) };
-        if !ptr.is_null() {
-            Some(Function(self.0, ptr))
-        } else {
-            None
-        }
-    }
-
-    pub fn num_exports(&self) -> usize {
-        unsafe { BinaryenGetNumExports(self.0) as usize }
-    }
-
-    pub fn export_by_name(&self, name: &str) -> Option<Export> {
-        let c_str = CString::new(name).unwrap();
-        let ptr = unsafe { BinaryenGetExport(self.0, c_str.as_ptr()) };
-        if !ptr.is_null() {
-            Some(Export(self.0, ptr))
-        } else {
-            None
-        }
-    }
-
-    pub fn export(&self, index: usize) -> Export {
-        assert!(index < self.num_exports());
-        let ptr = unsafe { BinaryenGetExportByIndex(self.0, index as u32) };
-        assert!(!ptr.is_null());
-        Export(self.0, ptr)
-    }
-
-    pub fn module(&self) -> BinaryenModule {
-        self.0
-    }
-
     pub fn add_global(&self, ty: ir::Type, mutable: bool, value: Option<u64>) -> ir::Global {
         let b_ty = Type::from(ty).to_binaryen();
         let value = value.unwrap_or(0);
@@ -109,7 +63,8 @@ impl Module {
         };
 
         let num = unsafe { BinaryenGetNumGlobals(self.0) };
-        let global = unsafe { BinaryenAddGlobal(self.0, std::ptr::null(), b_ty, mutable, init.1) };
+        let name = CString::new(format!("global{}", num)).unwrap();
+        let global = unsafe { BinaryenAddGlobal(self.0, name.as_ptr(), b_ty, mutable, init.1) };
         assert!(!global.is_null());
         ir::Global::from(num)
     }
@@ -118,10 +73,11 @@ impl Module {
         let ty = Type::from(ty).to_binaryen();
         let num = unsafe { BinaryenGetNumTables(self.0) };
         let max = max.unwrap_or(0);
+        let name = CString::new(format!("table{}", num)).unwrap();
         let table = unsafe {
             BinaryenAddTable(
                 self.0,
-                std::ptr::null(),
+                name.as_ptr(),
                 init as BinaryenIndex,
                 max as BinaryenIndex,
                 ty,
@@ -132,25 +88,23 @@ impl Module {
     }
 
     pub fn add_table_elem(&self, table: ir::Table, index: usize, elt: ir::Func) {
+        log::trace!("add_table_elem: func {}", elt);
         let table_name = unsafe {
             BinaryenTableGetName(BinaryenGetTableByIndex(
                 self.0,
                 table.index() as BinaryenIndex,
             ))
         };
-        let func_name = unsafe {
-            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
-                self.0,
-                elt.index() as BinaryenIndex,
-            ))
-        };
+        let func_name = compute_func_name(elt);
+        let func_name_ptr = func_name.as_ptr();
         let offset = Expression::const_i32(self, index as i32);
+        let name = CString::new(format!("seg_{}_{}", table.index(), index)).unwrap();
         let seg = unsafe {
             BinaryenAddActiveElementSegment(
                 self.0,
                 table_name,
-                std::ptr::null(),
-                &func_name as *const *const c_char,
+                name.as_ptr(),
+                &func_name_ptr as *const *const c_char,
                 1,
                 offset.1,
             )
@@ -218,20 +172,17 @@ impl Module {
         params: &[ir::Type],
         results: &[ir::Type],
     ) {
-        let func_name = unsafe {
-            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
-                self.0,
-                func.index() as BinaryenIndex,
-            ))
-        };
+        let num = unsafe { BinaryenGetNumFunctions(self.0) } as usize;
+        assert_eq!(num, func.index());
         let c_module = std::ffi::CString::new(module).unwrap();
         let c_name = std::ffi::CString::new(name).unwrap();
         let params = tys_to_binaryen(params.iter().copied());
         let results = tys_to_binaryen(results.iter().copied());
+        let internal_name = compute_func_name(func);
         unsafe {
             BinaryenAddFunctionImport(
                 self.0,
-                func_name,
+                internal_name.as_ptr(),
                 c_module.as_ptr(),
                 c_name.as_ptr(),
                 params,
@@ -268,6 +219,49 @@ impl Module {
             );
         }
     }
+
+    pub fn add_table_export(&self, table: ir::Table, name: &str) {
+        let c_name = CString::new(name).unwrap();
+        let name = unsafe {
+            BinaryenTableGetName(BinaryenGetTableByIndex(
+                self.0,
+                table.index() as BinaryenIndex,
+            ))
+        };
+        unsafe {
+            BinaryenAddTableExport(self.0, name, c_name.as_ptr());
+        }
+    }
+
+    pub fn add_func_export(&self, func: ir::Func, name: &str) {
+        log::trace!("add_func_export: func {}", func);
+        let c_name = CString::new(name).unwrap();
+        let name = compute_func_name(func);
+        unsafe {
+            BinaryenAddFunctionExport(self.0, name.as_ptr(), c_name.as_ptr());
+        }
+    }
+
+    pub fn add_global_export(&self, global: ir::Global, name: &str) {
+        let c_name = CString::new(name).unwrap();
+        let name = unsafe {
+            BinaryenGlobalGetName(BinaryenGetGlobalByIndex(
+                self.0,
+                global.index() as BinaryenIndex,
+            ))
+        };
+        unsafe {
+            BinaryenAddGlobalExport(self.0, name, c_name.as_ptr());
+        }
+    }
+
+    pub fn add_memory_export(&self, mem: ir::Memory, name: &str) {
+        assert_eq!(mem.index(), 0);
+        let c_name = CString::new(name).unwrap();
+        unsafe {
+            BinaryenAddMemoryExport(self.0, std::ptr::null(), c_name.as_ptr());
+        }
+    }
 }
 
 impl Drop for Module {
@@ -276,6 +270,10 @@ impl Drop for Module {
             BinaryenModuleDispose(self.0);
         }
     }
+}
+
+fn compute_func_name(func: ir::Func) -> CString {
+    CString::new(format!("func{}", func.index())).unwrap()
 }
 
 impl Function {
@@ -309,10 +307,13 @@ impl Function {
         let params = tys_to_binaryen(params);
         let results = tys_to_binaryen(results);
         let locals: Vec<BinaryenType> = locals.map(|ty| Type::from(ty).to_binaryen()).collect();
+        let num = unsafe { BinaryenGetNumFunctions(module.0) };
+        let name = compute_func_name(ir::Func::new(num as usize));
+        log::debug!("creating func {:?}", name);
         let ptr = unsafe {
-            BinaryenAddFunc(
+            BinaryenAddFunction(
                 module.0,
-                /* name = */ std::ptr::null(),
+                name.as_ptr(),
                 params,
                 results,
                 locals.as_ptr(),
@@ -338,16 +339,6 @@ impl Export {
         let s = unsafe { CStr::from_ptr(BinaryenExportGetValue(self.1)) };
         s.to_str().unwrap()
     }
-
-    pub fn into_function(&self, module: &Module) -> Option<Function> {
-        let kind = unsafe { BinaryenExportGetKind(self.1) };
-        if kind == unsafe { BinaryenExternalFunction() } {
-            let name = self.value();
-            module.func_by_name(name)
-        } else {
-            None
-        }
-    }
 }
 
 struct TypeIds {
@@ -357,6 +348,7 @@ struct TypeIds {
     f32_t: BinaryenType,
     f64_t: BinaryenType,
     v128_t: BinaryenType,
+    funcref_t: BinaryenType,
 }
 
 impl TypeIds {
@@ -368,6 +360,7 @@ impl TypeIds {
             f32_t: unsafe { BinaryenTypeFloat32() },
             f64_t: unsafe { BinaryenTypeFloat64() },
             v128_t: unsafe { BinaryenTypeVec128() },
+            funcref_t: unsafe { BinaryenTypeFuncref() },
         }
     }
 }
@@ -384,26 +377,10 @@ pub enum Type {
     F32,
     F64,
     V128,
+    FuncRef,
 }
 
 impl Type {
-    fn from_binaryen(kind: BinaryenType) -> Option<Type> {
-        let tys = &*TYPE_IDS;
-        if kind == tys.none_t {
-            Some(Type::None)
-        } else if kind == tys.i32_t {
-            Some(Type::I32)
-        } else if kind == tys.i64_t {
-            Some(Type::I64)
-        } else if kind == tys.f32_t {
-            Some(Type::F32)
-        } else if kind == tys.f64_t {
-            Some(Type::F64)
-        } else {
-            None
-        }
-    }
-
     pub(crate) fn to_binaryen(&self) -> BinaryenType {
         let tys = &*TYPE_IDS;
         match self {
@@ -413,6 +390,7 @@ impl Type {
             &Type::F32 => tys.f32_t,
             &Type::F64 => tys.f64_t,
             &Type::V128 => tys.v128_t,
+            &Type::FuncRef => tys.funcref_t,
         }
     }
 }
@@ -425,7 +403,7 @@ impl From<ir::Type> for Type {
             ir::Type::F32 => Type::F32,
             ir::Type::F64 => Type::F64,
             ir::Type::V128 => Type::V128,
-            _ => unimplemented!(),
+            ir::Type::FuncRef => Type::FuncRef,
         }
     }
 }
@@ -480,19 +458,14 @@ impl Expression {
         tys: &[ir::Type],
     ) -> Expression {
         // Look up the function's name.
-        let func_name = unsafe {
-            BinaryenFunctionGetName(BinaryenGetFunctionByIndex(
-                module.0,
-                func.index() as BinaryenIndex,
-            ))
-        };
+        let func_name = compute_func_name(func);
         // Create the appropriate type for return.
         let ret_tuple_ty = tys_to_binaryen(tys.iter().copied());
         let args = args.iter().map(|expr| expr.1).collect::<Vec<_>>();
         let expr = unsafe {
             BinaryenCall(
                 module.0,
-                func_name,
+                func_name.as_ptr(),
                 args.as_ptr(),
                 args.len() as BinaryenIndex,
                 ret_tuple_ty,
@@ -976,7 +949,6 @@ extern "C" {
         sourceMapUrl: *const c_char,
     ) -> BinaryenModuleAllocateAndWriteResult;
     fn BinaryenGetNumFunctions(ptr: BinaryenModule) -> u32;
-    fn BinaryenGetFunctionByIndex(ptr: BinaryenModule, index: u32) -> BinaryenFunction;
     fn BinaryenGetFunction(ptr: BinaryenModule, name: *const c_char) -> BinaryenFunction;
     fn BinaryenFunctionGetBody(ptr: BinaryenFunction) -> BinaryenExpression;
     fn BinaryenFunctionSetBody(ptr: BinaryenFunction, body: BinaryenExpression);
@@ -1010,6 +982,7 @@ extern "C" {
     fn BinaryenTypeFloat32() -> BinaryenType;
     fn BinaryenTypeFloat64() -> BinaryenType;
     fn BinaryenTypeVec128() -> BinaryenType;
+    fn BinaryenTypeFuncref() -> BinaryenType;
 
     fn BinaryenTypeCreate(tys: *const BinaryenType, n_tys: BinaryenIndex) -> BinaryenType;
 
@@ -1130,7 +1103,7 @@ extern "C" {
     ) -> BinaryenExpression;
     fn BinaryenTableSize(module: BinaryenModule, name: *const c_char) -> BinaryenExpression;
 
-    fn BinaryenAddFunc(
+    fn BinaryenAddFunction(
         module: BinaryenModule,
         name: *const c_char,
         params: BinaryenType,
@@ -1627,6 +1600,27 @@ extern "C" {
 
     fn BinaryenGlobalGetName(global: BinaryenGlobal) -> *const c_char;
     fn BinaryenGetGlobalByIndex(module: BinaryenModule, index: BinaryenIndex) -> BinaryenGlobal;
+
+    fn BinaryenAddTableExport(
+        module: BinaryenModule,
+        internal: *const c_char,
+        external: *const c_char,
+    );
+    fn BinaryenAddFunctionExport(
+        module: BinaryenModule,
+        internal: *const c_char,
+        external: *const c_char,
+    );
+    fn BinaryenAddGlobalExport(
+        module: BinaryenModule,
+        internal: *const c_char,
+        external: *const c_char,
+    );
+    fn BinaryenAddMemoryExport(
+        module: BinaryenModule,
+        internal: *const c_char,
+        external: *const c_char,
+    );
 }
 
 #[repr(C)]
