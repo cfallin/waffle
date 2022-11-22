@@ -16,4 +16,4 @@ pub mod passes;
 mod scoped_map;
 
 pub use ir::*;
-pub use ops::Operator;
+pub use ops::{Ieee32, Ieee64, Operator};

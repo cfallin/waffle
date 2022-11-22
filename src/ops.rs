@@ -1,13 +1,14 @@
 //! Operators.
 
-use wasmparser::{Ieee32, Ieee64, MemoryImmediate};
-
 use crate::{Func, Global, Local, Memory, Signature, Table, Type};
+use std::convert::TryFrom;
+use wasmparser::MemoryImmediate;
+pub use wasmparser::{Ieee32, Ieee64};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MemoryArg {
-    pub align: u8,
-    pub offset: u64,
+    pub align: u32,
+    pub offset: u32,
     pub memory: Memory,
 }
 
@@ -334,7 +335,9 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 local_index: Local::from(local_index),
             }),
             &wasmparser::Operator::Select => Ok(Operator::Select),
-            &wasmparser::Operator::TypedSelect { ty } => Ok(Operator::TypedSelect { ty: ty.into() }),
+            &wasmparser::Operator::TypedSelect { ty } => {
+                Ok(Operator::TypedSelect { ty: ty.into() })
+            }
             &wasmparser::Operator::GlobalGet { global_index } => Ok(Operator::GlobalGet {
                 global_index: Global::from(global_index),
             }),
@@ -576,8 +579,8 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
 impl std::convert::From<MemoryImmediate> for MemoryArg {
     fn from(value: MemoryImmediate) -> MemoryArg {
         MemoryArg {
-            align: value.align,
-            offset: value.offset,
+            align: value.align as u32,
+            offset: u32::try_from(value.offset).expect("offset too large"),
             memory: Memory::from(value.memory),
         }
     }

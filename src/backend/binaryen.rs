@@ -2,6 +2,7 @@
 
 use crate::entity::EntityRef;
 use crate::ir;
+use crate::{Ieee32, Ieee64};
 use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use libc::{c_char, c_void};
@@ -425,6 +426,59 @@ impl Expression {
         };
         Expression(module.0, expr)
     }
+
+    pub fn load(
+        module: &Module,
+        bytes: u8,
+        signed: bool,
+        offset: u32,
+        align: u32,
+        ty: ir::Type,
+        ptr: Expression,
+        mem: ir::Memory,
+    ) -> Expression {
+        assert_eq!(mem.index(), 0);
+        let ty = Type::from(ty).to_binaryen();
+        let expr =
+            unsafe { BinaryenLoad(module.0, bytes as u32, signed, offset, align, ty, ptr.1) };
+        Expression(module.0, expr)
+    }
+
+    pub fn store(
+        module: &Module,
+        bytes: u8,
+        offset: u32,
+        align: u32,
+        ty: ir::Type,
+        ptr: Expression,
+        value: Expression,
+        mem: ir::Memory,
+    ) -> Expression {
+        assert_eq!(mem.index(), 0);
+        let ty = Type::from(ty).to_binaryen();
+        let expr =
+            unsafe { BinaryenStore(module.0, bytes as u32, offset, align, ptr.1, value.1, ty) };
+        Expression(module.0, expr)
+    }
+
+    pub fn const_i32(module: &Module, value: i32) -> Expression {
+        let expr = unsafe { BinaryenConst(module.0, BinaryenLiteralInt32(value)) };
+        Expression(module.0, expr)
+    }
+    pub fn const_i64(module: &Module, value: i64) -> Expression {
+        let expr = unsafe { BinaryenConst(module.0, BinaryenLiteralInt64(value)) };
+        Expression(module.0, expr)
+    }
+    pub fn const_f32(module: &Module, value: Ieee32) -> Expression {
+        let expr =
+            unsafe { BinaryenConst(module.0, BinaryenLiteralFloat32Bits(value.bits() as i32)) };
+        Expression(module.0, expr)
+    }
+    pub fn const_f64(module: &Module, value: Ieee64) -> Expression {
+        let expr =
+            unsafe { BinaryenConst(module.0, BinaryenLiteralFloat64Bits(value.bits() as i64)) };
+        Expression(module.0, expr)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -782,6 +836,26 @@ extern "C" {
         param_type: BinaryenType,
         ret_type: BinaryenType,
     ) -> BinaryenExpression;
+    fn BinaryenLoad(
+        module: BinaryenModule,
+        bytes: u32,
+        signed: bool,
+        offset: u32,
+        align: u32,
+        ty: BinaryenType,
+        ptr: BinaryenExpression,
+    ) -> BinaryenExpression;
+    fn BinaryenStore(
+        module: BinaryenModule,
+        bytes: u32,
+        offset: u32,
+        align: u32,
+        ptr: BinaryenExpression,
+        value: BinaryenExpression,
+        ty: BinaryenType,
+    ) -> BinaryenExpression;
+    fn BinaryenMemorySize(module: BinaryenModule) -> BinaryenExpression;
+    fn BinaryenMemoryGrow(module: BinaryenModule, expr: BinaryenExpression) -> BinaryenExpression;
 
     fn BinaryenAddFunc(
         module: BinaryenModule,
