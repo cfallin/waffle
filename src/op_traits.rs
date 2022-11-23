@@ -448,219 +448,219 @@ pub enum SideEffect {
     Trap,
     ReadMem,
     WriteMem,
-    ReadGlobal(Global),
-    WriteGlobal(Global),
-    ReadTable(Table),
-    WriteTable(Table),
-    ReadLocal(Local),
-    WriteLocal(Local),
+    ReadGlobal,
+    WriteGlobal,
+    ReadTable,
+    WriteTable,
+    ReadLocal,
+    WriteLocal,
     Return,
     All,
 }
 
-pub fn op_effects(op: &Operator) -> Cow<'static, [SideEffect]> {
-    use SideEffect::*;
+impl Operator {
+    pub fn effects(&self) -> &'static [SideEffect] {
+        use SideEffect::*;
 
-    match op {
-        &Operator::Unreachable => Cow::Borrowed(&[Trap]),
-        &Operator::Nop => Cow::Borrowed(&[]),
+        match self {
+            &Operator::Unreachable => &[Trap],
+            &Operator::Nop => &[],
 
-        &Operator::Call { .. } => Cow::Borrowed(&[All]),
-        &Operator::CallIndirect { .. } => Cow::Borrowed(&[All]),
-        &Operator::Return => Cow::Borrowed(&[Return]),
-        &Operator::LocalSet { local_index, .. } => vec![WriteLocal(local_index)].into(),
-        &Operator::LocalGet { local_index, .. } => vec![ReadLocal(local_index)].into(),
-        &Operator::LocalTee { local_index, .. } => {
-            vec![ReadLocal(local_index), WriteLocal(local_index)].into()
+            &Operator::Call { .. } => &[All],
+            &Operator::CallIndirect { .. } => &[All],
+            &Operator::Return => &[Return],
+            &Operator::LocalSet { .. } => &[WriteLocal],
+            &Operator::LocalGet { .. } => &[ReadLocal],
+            &Operator::LocalTee { .. } => &[ReadLocal, WriteLocal],
+
+            &Operator::Select => &[],
+            &Operator::TypedSelect { .. } => &[],
+            &Operator::GlobalGet { .. } => &[ReadGlobal],
+            &Operator::GlobalSet { .. } => &[WriteGlobal],
+
+            Operator::I32Load { .. }
+            | Operator::I32Load8S { .. }
+            | Operator::I32Load8U { .. }
+            | Operator::I32Load16S { .. }
+            | Operator::I32Load16U { .. }
+            | Operator::I64Load { .. }
+            | Operator::I64Load8S { .. }
+            | Operator::I64Load8U { .. }
+            | Operator::I64Load16S { .. }
+            | Operator::I64Load16U { .. }
+            | Operator::I64Load32S { .. }
+            | Operator::I64Load32U { .. }
+            | Operator::F32Load { .. }
+            | Operator::F64Load { .. } => &[Trap, ReadMem],
+
+            Operator::I32Store { .. }
+            | Operator::I64Store { .. }
+            | Operator::F32Store { .. }
+            | Operator::F64Store { .. }
+            | Operator::I32Store8 { .. }
+            | Operator::I32Store16 { .. }
+            | Operator::I64Store8 { .. }
+            | Operator::I64Store16 { .. }
+            | Operator::I64Store32 { .. } => &[Trap, WriteMem],
+
+            Operator::I32Const { .. }
+            | Operator::I64Const { .. }
+            | Operator::F32Const { .. }
+            | Operator::F64Const { .. } => &[],
+
+            Operator::I32Eqz
+            | Operator::I32Eq
+            | Operator::I32Ne
+            | Operator::I32LtS
+            | Operator::I32LtU
+            | Operator::I32GtS
+            | Operator::I32GtU
+            | Operator::I32LeS
+            | Operator::I32LeU
+            | Operator::I32GeS
+            | Operator::I32GeU
+            | Operator::I64Eqz
+            | Operator::I64Eq
+            | Operator::I64Ne
+            | Operator::I64LtS
+            | Operator::I64LtU
+            | Operator::I64GtU
+            | Operator::I64GtS
+            | Operator::I64LeS
+            | Operator::I64LeU
+            | Operator::I64GeS
+            | Operator::I64GeU
+            | Operator::F32Eq
+            | Operator::F32Ne
+            | Operator::F32Lt
+            | Operator::F32Gt
+            | Operator::F32Le
+            | Operator::F32Ge
+            | Operator::F64Eq
+            | Operator::F64Ne
+            | Operator::F64Lt
+            | Operator::F64Gt
+            | Operator::F64Le
+            | Operator::F64Ge => &[],
+
+            Operator::I32Clz
+            | Operator::I32Ctz
+            | Operator::I32Popcnt
+            | Operator::I32Add
+            | Operator::I32Sub
+            | Operator::I32Mul
+            | Operator::I32And
+            | Operator::I32Or
+            | Operator::I32Xor
+            | Operator::I32Shl
+            | Operator::I32ShrS
+            | Operator::I32ShrU
+            | Operator::I32Rotl
+            | Operator::I32Rotr => &[],
+
+            Operator::I32DivS | Operator::I32DivU | Operator::I32RemS | Operator::I32RemU => {
+                &[Trap]
+            }
+
+            Operator::I64Clz
+            | Operator::I64Ctz
+            | Operator::I64Popcnt
+            | Operator::I64Add
+            | Operator::I64Sub
+            | Operator::I64Mul
+            | Operator::I64And
+            | Operator::I64Or
+            | Operator::I64Xor
+            | Operator::I64Shl
+            | Operator::I64ShrS
+            | Operator::I64ShrU
+            | Operator::I64Rotl
+            | Operator::I64Rotr => &[],
+
+            Operator::I64DivS | Operator::I64DivU | Operator::I64RemS | Operator::I64RemU => {
+                &[Trap]
+            }
+
+            Operator::F32Abs
+            | Operator::F32Neg
+            | Operator::F32Ceil
+            | Operator::F32Floor
+            | Operator::F32Trunc
+            | Operator::F32Nearest
+            | Operator::F32Sqrt
+            | Operator::F32Add
+            | Operator::F32Sub
+            | Operator::F32Mul
+            | Operator::F32Div
+            | Operator::F32Min
+            | Operator::F32Max
+            | Operator::F32Copysign => &[],
+
+            Operator::F64Abs
+            | Operator::F64Neg
+            | Operator::F64Ceil
+            | Operator::F64Floor
+            | Operator::F64Trunc
+            | Operator::F64Nearest
+            | Operator::F64Sqrt
+            | Operator::F64Add
+            | Operator::F64Sub
+            | Operator::F64Mul
+            | Operator::F64Div
+            | Operator::F64Min
+            | Operator::F64Max
+            | Operator::F64Copysign => &[],
+
+            Operator::I32WrapI64 => &[],
+            Operator::I32TruncF32S => &[Trap],
+            Operator::I32TruncF32U => &[Trap],
+            Operator::I32TruncF64S => &[Trap],
+            Operator::I32TruncF64U => &[Trap],
+            Operator::I64ExtendI32S => &[],
+            Operator::I64ExtendI32U => &[],
+            Operator::I64TruncF32S => &[Trap],
+            Operator::I64TruncF32U => &[Trap],
+            Operator::I64TruncF64S => &[Trap],
+            Operator::I64TruncF64U => &[Trap],
+            Operator::F32ConvertI32S => &[],
+            Operator::F32ConvertI32U => &[],
+            Operator::F32ConvertI64S => &[],
+            Operator::F32ConvertI64U => &[],
+            Operator::F32DemoteF64 => &[],
+            Operator::F64ConvertI32S => &[],
+            Operator::F64ConvertI32U => &[],
+            Operator::F64ConvertI64S => &[],
+            Operator::F64ConvertI64U => &[],
+            Operator::F64PromoteF32 => &[],
+            Operator::I32Extend8S => &[],
+            Operator::I32Extend16S => &[],
+            Operator::I64Extend8S => &[],
+            Operator::I64Extend16S => &[],
+            Operator::I64Extend32S => &[],
+            Operator::I32TruncSatF32S => &[],
+            Operator::I32TruncSatF32U => &[],
+            Operator::I32TruncSatF64S => &[],
+            Operator::I32TruncSatF64U => &[],
+            Operator::I64TruncSatF32S => &[],
+            Operator::I64TruncSatF32U => &[],
+            Operator::I64TruncSatF64S => &[],
+            Operator::I64TruncSatF64U => &[],
+            Operator::F32ReinterpretI32 => &[],
+            Operator::F64ReinterpretI64 => &[],
+            Operator::I32ReinterpretF32 => &[],
+            Operator::I64ReinterpretF64 => &[],
+            Operator::TableGet { .. } => &[ReadTable, Trap],
+            Operator::TableSet { .. } => &[WriteTable, Trap],
+            Operator::TableGrow { .. } => &[WriteTable, Trap],
+            Operator::TableSize { .. } => &[ReadTable],
+            Operator::MemorySize { .. } => &[ReadMem],
+            Operator::MemoryGrow { .. } => &[WriteMem, Trap],
         }
-
-        &Operator::Select => Cow::Borrowed(&[]),
-        &Operator::TypedSelect { .. } => Cow::Borrowed(&[]),
-        &Operator::GlobalGet { global_index, .. } => vec![ReadGlobal(global_index)].into(),
-        &Operator::GlobalSet { global_index, .. } => vec![WriteGlobal(global_index)].into(),
-
-        Operator::I32Load { .. }
-        | Operator::I32Load8S { .. }
-        | Operator::I32Load8U { .. }
-        | Operator::I32Load16S { .. }
-        | Operator::I32Load16U { .. }
-        | Operator::I64Load { .. }
-        | Operator::I64Load8S { .. }
-        | Operator::I64Load8U { .. }
-        | Operator::I64Load16S { .. }
-        | Operator::I64Load16U { .. }
-        | Operator::I64Load32S { .. }
-        | Operator::I64Load32U { .. }
-        | Operator::F32Load { .. }
-        | Operator::F64Load { .. } => Cow::Borrowed(&[Trap, ReadMem]),
-
-        Operator::I32Store { .. }
-        | Operator::I64Store { .. }
-        | Operator::F32Store { .. }
-        | Operator::F64Store { .. }
-        | Operator::I32Store8 { .. }
-        | Operator::I32Store16 { .. }
-        | Operator::I64Store8 { .. }
-        | Operator::I64Store16 { .. }
-        | Operator::I64Store32 { .. } => Cow::Borrowed(&[Trap, WriteMem]),
-
-        Operator::I32Const { .. }
-        | Operator::I64Const { .. }
-        | Operator::F32Const { .. }
-        | Operator::F64Const { .. } => Cow::Borrowed(&[]),
-
-        Operator::I32Eqz
-        | Operator::I32Eq
-        | Operator::I32Ne
-        | Operator::I32LtS
-        | Operator::I32LtU
-        | Operator::I32GtS
-        | Operator::I32GtU
-        | Operator::I32LeS
-        | Operator::I32LeU
-        | Operator::I32GeS
-        | Operator::I32GeU
-        | Operator::I64Eqz
-        | Operator::I64Eq
-        | Operator::I64Ne
-        | Operator::I64LtS
-        | Operator::I64LtU
-        | Operator::I64GtU
-        | Operator::I64GtS
-        | Operator::I64LeS
-        | Operator::I64LeU
-        | Operator::I64GeS
-        | Operator::I64GeU
-        | Operator::F32Eq
-        | Operator::F32Ne
-        | Operator::F32Lt
-        | Operator::F32Gt
-        | Operator::F32Le
-        | Operator::F32Ge
-        | Operator::F64Eq
-        | Operator::F64Ne
-        | Operator::F64Lt
-        | Operator::F64Gt
-        | Operator::F64Le
-        | Operator::F64Ge => Cow::Borrowed(&[]),
-
-        Operator::I32Clz
-        | Operator::I32Ctz
-        | Operator::I32Popcnt
-        | Operator::I32Add
-        | Operator::I32Sub
-        | Operator::I32Mul
-        | Operator::I32And
-        | Operator::I32Or
-        | Operator::I32Xor
-        | Operator::I32Shl
-        | Operator::I32ShrS
-        | Operator::I32ShrU
-        | Operator::I32Rotl
-        | Operator::I32Rotr => Cow::Borrowed(&[]),
-
-        Operator::I32DivS | Operator::I32DivU | Operator::I32RemS | Operator::I32RemU => {
-            Cow::Borrowed(&[Trap])
-        }
-
-        Operator::I64Clz
-        | Operator::I64Ctz
-        | Operator::I64Popcnt
-        | Operator::I64Add
-        | Operator::I64Sub
-        | Operator::I64Mul
-        | Operator::I64And
-        | Operator::I64Or
-        | Operator::I64Xor
-        | Operator::I64Shl
-        | Operator::I64ShrS
-        | Operator::I64ShrU
-        | Operator::I64Rotl
-        | Operator::I64Rotr => Cow::Borrowed(&[]),
-
-        Operator::I64DivS | Operator::I64DivU | Operator::I64RemS | Operator::I64RemU => {
-            Cow::Borrowed(&[Trap])
-        }
-
-        Operator::F32Abs
-        | Operator::F32Neg
-        | Operator::F32Ceil
-        | Operator::F32Floor
-        | Operator::F32Trunc
-        | Operator::F32Nearest
-        | Operator::F32Sqrt
-        | Operator::F32Add
-        | Operator::F32Sub
-        | Operator::F32Mul
-        | Operator::F32Div
-        | Operator::F32Min
-        | Operator::F32Max
-        | Operator::F32Copysign => Cow::Borrowed(&[]),
-
-        Operator::F64Abs
-        | Operator::F64Neg
-        | Operator::F64Ceil
-        | Operator::F64Floor
-        | Operator::F64Trunc
-        | Operator::F64Nearest
-        | Operator::F64Sqrt
-        | Operator::F64Add
-        | Operator::F64Sub
-        | Operator::F64Mul
-        | Operator::F64Div
-        | Operator::F64Min
-        | Operator::F64Max
-        | Operator::F64Copysign => Cow::Borrowed(&[]),
-
-        Operator::I32WrapI64 => Cow::Borrowed(&[]),
-        Operator::I32TruncF32S => Cow::Borrowed(&[Trap]),
-        Operator::I32TruncF32U => Cow::Borrowed(&[Trap]),
-        Operator::I32TruncF64S => Cow::Borrowed(&[Trap]),
-        Operator::I32TruncF64U => Cow::Borrowed(&[Trap]),
-        Operator::I64ExtendI32S => Cow::Borrowed(&[]),
-        Operator::I64ExtendI32U => Cow::Borrowed(&[]),
-        Operator::I64TruncF32S => Cow::Borrowed(&[Trap]),
-        Operator::I64TruncF32U => Cow::Borrowed(&[Trap]),
-        Operator::I64TruncF64S => Cow::Borrowed(&[Trap]),
-        Operator::I64TruncF64U => Cow::Borrowed(&[Trap]),
-        Operator::F32ConvertI32S => Cow::Borrowed(&[]),
-        Operator::F32ConvertI32U => Cow::Borrowed(&[]),
-        Operator::F32ConvertI64S => Cow::Borrowed(&[]),
-        Operator::F32ConvertI64U => Cow::Borrowed(&[]),
-        Operator::F32DemoteF64 => Cow::Borrowed(&[]),
-        Operator::F64ConvertI32S => Cow::Borrowed(&[]),
-        Operator::F64ConvertI32U => Cow::Borrowed(&[]),
-        Operator::F64ConvertI64S => Cow::Borrowed(&[]),
-        Operator::F64ConvertI64U => Cow::Borrowed(&[]),
-        Operator::F64PromoteF32 => Cow::Borrowed(&[]),
-        Operator::I32Extend8S => Cow::Borrowed(&[]),
-        Operator::I32Extend16S => Cow::Borrowed(&[]),
-        Operator::I64Extend8S => Cow::Borrowed(&[]),
-        Operator::I64Extend16S => Cow::Borrowed(&[]),
-        Operator::I64Extend32S => Cow::Borrowed(&[]),
-        Operator::I32TruncSatF32S => Cow::Borrowed(&[]),
-        Operator::I32TruncSatF32U => Cow::Borrowed(&[]),
-        Operator::I32TruncSatF64S => Cow::Borrowed(&[]),
-        Operator::I32TruncSatF64U => Cow::Borrowed(&[]),
-        Operator::I64TruncSatF32S => Cow::Borrowed(&[]),
-        Operator::I64TruncSatF32U => Cow::Borrowed(&[]),
-        Operator::I64TruncSatF64S => Cow::Borrowed(&[]),
-        Operator::I64TruncSatF64U => Cow::Borrowed(&[]),
-        Operator::F32ReinterpretI32 => Cow::Borrowed(&[]),
-        Operator::F64ReinterpretI64 => Cow::Borrowed(&[]),
-        Operator::I32ReinterpretF32 => Cow::Borrowed(&[]),
-        Operator::I64ReinterpretF64 => Cow::Borrowed(&[]),
-        Operator::TableGet { table_index, .. } => vec![ReadTable(*table_index), Trap].into(),
-        Operator::TableSet { table_index, .. } => vec![WriteTable(*table_index), Trap].into(),
-        Operator::TableGrow { table_index, .. } => vec![WriteTable(*table_index), Trap].into(),
-        Operator::TableSize { table_index, .. } => vec![ReadTable(*table_index)].into(),
-        Operator::MemorySize { .. } => Cow::Borrowed(&[ReadMem]),
-        Operator::MemoryGrow { .. } => Cow::Borrowed(&[WriteMem, Trap]),
     }
-}
 
-pub fn is_pure(op: &Operator) -> bool {
-    op_effects(op).is_empty()
+    pub fn is_pure(&self) -> bool {
+        self.effects().is_empty()
+    }
 }
 
 impl std::fmt::Display for Operator {

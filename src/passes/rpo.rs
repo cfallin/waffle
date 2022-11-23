@@ -131,15 +131,17 @@ impl RPO {
         postorder.push(block);
     }
 
-    fn map_block(&self, block: Block) -> Block {
-        Block::new(self.rev[block].unwrap().index())
+    fn map_block(&self, block: Block) -> Option<Block> {
+        Some(Block::new(self.rev[block]?.index()))
     }
 }
 
 pub fn run(body: &mut FunctionBody) {
     let rpo = RPO::compute(body);
     // Remap entry block.
-    body.entry = rpo.map_block(body.entry);
+    body.entry = rpo
+        .map_block(body.entry)
+        .expect("Entry block must be in RPO sequence");
     // Reorder blocks.
     let mut block_data = std::mem::take(&mut body.blocks).into_vec();
     let mut new_block_data = vec![];
@@ -150,13 +152,23 @@ pub fn run(body: &mut FunctionBody) {
     // Rewrite references in each terminator, pred and succ list.
     for block in body.blocks.values_mut() {
         block.terminator.update_targets(|target| {
-            target.block = rpo.map_block(target.block);
+            target.block = rpo
+                .map_block(target.block)
+                .expect("Target of reachable block must be reachable");
         });
-        for pred in &mut block.preds {
-            *pred = rpo.map_block(*pred);
-        }
+        block.preds.retain_mut(|pred| {
+            if let Some(new_pred) = rpo.map_block(*pred) {
+                *pred = new_pred;
+                true
+            } else {
+                // Some preds may be unreachable, so are not in RPO.
+                false
+            }
+        });
         for succ in &mut block.succs {
-            *succ = rpo.map_block(*succ);
+            *succ = rpo
+                .map_block(*succ)
+                .expect("Succ of reachable block must be reachable");
         }
     }
 }

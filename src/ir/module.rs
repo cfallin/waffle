@@ -226,8 +226,14 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        let module = backend::lower::lower(self)?;
-        module.write()
+        for func_decl in self.funcs.values() {
+            if let Some(body) = func_decl.body() {
+                let comp = backend::WasmBackend::new(body)?;
+                let _ = comp.compile()?;
+            }
+        }
+
+        Ok(vec![])
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>

@@ -2,7 +2,6 @@
 
 use crate::cfg::CFGInfo;
 use crate::ir::*;
-use crate::op_traits::is_pure;
 use crate::passes::dom_pass::{dom_pass, DomtreePass};
 use crate::scoped_map::ScopedMap;
 use crate::Operator;
@@ -29,7 +28,7 @@ impl DomtreePass for GVNPass {
 
 fn value_is_pure(value: Value, body: &FunctionBody) -> bool {
     match body.values[value] {
-        ValueDef::Operator(op, ..) if is_pure(&op) => true,
+        ValueDef::Operator(op, ..) if op.is_pure() => true,
         _ => false,
     }
 }

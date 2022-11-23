@@ -16,6 +16,7 @@ pub trait EntityRef: Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Hash {
     fn is_invalid(self) -> bool {
         self == Self::invalid()
     }
+    fn maybe_index(self) -> Option<usize>;
 }
 
 #[macro_export]
@@ -32,7 +33,15 @@ macro_rules! declare_entity {
                 Self(value)
             }
             fn index(self) -> usize {
+                debug_assert!(self.is_valid());
                 self.0 as usize
+            }
+            fn maybe_index(self) -> Option<usize> {
+                if self.is_valid() {
+                    Some(self.0 as usize)
+                } else {
+                    None
+                }
             }
             fn invalid() -> Self {
                 Self(u32::MAX)
