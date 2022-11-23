@@ -204,7 +204,7 @@ impl GVNPass {
                     match const_val {
                         Some(ConstVal::I32(val)) => {
                             value = ValueDef::Operator(
-                                Operator::I32Const { value: val as i32 },
+                                Operator::I32Const { value: val },
                                 vec![],
                                 vec![Type::I32],
                             );
@@ -212,7 +212,7 @@ impl GVNPass {
                         }
                         Some(ConstVal::I64(val)) => {
                             value = ValueDef::Operator(
-                                Operator::I64Const { value: val as i64 },
+                                Operator::I64Const { value: val },
                                 vec![],
                                 vec![Type::I64],
                             );

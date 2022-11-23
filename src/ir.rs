@@ -11,15 +11,15 @@ pub enum Type {
     V128,
     FuncRef,
 }
-impl From<wasmparser::Type> for Type {
-    fn from(ty: wasmparser::Type) -> Self {
+impl From<wasmparser::ValType> for Type {
+    fn from(ty: wasmparser::ValType) -> Self {
         match ty {
-            wasmparser::Type::I32 => Type::I32,
-            wasmparser::Type::I64 => Type::I64,
-            wasmparser::Type::F32 => Type::F32,
-            wasmparser::Type::F64 => Type::F64,
-            wasmparser::Type::V128 => Type::V128,
-            wasmparser::Type::FuncRef => Type::FuncRef,
+            wasmparser::ValType::I32 => Type::I32,
+            wasmparser::ValType::I64 => Type::I64,
+            wasmparser::ValType::F32 => Type::F32,
+            wasmparser::ValType::F64 => Type::F64,
+            wasmparser::ValType::V128 => Type::V128,
+            wasmparser::ValType::FuncRef => Type::FuncRef,
             _ => panic!("Unsupported type: {:?}", ty),
         }
     }

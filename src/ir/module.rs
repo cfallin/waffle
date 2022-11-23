@@ -53,12 +53,12 @@ impl From<&wasmparser::FuncType> for SignatureData {
     fn from(fty: &wasmparser::FuncType) -> Self {
         Self {
             params: fty
-                .params
+                .params()
                 .iter()
                 .map(|&ty| ty.into())
                 .collect::<Vec<Type>>(),
             returns: fty
-                .returns
+                .results()
                 .iter()
                 .map(|&ty| ty.into())
                 .collect::<Vec<Type>>(),

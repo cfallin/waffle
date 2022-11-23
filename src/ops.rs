@@ -2,7 +2,6 @@
 
 use crate::{Func, Global, Local, Memory, Signature, Table, Type};
 use std::convert::TryFrom;
-use wasmparser::MemoryImmediate;
 pub use wasmparser::{Ieee32, Ieee64};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -127,16 +126,16 @@ pub enum Operator {
     },
 
     I32Const {
-        value: i32,
+        value: u32,
     },
     I64Const {
-        value: i64,
+        value: u64,
     },
     F32Const {
-        value: Ieee32,
+        value: u32,
     },
     F64Const {
-        value: Ieee64,
+        value: u64,
     },
 
     I32Eqz,
@@ -319,9 +318,11 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 function_index: Func::from(function_index),
             }),
             &wasmparser::Operator::CallIndirect {
-                index, table_index, ..
+                type_index,
+                table_index,
+                ..
             } => Ok(Operator::CallIndirect {
-                sig_index: Signature::from(index),
+                sig_index: Signature::from(type_index),
                 table_index: Table::from(table_index),
             }),
             &wasmparser::Operator::Return => Ok(Operator::Return),
@@ -413,10 +414,18 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
             &wasmparser::Operator::I64Store32 { memarg } => Ok(Operator::I64Store32 {
                 memory: memarg.into(),
             }),
-            &wasmparser::Operator::I32Const { value } => Ok(Operator::I32Const { value }),
-            &wasmparser::Operator::I64Const { value } => Ok(Operator::I64Const { value }),
-            &wasmparser::Operator::F32Const { value } => Ok(Operator::F32Const { value }),
-            &wasmparser::Operator::F64Const { value } => Ok(Operator::F64Const { value }),
+            &wasmparser::Operator::I32Const { value } => Ok(Operator::I32Const {
+                value: value as u32,
+            }),
+            &wasmparser::Operator::I64Const { value } => Ok(Operator::I64Const {
+                value: value as u64,
+            }),
+            &wasmparser::Operator::F32Const { value } => Ok(Operator::F32Const {
+                value: value.bits(),
+            }),
+            &wasmparser::Operator::F64Const { value } => Ok(Operator::F64Const {
+                value: value.bits(),
+            }),
             &wasmparser::Operator::I32Eqz => Ok(Operator::I32Eqz),
             &wasmparser::Operator::I32Eq => Ok(Operator::I32Eq),
             &wasmparser::Operator::I32Ne => Ok(Operator::I32Ne),
@@ -576,8 +585,8 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
     }
 }
 
-impl std::convert::From<MemoryImmediate> for MemoryArg {
-    fn from(value: MemoryImmediate) -> MemoryArg {
+impl std::convert::From<wasmparser::MemArg> for MemoryArg {
+    fn from(value: wasmparser::MemArg) -> MemoryArg {
         MemoryArg {
             align: value.align as u32,
             offset: u32::try_from(value.offset).expect("offset too large"),

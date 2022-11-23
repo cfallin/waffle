@@ -1,7 +1,7 @@
 //! Metadata on operators.
 
 use crate::entity::EntityVec;
-use crate::ir::{Global, Local, Module, Signature, Table, Type, Value};
+use crate::ir::{Local, Module, Signature, Type, Value};
 use crate::Operator;
 use anyhow::Result;
 use std::borrow::Cow;
@@ -711,8 +711,8 @@ impl std::fmt::Display for Operator {
 
             Operator::I32Const { value } => write!(f, "i32const<{}>", value)?,
             Operator::I64Const { value } => write!(f, "i64const<{}>", value)?,
-            Operator::F32Const { value } => write!(f, "f32const<{}>", value.bits())?,
-            Operator::F64Const { value } => write!(f, "f64const<{}>", value.bits())?,
+            Operator::F32Const { value } => write!(f, "f32const<{}>", value)?,
+            Operator::F64Const { value } => write!(f, "f64const<{}>", value)?,
 
             Operator::I32Eqz => write!(f, "i32eqz")?,
             Operator::I32Eq => write!(f, "i32eq")?,

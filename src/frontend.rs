@@ -10,10 +10,7 @@ use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
 use std::convert::TryFrom;
-use wasmparser::{
-    DataKind, ExternalKind, Ieee32, Ieee64, ImportSectionEntryType, Parser, Payload, TypeDef,
-    TypeOrFuncType,
-};
+use wasmparser::{BlockType, DataKind, ExternalKind, Parser, Payload, TypeRef};
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::with_orig_bytes(bytes);
@@ -27,7 +24,7 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     Ok(module)
 }
 
-fn parse_init_expr<'a>(init_expr: &wasmparser::InitExpr<'a>) -> Result<Option<u64>> {
+fn parse_init_expr<'a>(init_expr: &wasmparser::ConstExpr<'a>) -> Result<Option<u64>> {
     let operators = init_expr
         .get_operators_reader()
         .into_iter()
@@ -60,24 +57,23 @@ fn handle_payload<'a>(
         Payload::TypeSection(reader) => {
             for ty in reader {
                 let ty = ty?;
-                if let TypeDef::Func(fty) = ty {
-                    module.frontend_add_signature(fty.into());
-                }
+                let wasmparser::Type::Func(fty) = ty;
+                module.frontend_add_signature(fty.into());
             }
         }
         Payload::ImportSection(reader) => {
             for import in reader {
                 let import = import?;
                 let module_name = import.module.to_owned();
-                let name = import.field.unwrap_or("").to_owned();
+                let name = import.name.to_owned();
                 let kind = match import.ty {
-                    ImportSectionEntryType::Function(sig_idx) => {
+                    TypeRef::Func(sig_idx) => {
                         let func =
                             module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
                         *next_func += 1;
                         Some(ImportKind::Func(func))
                     }
-                    ImportSectionEntryType::Global(ty) => {
+                    TypeRef::Global(ty) => {
                         let mutable = ty.mutable;
                         let ty = ty.content_type.into();
                         let global = module.frontend_add_global(GlobalData {
@@ -87,7 +83,7 @@ fn handle_payload<'a>(
                         });
                         Some(ImportKind::Global(global))
                     }
-                    ImportSectionEntryType::Table(ty) => {
+                    TypeRef::Table(ty) => {
                         let table = module.frontend_add_table(ty.element_type.into(), None);
                         Some(ImportKind::Table(table))
                     }
@@ -140,9 +136,9 @@ fn handle_payload<'a>(
         Payload::ExportSection(reader) => {
             for export in reader {
                 let export = export?;
-                let name = export.field.to_owned();
+                let name = export.name.to_owned();
                 let kind = match export.kind {
-                    ExternalKind::Function => Some(ExportKind::Func(Func::from(export.index))),
+                    ExternalKind::Func => Some(ExportKind::Func(Func::from(export.index))),
                     ExternalKind::Table => Some(ExportKind::Table(Table::from(export.index))),
                     ExternalKind::Global => Some(ExportKind::Global(Global::from(export.index))),
                     ExternalKind::Memory => Some(ExportKind::Memory(Memory::from(export.index))),
@@ -170,11 +166,11 @@ fn handle_payload<'a>(
                     DataKind::Passive => {}
                     DataKind::Active {
                         memory_index,
-                        init_expr,
+                        offset_expr,
                     } => {
                         let data = segment.data.to_vec();
                         let memory = Memory::from(*memory_index);
-                        let offset = parse_init_expr(init_expr)?.unwrap_or(0) as usize;
+                        let offset = parse_init_expr(offset_expr)?.unwrap_or(0) as usize;
                         module
                             .memory_mut(memory)
                             .segments
@@ -189,7 +185,7 @@ fn handle_payload<'a>(
         Payload::ElementSection(reader) => {
             for element in reader {
                 let element = element?;
-                if element.ty != wasmparser::Type::FuncRef {
+                if element.ty != wasmparser::ValType::FuncRef {
                     anyhow::bail!("Unsupported table type: {:?}", element.ty);
                 }
                 match &element.kind {
@@ -197,10 +193,10 @@ fn handle_payload<'a>(
                     wasmparser::ElementKind::Declared => {}
                     wasmparser::ElementKind::Active {
                         table_index,
-                        init_expr,
+                        offset_expr,
                     } => {
                         let table = Table::from(*table_index);
-                        let offset = parse_init_expr(&init_expr)?.unwrap_or(0) as usize;
+                        let offset = parse_init_expr(&offset_expr)?.unwrap_or(0) as usize;
                         let items = element
                             .items
                             .get_items_reader()?
@@ -224,7 +220,7 @@ fn handle_payload<'a>(
                 }
             }
         }
-        Payload::End => {}
+        Payload::End(_) => {}
         payload => {
             log::warn!("Skipping section: {:?}", payload);
         }
@@ -453,16 +449,12 @@ impl LocalTracker {
                 vec![ty],
             )),
             Type::F32 => body.add_value(ValueDef::Operator(
-                Operator::F32Const {
-                    value: Ieee32::from_bits(0),
-                },
+                Operator::F32Const { value: 0 },
                 vec![],
                 vec![ty],
             )),
             Type::F64 => body.add_value(ValueDef::Operator(
-                Operator::F64Const {
-                    value: Ieee64::from_bits(0),
-                },
+                Operator::F64Const { value: 0 },
                 vec![],
                 vec![ty],
             )),
@@ -1021,8 +1013,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 }
             }
 
-            wasmparser::Operator::Block { ty } => {
-                let (params, results) = self.block_params_and_results(*ty);
+            wasmparser::Operator::Block { blockty } => {
+                let (params, results) = self.block_params_and_results(*blockty);
                 let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
                 let start_depth = self.op_stack.len() - params.len();
@@ -1034,8 +1026,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 });
             }
 
-            wasmparser::Operator::Loop { ty } => {
-                let (params, results) = self.block_params_and_results(*ty);
+            wasmparser::Operator::Loop { blockty } => {
+                let (params, results) = self.block_params_and_results(*blockty);
                 let header = self.body.add_block();
                 self.add_block_params(header, &params[..]);
                 let initial_args = self.pop_n(params.len());
@@ -1055,8 +1047,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 });
             }
 
-            wasmparser::Operator::If { ty } => {
-                let (params, results) = self.block_params_and_results(*ty);
+            wasmparser::Operator::If { blockty } => {
+                let (params, results) = self.block_params_and_results(*blockty);
                 let if_true = self.body.add_block();
                 let if_false = self.body.add_block();
                 let join = self.body.add_block();
@@ -1140,20 +1132,20 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 }
             }
 
-            wasmparser::Operator::BrTable { table } => {
+            wasmparser::Operator::BrTable { targets } => {
                 // Get the selector index.
                 let index = self.pop_1();
                 // Get the signature of the default frame; this tells
                 // us the signature of all frames (since wasmparser
                 // validates the input for us). Pop that many args.
-                let default_frame = self.relative_frame(table.default());
+                let default_frame = self.relative_frame(targets.default());
                 let default_term_target = default_frame.br_target();
                 let arg_len = default_frame.br_args().len();
                 let args = self.pop_n(arg_len);
                 // Generate a branch terminator with the same args for
                 // every branch target.
                 let mut term_targets = vec![];
-                for target in table.targets() {
+                for target in targets.targets() {
                     let target = target?;
                     let frame = self.relative_frame(target);
                     assert_eq!(frame.br_args().len(), args.len());
@@ -1181,11 +1173,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn block_params_and_results(&self, ty: TypeOrFuncType) -> (Vec<Type>, Vec<Type>) {
+    fn block_params_and_results(&self, ty: BlockType) -> (Vec<Type>, Vec<Type>) {
         match ty {
-            TypeOrFuncType::Type(wasmparser::Type::EmptyBlockType) => (vec![], vec![]),
-            TypeOrFuncType::Type(ret_ty) => (vec![], vec![ret_ty.into()]),
-            TypeOrFuncType::FuncType(sig_idx) => {
+            BlockType::Empty => (vec![], vec![]),
+            BlockType::Type(ret_ty) => (vec![], vec![ret_ty.into()]),
+            BlockType::FuncType(sig_idx) => {
                 let sig = &self.module.signature(Signature::from(sig_idx));
                 (
                     Vec::from(sig.params.clone()),
