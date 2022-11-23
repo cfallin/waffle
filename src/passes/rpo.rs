@@ -44,19 +44,19 @@ use std::collections::{HashMap, HashSet};
 declare_entity!(RPOIndex, "rpo");
 
 impl RPOIndex {
-    fn prev(self) -> RPOIndex {
+    pub fn prev(self) -> RPOIndex {
         RPOIndex::from(self.0.checked_sub(1).unwrap())
     }
 }
 
 #[derive(Clone, Debug, Default)]
-struct RPO {
-    order: EntityVec<RPOIndex, Block>,
-    rev: PerEntity<Block, Option<RPOIndex>>,
+pub struct RPO {
+    pub order: EntityVec<RPOIndex, Block>,
+    pub rev: PerEntity<Block, Option<RPOIndex>>,
 }
 
 impl RPO {
-    fn compute(body: &FunctionBody) -> RPO {
+    pub fn compute(body: &FunctionBody) -> RPO {
         let mut postorder = vec![];
         let mut visited = HashSet::new();
         let mut pending = vec![];
