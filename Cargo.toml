@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 wasmparser = "0.95"
+wasm-encoder = "0.20"
 anyhow = "1.0"
 structopt = "0.3"
 log = "0.4"
