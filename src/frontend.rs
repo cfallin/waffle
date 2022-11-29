@@ -1173,7 +1173,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let (params, results) = self.block_params_and_results(*blockty);
                 let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
-                let start_depth = self.op_stack.len() - params.len();
+                let start_depth = self.op_stack.len().saturating_sub(params.len());
                 self.ctrl_stack.push(Frame::Block {
                     start_depth,
                     out,
@@ -1187,7 +1187,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let (params, results) = self.block_params_and_results(*blockty);
                 let header = self.body.add_block();
                 self.add_block_params(header, &params[..]);
-                let initial_args = self.pop_n(params.len());
+                let initial_args = if self.reachable {
+                    self.pop_n(params.len())
+                } else {
+                    self.op_stack
+                        .truncate(self.op_stack.len().saturating_sub(params.len()));
+                    vec![Value::invalid(); params.len()]
+                };
                 let start_depth = self.op_stack.len();
                 self.emit_branch(header, &initial_args[..]);
                 self.cur_block = header;
@@ -1210,9 +1216,17 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let if_false = self.body.add_block();
                 let join = self.body.add_block();
                 self.add_block_params(join, &results[..]);
-                let cond = self.pop_1();
-                let param_values = self.op_stack[self.op_stack.len() - params.len()..].to_vec();
-                let start_depth = self.op_stack.len() - params.len();
+                let (cond, param_values) = if self.reachable {
+                    let cond = self.pop_1();
+                    let param_values = self.op_stack[self.op_stack.len() - params.len()..].to_vec();
+                    (cond, param_values)
+                } else {
+                    (
+                        Value::invalid(),
+                        params.iter().map(|&ty| (ty, Value::invalid())).collect(),
+                    )
+                };
+                let start_depth = self.op_stack.len().saturating_sub(params.len());
                 self.ctrl_stack.push(Frame::If {
                     start_depth,
                     out: join,
