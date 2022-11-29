@@ -1316,14 +1316,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn emit(&mut self, op: Operator) -> Result<()> {
-        let inputs = op_inputs(
-            self.module,
-            self.my_sig,
-            &self.body.locals,
-            &self.op_stack[..],
-            &op,
-        )?;
-        let outputs = op_outputs(self.module, &self.body.locals, &self.op_stack[..], &op)?;
+        let inputs = op_inputs(self.module, self.my_sig, &self.op_stack[..], &op)?;
+        let outputs = op_outputs(self.module, &self.op_stack[..], &op)?;
 
         log::trace!(
             "emit into block {:?}: op {:?} inputs {:?}",

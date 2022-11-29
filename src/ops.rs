@@ -1,6 +1,6 @@
 //! Operators.
 
-use crate::{Func, Global, Local, Memory, Signature, Table, Type};
+use crate::{entity::EntityRef, Func, Global, Memory, Signature, Table, Type};
 use std::convert::TryFrom;
 pub use wasmparser::{Ieee32, Ieee64};
 
@@ -34,15 +34,6 @@ pub enum Operator {
         table_index: Table,
     },
     Return,
-    LocalSet {
-        local_index: Local,
-    },
-    LocalTee {
-        local_index: Local,
-    },
-    LocalGet {
-        local_index: Local,
-    },
     Select,
     TypedSelect {
         ty: Type,
@@ -326,15 +317,9 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 table_index: Table::from(table_index),
             }),
             &wasmparser::Operator::Return => Ok(Operator::Return),
-            &wasmparser::Operator::LocalSet { local_index } => Ok(Operator::LocalSet {
-                local_index: Local::from(local_index),
-            }),
-            &wasmparser::Operator::LocalTee { local_index } => Ok(Operator::LocalTee {
-                local_index: Local::from(local_index),
-            }),
-            &wasmparser::Operator::LocalGet { local_index } => Ok(Operator::LocalGet {
-                local_index: Local::from(local_index),
-            }),
+            &wasmparser::Operator::LocalSet { .. } => Err(()),
+            &wasmparser::Operator::LocalTee { .. } => Err(()),
+            &wasmparser::Operator::LocalGet { .. } => Err(()),
             &wasmparser::Operator::Select => Ok(Operator::Select),
             &wasmparser::Operator::TypedSelect { ty } => {
                 Ok(Operator::TypedSelect { ty: ty.into() })
@@ -591,6 +576,16 @@ impl std::convert::From<wasmparser::MemArg> for MemoryArg {
             align: value.align as u32,
             offset: u32::try_from(value.offset).expect("offset too large"),
             memory: Memory::from(value.memory),
+        }
+    }
+}
+
+impl std::convert::From<MemoryArg> for wasm_encoder::MemArg {
+    fn from(value: MemoryArg) -> wasm_encoder::MemArg {
+        wasm_encoder::MemArg {
+            offset: value.offset as u64,
+            align: value.align,
+            memory_index: value.memory.index() as u32,
         }
     }
 }

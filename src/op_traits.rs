@@ -1,7 +1,6 @@
 //! Metadata on operators.
 
-use crate::entity::EntityVec;
-use crate::ir::{Local, Module, Signature, Type, Value};
+use crate::ir::{Module, Signature, Type, Value};
 use crate::Operator;
 use anyhow::Result;
 use std::borrow::Cow;
@@ -9,7 +8,6 @@ use std::borrow::Cow;
 pub fn op_inputs(
     module: &Module,
     my_sig: Signature,
-    my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
@@ -26,11 +24,6 @@ pub fn op_inputs(
             Ok(params.into())
         }
         &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone()).into()),
-
-        &Operator::LocalSet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index]].into())
-        }
-        &Operator::LocalGet { .. } => Ok(Cow::Borrowed(&[])),
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -235,7 +228,6 @@ pub fn op_inputs(
 
 pub fn op_outputs(
     module: &Module,
-    my_locals: &EntityVec<Local, Type>,
     op_stack: &[(Type, Value)],
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
@@ -250,10 +242,6 @@ pub fn op_outputs(
             Ok(Vec::from(module.signature(sig_index).returns.clone()).into())
         }
         &Operator::Return => Ok(Cow::Borrowed(&[])),
-        &Operator::LocalSet { .. } => Ok(Cow::Borrowed(&[])),
-        &Operator::LocalGet { local_index } | &Operator::LocalTee { local_index } => {
-            Ok(vec![my_locals[local_index]].into())
-        }
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -469,9 +457,6 @@ impl Operator {
             &Operator::Call { .. } => &[All],
             &Operator::CallIndirect { .. } => &[All],
             &Operator::Return => &[Return],
-            &Operator::LocalSet { .. } => &[WriteLocal],
-            &Operator::LocalGet { .. } => &[ReadLocal],
-            &Operator::LocalTee { .. } => &[ReadLocal, WriteLocal],
 
             &Operator::Select => &[],
             &Operator::TypedSelect { .. } => &[],
@@ -675,9 +660,6 @@ impl std::fmt::Display for Operator {
                 table_index,
             } => write!(f, "call_indirect<{}, {}>", sig_index, table_index)?,
             &Operator::Return => write!(f, "return")?,
-            &Operator::LocalSet { local_index, .. } => write!(f, "local_set<{}>", local_index)?,
-            &Operator::LocalGet { local_index, .. } => write!(f, "local_get<{}>", local_index)?,
-            &Operator::LocalTee { local_index, .. } => write!(f, "local_tee<{}>", local_index)?,
 
             &Operator::Select => write!(f, "select")?,
             &Operator::TypedSelect { ty } => write!(f, "typed_select<{}>", ty)?,
