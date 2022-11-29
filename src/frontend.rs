@@ -75,7 +75,7 @@ fn handle_payload<'a>(
                         let func =
                             module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
                         *next_func += 1;
-                        Some(ImportKind::Func(func))
+                        ImportKind::Func(func)
                     }
                     TypeRef::Global(ty) => {
                         let mutable = ty.mutable;
@@ -85,21 +85,32 @@ fn handle_payload<'a>(
                             value: None,
                             mutable,
                         });
-                        Some(ImportKind::Global(global))
+                        ImportKind::Global(global)
                     }
                     TypeRef::Table(ty) => {
                         let table = module.frontend_add_table(ty.element_type.into(), None);
-                        Some(ImportKind::Table(table))
+                        ImportKind::Table(table)
                     }
-                    _ => None,
+                    TypeRef::Memory(mem) => {
+                        let mem = module.frontend_add_memory(MemoryData {
+                            initial_pages: mem.initial as usize,
+                            maximum_pages: mem.maximum.map(|max| max as usize),
+                            segments: vec![],
+                        });
+                        ImportKind::Memory(mem)
+                    }
+                    t => {
+                        bail!(FrontendError::UnsupportedFeature(format!(
+                            "Unknown import type: {:?}",
+                            t
+                        )));
+                    }
                 };
-                if let Some(kind) = kind {
-                    module.frontend_add_import(Import {
-                        module: module_name,
-                        name,
-                        kind,
-                    });
-                }
+                module.frontend_add_import(Import {
+                    module: module_name,
+                    name,
+                    kind,
+                });
             }
         }
         Payload::GlobalSection(reader) => {

@@ -84,6 +84,7 @@ pub enum ImportKind {
     Table(Table),
     Func(Func),
     Global(Global),
+    Memory(Memory),
 }
 
 impl std::fmt::Display for ImportKind {
@@ -92,6 +93,7 @@ impl std::fmt::Display for ImportKind {
             ImportKind::Table(table) => write!(f, "{}", table)?,
             ImportKind::Func(func) => write!(f, "{}", func)?,
             ImportKind::Global(global) => write!(f, "{}", global)?,
+            ImportKind::Memory(mem) => write!(f, "{}", mem)?,
         }
         Ok(())
     }
@@ -179,6 +181,10 @@ impl<'a> Module<'a> {
     pub fn table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
         &mut self.tables[table]
     }
+    pub fn memory<'b>(&'b self, memory: Memory) -> &'b MemoryData {
+        &self.memories[memory]
+    }
+
     pub fn memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
         &mut self.memories[memory]
     }
