@@ -1,5 +1,5 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
-use crate::entity::{EntityVec, PerEntity};
+use crate::entity::{EntityRef, EntityVec, PerEntity};
 
 #[derive(Clone, Debug)]
 pub enum FuncDecl {
@@ -112,6 +112,10 @@ impl FunctionBody {
     }
 
     pub fn resolve_alias(&self, value: Value) -> Value {
+        if value.is_invalid() {
+            return value;
+        }
+
         let mut result = value;
         loop {
             if let &ValueDef::Alias(to) = &self.values[result] {

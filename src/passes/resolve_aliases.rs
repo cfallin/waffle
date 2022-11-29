@@ -3,6 +3,10 @@
 use crate::{FunctionBody, ValueDef};
 
 pub fn run(body: &mut FunctionBody) {
+    log::debug!(
+        "Resolve aliases: running on:\n{}\n",
+        body.display_verbose("| ")
+    );
     for value in body.values.iter() {
         let mut value_def = std::mem::take(&mut body.values[value]);
         match &mut value_def {

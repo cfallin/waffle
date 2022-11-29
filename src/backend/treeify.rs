@@ -1,6 +1,7 @@
 //! Treeification: placing some values "under" others if only used
 //! once, to generate more AST-like Wasm code.
 
+use crate::entity::EntityRef;
 use crate::ir::{FunctionBody, Value, ValueDef};
 use crate::Operator;
 use std::collections::{HashMap, HashSet};
@@ -29,6 +30,11 @@ impl Trees {
         for (value, def) in body.values.entries() {
             match def {
                 &ValueDef::Operator(_, ref args, _) => {
+                    // Ignore operators with invalid args: these must
+                    // always be unreachable.
+                    if args.iter().any(|arg| arg.is_invalid()) {
+                        continue;
+                    }
                     // For each of the args, if the value is produced
                     // by a single-output op and is movable, and is
                     // not already recorded in `multi_use`, place it
