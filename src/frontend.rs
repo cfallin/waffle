@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 use crate::entity::EntityRef;
+use crate::errors::FrontendError;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
@@ -33,17 +34,20 @@ fn parse_init_expr<'a>(init_expr: &wasmparser::ConstExpr<'a>) -> Result<Option<u
         return Ok(None);
     }
     if operators.len() != 2 || !matches!(&operators[1], &wasmparser::Operator::End) {
-        anyhow::bail!(
+        bail!(FrontendError::UnsupportedFeature(format!(
             "Unsupported operator seq in base-address expr: {:?}",
             operators
-        );
+        )));
     }
     Ok(match &operators[0] {
         &wasmparser::Operator::I32Const { value } => Some(value as u64),
         &wasmparser::Operator::I64Const { value } => Some(value as u64),
         &wasmparser::Operator::F32Const { value } => Some(value.bits() as u64),
         &wasmparser::Operator::F64Const { value } => Some(value.bits()),
-        op => anyhow::bail!("Unsupported data segment base-address operator: {:?}", op),
+        op => anyhow::bail!(FrontendError::UnsupportedFeature(format!(
+            "Unsupported data segment base-address operator: {:?}",
+            op
+        ))),
     })
 }
 
@@ -186,7 +190,10 @@ fn handle_payload<'a>(
             for element in reader {
                 let element = element?;
                 if element.ty != wasmparser::ValType::FuncRef {
-                    anyhow::bail!("Unsupported table type: {:?}", element.ty);
+                    bail!(FrontendError::UnsupportedFeature(format!(
+                        "Unsupported table type: {:?}",
+                        element.ty
+                    )));
                 }
                 match &element.kind {
                     wasmparser::ElementKind::Passive => {}
@@ -206,7 +213,10 @@ fn handle_payload<'a>(
                         for item in items {
                             let func = match item {
                                 wasmparser::ElementItem::Func(func_idx) => Func::from(func_idx),
-                                _ => anyhow::bail!("Unsupported element item: {:?}", item),
+                                _ => bail!(FrontendError::UnsupportedFeature(format!(
+                                    "Unsupported element item: {:?}",
+                                    item
+                                ))),
                             };
                             funcs.push(func);
                         }
@@ -1099,7 +1109,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     self.cur_block = Some(el);
                     self.locals.start_block(el);
                 } else {
-                    bail!("Else without If on top of frame stack");
+                    bail!(FrontendError::Internal(format!(
+                        "Else without If on top of frame stack"
+                    )));
                 }
             }
 
@@ -1163,7 +1175,10 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.emit_ret(&retvals[..]);
             }
 
-            _ => bail!("Unsupported operator: {:?}", op),
+            _ => bail!(FrontendError::UnsupportedFeature(format!(
+                "Unsupported operator: {:?}",
+                op
+            ))),
         }
 
         Ok(())
