@@ -213,7 +213,7 @@ impl<'a, 'b> Context<'a, 'b> {
         // the target is either a merge block, or is a backward branch
         // (by RPO number).
         if self.merge_nodes.contains(&target.block)
-            || self.rpo.rev[target.block] < self.rpo.rev[source]
+            || self.rpo.rev[target.block] <= self.rpo.rev[source]
         {
             let index = self.resolve_target(target.block);
             self.do_blockparam_transfer(
