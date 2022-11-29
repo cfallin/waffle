@@ -168,9 +168,17 @@ impl<'a, 'b> Context<'a, 'b> {
             .filter(|child| self.merge_nodes.contains(&child))
             .collect::<Vec<_>>();
         // Sort merge nodes so highest RPO number comes first.
-        merge_node_children.sort_unstable_by_key(|&block| self.rpo.rev[block]);
+        merge_node_children.sort_unstable_by_key(|&block| std::cmp::Reverse(self.rpo.rev[block]));
 
         let is_loop_header = self.loop_headers.contains(&block);
+
+        log::trace!(
+            "handle_dom_subtree: block {} merge_nodes {:?} loop_header {}",
+            block,
+            merge_node_children,
+            is_loop_header
+        );
+
         if is_loop_header {
             self.ctrl_stack.push(CtrlEntry::Loop { header: block });
             let mut body = vec![];
@@ -186,6 +194,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     fn resolve_target(&self, target: Block) -> WasmLabel {
+        log::trace!("resolve_target: {} in stack {:?}", target, self.ctrl_stack);
         WasmLabel(
             u32::try_from(
                 self.ctrl_stack
@@ -199,6 +208,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     fn do_branch(&mut self, source: Block, target: &'a BlockTarget, into: &mut Vec<WasmBlock<'a>>) {
+        log::trace!("do_branch: {} -> {:?}", source, target);
         // This will be a branch to some entry in the control stack if
         // the target is either a merge block, or is a backward branch
         // (by RPO number).
@@ -231,6 +241,7 @@ impl<'a, 'b> Context<'a, 'b> {
         default: &'a BlockTarget,
         into: &mut Vec<WasmBlock<'a>>,
     ) {
+        log::trace!("do_branch_select: {:?}, default {:?}", targets, default);
         let mut body = vec![WasmBlock::Select {
             selector,
             targets: (0..targets.len())
@@ -271,6 +282,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     fn node_within(&mut self, block: Block, merge_nodes: &[Block], into: &mut Vec<WasmBlock<'a>>) {
+        log::trace!("node_within: block {} merge_nodes {:?}", block, merge_nodes);
         if let Some((&first, rest)) = merge_nodes.split_first() {
             self.ctrl_stack.push(CtrlEntry::Block { out: first });
             let mut body = vec![];

@@ -20,13 +20,14 @@ pub struct WasmBackend<'a> {
 
 impl<'a> WasmBackend<'a> {
     pub fn new(body: &'a FunctionBody) -> Result<WasmBackend<'a>> {
+        log::debug!("Backend compiling:\n{}\n", body.display("| "));
         let cfg = CFGInfo::new(body);
         let rpo = RPO::compute(body);
-        log::trace!("RPO:\n{:?}\n", rpo);
+        log::debug!("RPO:\n{:?}\n", rpo);
         let trees = Trees::compute(body);
-        log::trace!("Trees:\n{:?}\n", trees);
+        log::debug!("Trees:\n{:?}\n", trees);
         let ctrl = StackifyContext::new(body, &cfg, &rpo)?.compute();
-        log::trace!("Ctrl:\n{:?}\n", ctrl);
+        log::debug!("Ctrl:\n{:?}\n", ctrl);
         Ok(WasmBackend {
             body,
             rpo,
