@@ -69,10 +69,10 @@ impl WasmLabel {
     }
 }
 
-struct Context<'a> {
+pub struct Context<'a, 'b> {
     body: &'a FunctionBody,
-    cfg: &'a CFGInfo,
-    rpo: &'a RPO,
+    cfg: &'b CFGInfo,
+    rpo: &'b RPO,
     merge_nodes: HashSet<Block>,
     loop_headers: HashSet<Block>,
     ctrl_stack: Vec<CtrlEntry>,
@@ -95,8 +95,8 @@ impl CtrlEntry {
     }
 }
 
-impl<'a> Context<'a> {
-    fn new(body: &'a FunctionBody, cfg: &'a CFGInfo, rpo: &'a RPO) -> Self {
+impl<'a, 'b> Context<'a, 'b> {
+    pub fn new(body: &'a FunctionBody, cfg: &'b CFGInfo, rpo: &'b RPO) -> Self {
         let (merge_nodes, loop_headers) =
             Self::compute_merge_nodes_and_loop_headers(body, cfg, rpo);
         Self {
@@ -107,6 +107,12 @@ impl<'a> Context<'a> {
             loop_headers,
             ctrl_stack: vec![],
         }
+    }
+
+    pub fn compute(mut self) -> Vec<WasmBlock<'a>> {
+        let mut body = vec![];
+        self.handle_dom_subtree(self.cfg.entry, &mut body);
+        body
     }
 
     fn compute_merge_nodes_and_loop_headers(

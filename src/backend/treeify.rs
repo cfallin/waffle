@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValueArg(Value, u16);
 
+#[derive(Clone, Debug)]
 pub struct Trees {
     /// Is a value placed "under" the given arg slot of the given
     /// other value?
