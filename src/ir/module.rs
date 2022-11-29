@@ -226,7 +226,8 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        for func_decl in self.funcs.values() {
+        for (func, func_decl) in self.funcs.entries() {
+            log::debug!("Compiling: {}", func);
             if let Some(body) = func_decl.body() {
                 let comp = backend::WasmBackend::new(body)?;
                 let _ = comp.compile()?;
