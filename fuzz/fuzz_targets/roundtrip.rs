@@ -11,7 +11,7 @@ fuzz_target!(|module: wasm_smith::Module| {
         Ok(m) => m,
         Err(e) => {
             match e.downcast::<FrontendError>() {
-                Ok(FrontendError::UnsupportedFeature(_)) => {
+                Ok(FrontendError::UnsupportedFeature(_)) | Ok(FrontendError::TooLarge(_)) => {
                     // Just skip this case.
                     return;
                 }

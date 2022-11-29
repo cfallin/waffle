@@ -3,6 +3,7 @@
 #[derive(Clone, Debug)]
 pub enum FrontendError {
     UnsupportedFeature(String),
+    TooLarge(String),
     Internal(String),
 }
 

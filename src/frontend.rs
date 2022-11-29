@@ -233,10 +233,18 @@ fn handle_payload<'a>(
                         }
 
                         let table_items = module.table_mut(table).func_elements.as_mut().unwrap();
-                        if (offset + funcs.len()) > table_items.len() {
-                            table_items.resize(offset + funcs.len(), Func::invalid());
+                        let new_size = offset + funcs.len();
+                        if new_size > table_items.len() {
+                            static MAX_TABLE: usize = 100_000;
+                            if new_size > MAX_TABLE {
+                                bail!(FrontendError::TooLarge(format!(
+                                    "Too many table elements: {:?}",
+                                    new_size
+                                )));
+                            }
+                            table_items.resize(new_size, Func::invalid());
                         }
-                        table_items[offset..(offset + funcs.len())].copy_from_slice(&funcs[..]);
+                        table_items[offset..new_size].copy_from_slice(&funcs[..]);
                     }
                 }
             }
