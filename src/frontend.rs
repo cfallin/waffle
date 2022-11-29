@@ -233,7 +233,13 @@ fn handle_payload<'a>(
                         }
 
                         let table_items = module.table_mut(table).func_elements.as_mut().unwrap();
-                        let new_size = offset + funcs.len();
+                        let new_size = offset.checked_add(funcs.len()).ok_or_else(|| {
+                            FrontendError::TooLarge(format!(
+                                "Overflowing element offset + length: {} + {}",
+                                offset,
+                                funcs.len()
+                            ))
+                        })?;
                         if new_size > table_items.len() {
                             static MAX_TABLE: usize = 100_000;
                             if new_size > MAX_TABLE {
