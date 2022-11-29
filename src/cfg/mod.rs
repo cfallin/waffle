@@ -4,7 +4,7 @@
 // LLVM exception.
 
 use crate::entity::{EntityRef, PerEntity};
-use crate::ir::{Block, FunctionBody, Terminator};
+use crate::ir::{Block, FunctionBody, Terminator, Value, ValueDef};
 use smallvec::SmallVec;
 
 pub mod domtree;
@@ -28,6 +28,8 @@ pub struct CFGInfo {
     pub domtree: PerEntity<Block, Block>,
     /// Domtree children.
     pub domtree_children: PerEntity<Block, DomtreeChildren>,
+    /// Defining block for a given value.
+    pub def_block: PerEntity<Value, Block>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -91,6 +93,21 @@ impl CFGInfo {
             }
         }
 
+        let mut def_block: PerEntity<Value, Block> = PerEntity::default();
+        for (block, block_def) in f.blocks.entries() {
+            for &value in &block_def.insts {
+                def_block[value] = block;
+            }
+        }
+        for value in f.values.iter() {
+            let orig_value = f.resolve_alias(value);
+            let underlying_value = match &f.values[orig_value] {
+                &ValueDef::PickOutput(value, ..) => value,
+                _ => orig_value,
+            };
+            def_block[value] = def_block[underlying_value];
+        }
+
         CFGInfo {
             entry: f.entry,
             block_preds,
@@ -100,6 +117,7 @@ impl CFGInfo {
             postorder_pos,
             domtree,
             domtree_children,
+            def_block,
         }
     }
 

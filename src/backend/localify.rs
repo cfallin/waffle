@@ -52,9 +52,9 @@ impl<'a> Context<'a> {
                     .zip(body.blocks[target.block].params.iter().map(|(_, val)| val))
                 {
                     affinities
-                        .entry(param)
+                        .entry(arg)
                         .or_insert_with(|| smallvec![])
-                        .push(arg);
+                        .push(param);
                 }
             });
         }
@@ -124,6 +124,8 @@ impl<'a> Context<'a> {
         // use (first observed), allocate a local.
         fn handle_use(
             body: &FunctionBody,
+            cfg: &CFGInfo,
+            block: Block,
             u: Value,
             live_values: &mut HashSet<Value>,
             live_locals: &mut HashSet<Local>,
@@ -145,32 +147,56 @@ impl<'a> Context<'a> {
                         unreachable!();
                     }
                     &ValueDef::PickOutput(value, idx, _) => {
-                        handle_use(body, value, live_values, live_locals, results, affinities);
+                        handle_use(
+                            body,
+                            cfg,
+                            block,
+                            value,
+                            live_values,
+                            live_locals,
+                            results,
+                            affinities,
+                        );
                         results.values[u] = smallvec![results.values[value][idx]];
                     }
                     &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => {
+                        // Uses from dominating blocks may be live
+                        // over a loop backedge, so for simplicity,
+                        // let's not reuse any locals for uses of
+                        // non-local defs.
+                        let can_reuse = cfg.def_block[u] == block;
+
                         let locals = def
                             .tys()
                             .iter()
                             .map(|&ty| {
-                                // Try to find a local of the right type that is not live.
-                                let affinities = affinities.get(&u).map(|v| &v[..]).unwrap_or(&[]);
-                                let local = affinities
-                                    .iter()
-                                    .filter_map(|&aff_val| {
-                                        let local = *results.values[aff_val].get(0)?;
-                                        Some((local, results.locals[local]))
-                                    })
-                                    .chain(results.locals.entries().map(|(local, &ty)| (local, ty)))
-                                    .filter_map(|(local, local_ty)| {
-                                        if local_ty == ty && live_locals.insert(local) {
-                                            Some(local)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .next();
-                                local.unwrap_or_else(|| {
+                                let reused = if can_reuse {
+                                    // Try to find a local of the right type that is not live.
+                                    let affinities =
+                                        affinities.get(&u).map(|v| &v[..]).unwrap_or(&[]);
+                                    let mut try_list = affinities
+                                        .iter()
+                                        .filter_map(|&aff_val| {
+                                            let local = *results.values[aff_val].get(0)?;
+                                            Some((local, results.locals[local]))
+                                        })
+                                        .chain(
+                                            results
+                                                .locals
+                                                .entries()
+                                                .map(|(local, &ty)| (local, ty)),
+                                        );
+
+                                    try_list
+                                        .find(|&(local, local_ty)| {
+                                            local_ty == ty && live_locals.insert(local)
+                                        })
+                                        .map(|(local, _)| local)
+                                } else {
+                                    None
+                                };
+
+                                reused.unwrap_or_else(|| {
                                     let local = results.locals.push(ty);
                                     live_locals.insert(local);
                                     local
@@ -205,6 +231,8 @@ impl<'a> Context<'a> {
         self.body.blocks[block].terminator.visit_uses(|u| {
             handle_use(
                 self.body,
+                self.cfg,
+                block,
                 u,
                 &mut live_values,
                 &mut live_locals,
@@ -226,6 +254,8 @@ impl<'a> Context<'a> {
                 if !self.trees.owner.contains_key(&u) {
                     handle_use(
                         self.body,
+                        self.cfg,
+                        block,
                         u,
                         &mut live_values,
                         &mut live_locals,
