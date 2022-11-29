@@ -135,12 +135,16 @@ fn const_eval(op: &Operator, vals: &[ConstVal]) -> Option<ConstVal> {
         (Operator::I32And, [ConstVal::I32(a), ConstVal::I32(b)]) => Some(ConstVal::I32(a & b)),
         (Operator::I32Or, [ConstVal::I32(a), ConstVal::I32(b)]) => Some(ConstVal::I32(a | b)),
         (Operator::I32Xor, [ConstVal::I32(a), ConstVal::I32(b)]) => Some(ConstVal::I32(a ^ b)),
-        (Operator::I32Shl, [ConstVal::I32(a), ConstVal::I32(b)]) => Some(ConstVal::I32(a << b)),
+        (Operator::I32Shl, [ConstVal::I32(a), ConstVal::I32(b)]) => {
+            Some(ConstVal::I32(a.wrapping_shl(*b)))
+        }
         (Operator::I32ShrS, [ConstVal::I32(a), ConstVal::I32(b)]) => {
-            Some(ConstVal::I32(((*a as i32) >> (*b as i32)) as u32))
+            Some(ConstVal::I32((*a as i32).wrapping_shr(*b) as u32))
         }
 
-        (Operator::I32ShrU, [ConstVal::I32(a), ConstVal::I32(b)]) => Some(ConstVal::I32(a >> b)),
+        (Operator::I32ShrU, [ConstVal::I32(a), ConstVal::I32(b)]) => {
+            Some(ConstVal::I32(a.wrapping_shr(*b)))
+        }
 
         (Operator::I64Add, [ConstVal::I64(a), ConstVal::I64(b)]) => {
             Some(ConstVal::I64(a.wrapping_add(*b)))
@@ -154,12 +158,16 @@ fn const_eval(op: &Operator, vals: &[ConstVal]) -> Option<ConstVal> {
         (Operator::I64And, [ConstVal::I64(a), ConstVal::I64(b)]) => Some(ConstVal::I64(a & b)),
         (Operator::I64Or, [ConstVal::I64(a), ConstVal::I64(b)]) => Some(ConstVal::I64(a | b)),
         (Operator::I64Xor, [ConstVal::I64(a), ConstVal::I64(b)]) => Some(ConstVal::I64(a ^ b)),
-        (Operator::I64Shl, [ConstVal::I64(a), ConstVal::I64(b)]) => Some(ConstVal::I64(a << b)),
+        (Operator::I64Shl, [ConstVal::I64(a), ConstVal::I64(b)]) => {
+            Some(ConstVal::I64(a.wrapping_shl(*b as u32)))
+        }
         (Operator::I64ShrS, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(((*a as i64) >> (*b as i64)) as u64))
+            Some(ConstVal::I64((*a as i64).wrapping_shr(*b as u32) as u64))
         }
 
-        (Operator::I64ShrU, [ConstVal::I64(a), ConstVal::I64(b)]) => Some(ConstVal::I64(a >> b)),
+        (Operator::I64ShrU, [ConstVal::I64(a), ConstVal::I64(b)]) => {
+            Some(ConstVal::I64(a.wrapping_shr(*b as u32)))
+        }
 
         (Operator::I32Extend8S, [ConstVal::I32(a)]) => Some(ConstVal::I32(*a as i8 as i32 as u32)),
         (Operator::I32Extend16S, [ConstVal::I32(a)]) => {
