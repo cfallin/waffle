@@ -722,6 +722,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn pop_n(&mut self, n: usize) -> Vec<Value> {
+        assert!(self.reachable);
         let new_top = self.op_stack.len() - n;
         let ret = self.op_stack[new_top..]
             .iter()
@@ -732,6 +733,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn pop_1(&mut self) -> Value {
+        assert!(self.reachable);
         self.op_stack.pop().unwrap().1
     }
 
@@ -1121,6 +1123,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                                 self.block_results(&results[..], *start_depth, self.cur_block);
                             self.emit_branch(*out, &result_values[..]);
                         }
+                        assert!(self.op_stack.len() >= *start_depth);
                         self.op_stack.truncate(*start_depth);
                         if *head_reachable {
                             // No `else`, so we need to generate a trivial
@@ -1173,7 +1176,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let (params, results) = self.block_params_and_results(*blockty);
                 let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
-                let start_depth = self.op_stack.len().saturating_sub(params.len());
+                let start_depth = if self.reachable {
+                    self.op_stack.len() - params.len()
+                } else {
+                    self.op_stack.len()
+                };
                 self.ctrl_stack.push(Frame::Block {
                     start_depth,
                     out,
@@ -1190,8 +1197,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let initial_args = if self.reachable {
                     self.pop_n(params.len())
                 } else {
-                    self.op_stack
-                        .truncate(self.op_stack.len().saturating_sub(params.len()));
                     vec![Value::invalid(); params.len()]
                 };
                 let start_depth = self.op_stack.len();
@@ -1226,7 +1231,11 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         params.iter().map(|&ty| (ty, Value::invalid())).collect(),
                     )
                 };
-                let start_depth = self.op_stack.len().saturating_sub(params.len());
+                let start_depth = if self.reachable {
+                    self.op_stack.len() - params.len()
+                } else {
+                    self.op_stack.len()
+                };
                 self.ctrl_stack.push(Frame::If {
                     start_depth,
                     out: join,
