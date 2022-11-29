@@ -220,7 +220,10 @@ impl<'a> WasmFuncBackend<'a> {
                     }
                 }
             }
-            _ => unreachable!(),
+            &ValueDef::PickOutput(..) => {
+                self.lower_value(value, func);
+            }
+            def => unreachable!("Unexpected inst: {:?}", def),
         }
     }
 
