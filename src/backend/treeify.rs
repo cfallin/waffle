@@ -28,7 +28,7 @@ impl Trees {
 
         for (value, def) in body.values.entries() {
             match def {
-                &ValueDef::Operator(_, ref args, ref tys) => {
+                &ValueDef::Operator(_, ref args, _) => {
                     // For each of the args, if the value is produced
                     // by a single-output op and is movable, and is
                     // not already recorded in `multi_use`, place it
