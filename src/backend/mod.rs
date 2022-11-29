@@ -25,7 +25,7 @@ impl<'a> WasmBackend<'a> {
         log::trace!("RPO:\n{:?}\n", rpo);
         let trees = Trees::compute(body);
         log::trace!("Trees:\n{:?}\n", trees);
-        let ctrl = StackifyContext::new(body, &cfg, &rpo).compute();
+        let ctrl = StackifyContext::new(body, &cfg, &rpo)?.compute();
         log::trace!("Ctrl:\n{:?}\n", ctrl);
         Ok(WasmBackend {
             body,

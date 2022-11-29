@@ -96,17 +96,17 @@ impl CtrlEntry {
 }
 
 impl<'a, 'b> Context<'a, 'b> {
-    pub fn new(body: &'a FunctionBody, cfg: &'b CFGInfo, rpo: &'b RPO) -> Self {
+    pub fn new(body: &'a FunctionBody, cfg: &'b CFGInfo, rpo: &'b RPO) -> anyhow::Result<Self> {
         let (merge_nodes, loop_headers) =
-            Self::compute_merge_nodes_and_loop_headers(body, cfg, rpo);
-        Self {
+            Self::compute_merge_nodes_and_loop_headers(body, cfg, rpo)?;
+        Ok(Self {
             body,
             cfg,
             rpo,
             merge_nodes,
             loop_headers,
             ctrl_stack: vec![],
-        }
+        })
     }
 
     pub fn compute(mut self) -> Vec<WasmBlock<'a>> {
@@ -119,7 +119,7 @@ impl<'a, 'b> Context<'a, 'b> {
         body: &FunctionBody,
         cfg: &CFGInfo,
         rpo: &RPO,
-    ) -> (HashSet<Block>, HashSet<Block>) {
+    ) -> anyhow::Result<(HashSet<Block>, HashSet<Block>)> {
         let mut loop_headers = HashSet::new();
         let mut branched_once = HashSet::new();
         let mut merge_nodes = HashSet::new();
@@ -128,6 +128,9 @@ impl<'a, 'b> Context<'a, 'b> {
             for &succ in cfg.succs(block) {
                 let succ_rpo = rpo.rev[succ].unwrap();
                 if succ_rpo <= block_rpo {
+                    if !cfg.dominates(succ, block) {
+                        anyhow::bail!("Irreducible control flow: edge from {} to {}", block, succ);
+                    }
                     // Backward branch.
                     loop_headers.insert(succ);
                 } else {
@@ -155,7 +158,7 @@ impl<'a, 'b> Context<'a, 'b> {
             }
         }
 
-        (merge_nodes, loop_headers)
+        Ok((merge_nodes, loop_headers))
     }
 
     fn handle_dom_subtree(&mut self, block: Block, into: &mut Vec<WasmBlock<'a>>) {
