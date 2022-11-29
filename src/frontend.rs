@@ -221,6 +221,9 @@ fn handle_payload<'a>(
             }
         }
         Payload::End(_) => {}
+        Payload::StartSection { func, .. } => {
+            module.start_func = Some(Func::from(func));
+        }
         payload => {
             log::warn!("Skipping section: {:?}", payload);
         }

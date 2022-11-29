@@ -14,6 +14,7 @@ pub struct Module<'a> {
     imports: Vec<Import>,
     exports: Vec<Export>,
     memories: EntityVec<Memory, MemoryData>,
+    pub start_func: Option<Func>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -133,6 +134,7 @@ impl<'a> Module<'a> {
             imports: vec![],
             exports: vec![],
             memories: EntityVec::default(),
+            start_func: None,
         }
     }
 }
@@ -226,15 +228,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        for (func, func_decl) in self.funcs.entries() {
-            log::debug!("Compiling: {}", func);
-            if let Some(body) = func_decl.body() {
-                let comp = backend::WasmBackend::new(body)?;
-                let _ = comp.compile()?;
-            }
-        }
-
-        Ok(vec![])
+        backend::compile(self)
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>

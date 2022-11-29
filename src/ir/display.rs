@@ -147,6 +147,9 @@ pub struct ModuleDisplay<'a>(pub(crate) &'a Module<'a>);
 impl<'a> Display for ModuleDisplay<'a> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         writeln!(f, "module {{")?;
+        if let Some(func) = self.0.start_func {
+            writeln!(f, "    start = {}", func)?;
+        }
         let mut sig_strs = HashMap::new();
         for (sig, sig_data) in self.0.signatures() {
             let arg_tys = sig_data
