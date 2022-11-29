@@ -33,7 +33,6 @@ pub enum Operator {
         sig_index: Signature,
         table_index: Table,
     },
-    Return,
     Select,
     TypedSelect {
         ty: Type,
@@ -316,7 +315,6 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 sig_index: Signature::from(type_index),
                 table_index: Table::from(table_index),
             }),
-            &wasmparser::Operator::Return => Ok(Operator::Return),
             &wasmparser::Operator::LocalSet { .. } => Err(()),
             &wasmparser::Operator::LocalTee { .. } => Err(()),
             &wasmparser::Operator::LocalGet { .. } => Err(()),

@@ -1,13 +1,12 @@
 //! Metadata on operators.
 
-use crate::ir::{Module, Signature, Type, Value};
+use crate::ir::{Module, Type, Value};
 use crate::Operator;
 use anyhow::Result;
 use std::borrow::Cow;
 
 pub fn op_inputs(
     module: &Module,
-    my_sig: Signature,
     op_stack: &[(Type, Value)],
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
@@ -23,7 +22,6 @@ pub fn op_inputs(
             params.push(Type::I32);
             Ok(params.into())
         }
-        &Operator::Return => Ok(Vec::from(module.signature(my_sig).returns.clone()).into()),
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -241,7 +239,6 @@ pub fn op_outputs(
         &Operator::CallIndirect { sig_index, .. } => {
             Ok(Vec::from(module.signature(sig_index).returns.clone()).into())
         }
-        &Operator::Return => Ok(Cow::Borrowed(&[])),
 
         &Operator::Select => {
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -442,7 +439,6 @@ pub enum SideEffect {
     WriteTable,
     ReadLocal,
     WriteLocal,
-    Return,
     All,
 }
 
@@ -456,7 +452,6 @@ impl Operator {
 
             &Operator::Call { .. } => &[All],
             &Operator::CallIndirect { .. } => &[All],
-            &Operator::Return => &[Return],
 
             &Operator::Select => &[],
             &Operator::TypedSelect { .. } => &[],
@@ -659,7 +654,6 @@ impl std::fmt::Display for Operator {
                 sig_index,
                 table_index,
             } => write!(f, "call_indirect<{}, {}>", sig_index, table_index)?,
-            &Operator::Return => write!(f, "return")?,
 
             &Operator::Select => write!(f, "select")?,
             &Operator::TypedSelect { ty } => write!(f, "typed_select<{}>", ty)?,

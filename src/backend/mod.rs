@@ -238,7 +238,6 @@ impl<'a> WasmFuncBackend<'a> {
                 ty: sig_index.index() as u32,
                 table: table_index.index() as u32,
             }),
-            Operator::Return => Some(wasm_encoder::Instruction::Return),
             Operator::Select => Some(wasm_encoder::Instruction::Select),
             Operator::TypedSelect { ty } => Some(wasm_encoder::Instruction::TypedSelect(
                 wasm_encoder::ValType::from(*ty),
