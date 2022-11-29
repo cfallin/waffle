@@ -39,6 +39,19 @@ impl std::fmt::Display for Type {
     }
 }
 
+impl From<Type> for wasm_encoder::ValType {
+    fn from(ty: Type) -> wasm_encoder::ValType {
+        match ty {
+            Type::I32 => wasm_encoder::ValType::I32,
+            Type::I64 => wasm_encoder::ValType::I64,
+            Type::F32 => wasm_encoder::ValType::F32,
+            Type::F64 => wasm_encoder::ValType::F64,
+            Type::V128 => wasm_encoder::ValType::V128,
+            Type::FuncRef => wasm_encoder::ValType::FuncRef,
+        }
+    }
+}
+
 declare_entity!(Signature, "sig");
 declare_entity!(Func, "func");
 declare_entity!(Block, "block");

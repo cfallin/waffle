@@ -67,6 +67,9 @@ impl WasmLabel {
     fn add(&self, extra: usize) -> WasmLabel {
         WasmLabel(self.0.checked_add(u32::try_from(extra).unwrap()).unwrap())
     }
+    pub fn index(&self) -> u32 {
+        self.0
+    }
 }
 
 pub struct Context<'a, 'b> {

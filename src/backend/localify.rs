@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, Default)]
 pub struct Localifier {
-    values: PerEntity<Value, SmallVec<[Local; 2]>>,
-    locals: EntityVec<Local, Type>,
+    pub values: PerEntity<Value, SmallVec<[Local; 2]>>,
+    pub locals: EntityVec<Local, Type>,
 }
 
 impl Localifier {
