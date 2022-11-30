@@ -15,15 +15,6 @@ fn reject(bytes: &[u8]) -> bool {
                 for op in body.get_operators_reader().unwrap() {
                     let op = op.unwrap();
                     match op {
-                        wasmparser::Operator::Loop { .. } => {
-                            // Disallow direct loops.
-                            return true;
-                        }
-                        wasmparser::Operator::Call { .. }
-                        | wasmparser::Operator::CallIndirect { .. } => {
-                            // Disallow recursion.
-                            return true;
-                        }
                         wasmparser::Operator::GlobalSet { .. } => {
                             has_global_set = true;
                         }
@@ -126,11 +117,15 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
         log::info!("body: {:?}", module);
     }
 
-    let engine = wasmtime::Engine::default();
-    let mut store = wasmtime::Store::new(&engine, ());
+    let mut config = wasmtime::Config::default();
+    config.consume_fuel(true);
+    let engine = wasmtime::Engine::new(&config).unwrap();
     let orig_module =
         wasmtime::Module::new(&engine, &orig_bytes[..]).expect("failed to parse original wasm");
-    let orig_instance = wasmtime::Instance::new(&mut store, &orig_module, &[]);
+    let mut orig_store = wasmtime::Store::new(&engine, ());
+    orig_store.out_of_fuel_trap();
+    orig_store.add_fuel(10000).unwrap();
+    let orig_instance = wasmtime::Instance::new(&mut orig_store, &orig_module, &[]);
     let orig_instance = match orig_instance {
         Ok(orig_instance) => orig_instance,
         Err(e) => {
@@ -151,28 +146,40 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
 
     let roundtrip_module = wasmtime::Module::new(&engine, &roundtrip_bytes[..])
         .expect("failed to parse roundtripped wasm");
-    let roundtrip_instance = wasmtime::Instance::new(&mut store, &roundtrip_module, &[])
+    let mut roundtrip_store = wasmtime::Store::new(&engine, ());
+    roundtrip_store.out_of_fuel_trap();
+    // After roundtrip, fuel consumption rate may differ. That's fine;
+    // what matters is that it terminated above without a trap (hence
+    // halts in a reasonable time).
+    roundtrip_store.add_fuel(u64::MAX).unwrap();
+    let roundtrip_instance = wasmtime::Instance::new(&mut roundtrip_store, &roundtrip_module, &[])
         .expect("cannot instantiate roundtripped wasm");
 
     // Ensure exports are equal.
 
     let a_globals: Vec<_> = orig_instance
-        .exports(&mut store)
+        .exports(&mut orig_store)
         .filter_map(|e| e.into_global())
         .collect();
-    let a_globals: Vec<wasmtime::Val> = a_globals.into_iter().map(|g| g.get(&mut store)).collect();
+    let a_globals: Vec<wasmtime::Val> = a_globals
+        .into_iter()
+        .map(|g| g.get(&mut orig_store))
+        .collect();
     let a_mems: Vec<wasmtime::Memory> = orig_instance
-        .exports(&mut store)
+        .exports(&mut orig_store)
         .filter_map(|e| e.into_memory())
         .collect();
 
     let b_globals: Vec<_> = roundtrip_instance
-        .exports(&mut store)
+        .exports(&mut roundtrip_store)
         .filter_map(|e| e.into_global())
         .collect();
-    let b_globals: Vec<wasmtime::Val> = b_globals.into_iter().map(|g| g.get(&mut store)).collect();
+    let b_globals: Vec<wasmtime::Val> = b_globals
+        .into_iter()
+        .map(|g| g.get(&mut roundtrip_store))
+        .collect();
     let b_mems: Vec<wasmtime::Memory> = roundtrip_instance
-        .exports(&mut store)
+        .exports(&mut roundtrip_store)
         .filter_map(|e| e.into_memory())
         .collect();
 
@@ -192,8 +199,8 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
 
     assert_eq!(a_mems.len(), b_mems.len());
     for (a, b) in a_mems.into_iter().zip(b_mems.into_iter()) {
-        let a_data = a.data(&store);
-        let b_data = b.data(&store);
+        let a_data = a.data(&orig_store);
+        let b_data = b.data(&roundtrip_store);
         assert_eq!(a_data, b_data);
     }
 
