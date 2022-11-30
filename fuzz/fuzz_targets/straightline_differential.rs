@@ -205,7 +205,7 @@ static SUCCESS: AtomicU64 = AtomicU64::new(0);
 
 fn success(total: u64) {
     let value = SUCCESS.fetch_add(1, Ordering::Relaxed);
-    if value % 1000 == 0 {
+    if value % 100 == 0 {
         eprintln!("SUCCESS: {} / TOTAL: {}", value, total);
     }
 }
