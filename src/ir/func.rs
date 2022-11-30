@@ -170,6 +170,7 @@ impl FunctionBody {
     }
 
     pub fn end_block(&mut self, block: Block, terminator: Terminator) {
+        log::trace!("block {} terminator {:?}", block, terminator);
         terminator.visit_successors(|succ| {
             self.add_edge(block, succ);
         });
