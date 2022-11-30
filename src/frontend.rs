@@ -301,7 +301,9 @@ fn parse_body<'a>(
     let entry = Block::new(0);
     builder.body.entry = entry;
     builder.locals.seal_block_preds(entry, &mut builder.body);
-    builder.locals.start_block(entry, false);
+    builder
+        .locals
+        .start_block(entry, /* old_reachable = */ false);
 
     for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
         let local_idx = Local::new(arg_idx);
@@ -377,7 +379,14 @@ impl LocalTracker {
         log::trace!("finish_block: block {}", self.cur_block);
         if reachable {
             let mapping = std::mem::take(&mut self.in_cur_block);
-            self.block_end.insert(self.cur_block, mapping);
+            log::trace!(" -> mapping: {:?}", mapping);
+            let old_mapping = self.block_end.insert(self.cur_block, mapping);
+            assert!(
+                old_mapping.is_none(),
+                "Mapping already present for {}: {:?}",
+                self.cur_block,
+                old_mapping
+            );
         }
     }
 
@@ -430,10 +439,14 @@ impl LocalTracker {
 
             let placeholder = body.add_placeholder(ty);
             body.mark_value_as_local(placeholder, local);
-            self.block_end
-                .entry(at_block)
-                .or_insert_with(|| FxHashMap::default())
-                .insert(local, placeholder);
+            if at_block == self.cur_block {
+                self.in_cur_block.insert(local, placeholder);
+            } else {
+                self.block_end
+                    .get_mut(&at_block)
+                    .unwrap()
+                    .insert(local, placeholder);
+            }
             log::trace!(" -> created placeholder: {:?}", placeholder);
             self.compute_blockparam(body, at_block, local, placeholder);
             placeholder
@@ -1007,7 +1020,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         self.emit_cond_branch(cond, frame.br_target(), &args[..], cont, &[]);
                         self.locals.seal_block_preds(cont, &mut self.body);
                         self.cur_block = cont;
-                        self.locals.start_block(cont, self.reachable);
+                        self.locals
+                            .start_block(cont, /* old_reachable = */ self.reachable);
                     }
                 }
             }
@@ -1116,7 +1130,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         }
                         // Set `cur_block` only if currently set (otherwise, unreachable!)
                         self.cur_block = *out;
-                        self.locals.start_block(*out, self.reachable);
+                        self.locals
+                            .start_block(*out, /* old_reachable = */ self.reachable);
                         self.reachable = was_reachable
                             || match &frame {
                                 Some(Frame::Block { out_reachable, .. }) => *out_reachable,
@@ -1154,16 +1169,19 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                                 .iter()
                                 .map(|(_ty, value)| *value)
                                 .collect::<Vec<_>>();
-                            self.locals.start_block(*el, self.reachable);
+                            self.locals
+                                .start_block(*el, /* old_reachable = */ self.reachable);
                             self.cur_block = *el;
                             self.reachable = *head_reachable;
                             self.emit_branch(*out, &else_result_values[..]);
                             assert_eq!(self.op_stack.len(), *start_depth);
                         }
                         self.cur_block = *out;
+                        let else_reachable = self.reachable;
                         self.reachable = *head_reachable || was_reachable || *merge_reachable;
                         self.locals.seal_block_preds(*out, &mut self.body);
-                        self.locals.start_block(*out, was_reachable);
+                        self.locals
+                            .start_block(*out, /* old_reachable */ else_reachable);
                         self.push_block_params(results.len());
                     }
                     Some(Frame::Else {
@@ -1185,7 +1203,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         self.cur_block = *out;
                         self.reachable = *merge_reachable || self.reachable;
                         self.locals.seal_block_preds(*out, &mut self.body);
-                        self.locals.start_block(*out, was_reachable);
+                        self.locals
+                            .start_block(*out, /* old_reachable = */ was_reachable);
                         self.push_block_params(results.len());
                     }
                 }
@@ -1221,7 +1240,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 let start_depth = self.op_stack.len();
                 self.emit_branch(header, &initial_args[..]);
                 self.cur_block = header;
-                self.locals.start_block(header, self.reachable);
+                self.locals
+                    .start_block(header, /* old_reachable = */ self.reachable);
                 self.push_block_params(params.len());
                 let out = self.body.add_block();
                 self.add_block_params(out, &results[..]);
@@ -1269,7 +1289,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.locals.seal_block_preds(if_true, &mut self.body);
                 self.locals.seal_block_preds(if_false, &mut self.body);
                 self.cur_block = if_true;
-                self.locals.start_block(if_true, self.reachable);
+                self.locals
+                    .start_block(if_true, /* old_reachable = */ self.reachable);
             }
 
             wasmparser::Operator::Else => {
@@ -1299,7 +1320,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         merge_reachable: merge_reachable || self.reachable,
                     });
                     self.cur_block = el;
-                    self.locals.start_block(el, self.reachable);
+                    self.locals
+                        .start_block(el, /* old_reachable = */ self.reachable);
                     self.reachable = head_reachable;
                 } else {
                     bail!(FrontendError::Internal(format!(
@@ -1355,7 +1377,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             };
             self.body
                 .end_block(self.cur_block, Terminator::Br { target });
-            self.locals.finish_block(true);
         }
     }
 
@@ -1392,7 +1413,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     },
                 },
             );
-            self.locals.finish_block(true);
         }
     }
 
@@ -1435,7 +1455,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     default,
                 },
             );
-            self.locals.finish_block(true);
         }
     }
 
@@ -1451,7 +1470,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             self.body
                 .end_block(self.cur_block, Terminator::Return { values });
             self.reachable = false;
-            self.locals.finish_block(true);
         }
     }
 
@@ -1464,7 +1482,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if self.reachable {
             self.body.end_block(self.cur_block, Terminator::Unreachable);
             self.reachable = false;
-            self.locals.finish_block(true);
         }
     }
 
