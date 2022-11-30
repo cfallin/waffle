@@ -3,10 +3,10 @@
 
 use crate::backend::treeify::Trees;
 use crate::cfg::CFGInfo;
-use crate::entity::{EntityVec, PerEntity};
+use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::ir::{Block, FunctionBody, Local, Type, Value, ValueDef};
 use smallvec::{smallvec, SmallVec};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap};
 
 #[derive(Clone, Debug, Default)]
 pub struct Localifier {
@@ -26,37 +26,22 @@ struct Context<'a> {
     trees: &'a Trees,
     results: Localifier,
 
-    // Affinities (blockparam value to input arg value).
-    affinities: HashMap<Value, SmallVec<[Value; 4]>>,
-
-    // Livein to each block from dominators.
-    livein_values: PerEntity<Block, HashSet<Value>>,
-    livein_locals: PerEntity<Block, HashSet<Local>>,
+    /// Liveranges for each Value, in an arbitrary index space
+    /// (concretely, the span of first to last instruction visit step
+    /// index in an RPO walk over the function body).
+    ranges: HashMap<Value, std::ops::Range<usize>>,
+    /// Number of points.
+    points: usize,
 }
 
 impl<'a> Context<'a> {
     fn new(body: &'a FunctionBody, cfg: &'a CFGInfo, trees: &'a Trees) -> Self {
         let mut results = Localifier::default();
+
         // Create locals for function args.
         for &(ty, value) in &body.blocks[body.entry].params {
             let param_local = results.locals.push(ty);
             results.values[value] = smallvec![param_local];
-        }
-        // Compute affinities.
-        let mut affinities = HashMap::default();
-        for block in body.blocks.values() {
-            block.terminator.visit_targets(|target| {
-                for (&arg, &param) in target
-                    .args
-                    .iter()
-                    .zip(body.blocks[target.block].params.iter().map(|(_, val)| val))
-                {
-                    affinities
-                        .entry(arg)
-                        .or_insert_with(|| smallvec![])
-                        .push(param);
-                }
-            });
         }
 
         Self {
@@ -64,280 +49,174 @@ impl<'a> Context<'a> {
             cfg,
             trees,
             results,
-            affinities,
-            livein_values: PerEntity::default(),
-            livein_locals: PerEntity::default(),
+            ranges: HashMap::default(),
+            points: 0,
+        }
+    }
+
+    fn find_ranges(&mut self) {
+        let mut point = 0;
+
+        let mut live: HashMap<Value, usize> = HashMap::default();
+        let mut block_ends: HashMap<Block, usize> = HashMap::default();
+        for &block in &self.cfg.postorder {
+            self.body.blocks[block].terminator.visit_uses(|u| {
+                self.handle_use(&mut live, &mut point, u);
+            });
+            point += 1;
+
+            for &inst in &self.body.blocks[block].insts {
+                self.handle_inst(&mut live, &mut point, inst, /* root = */ true);
+                point += 1;
+            }
+
+            for &(_, param) in &self.body.blocks[block].params {
+                self.handle_def(&mut live, &mut point, param);
+            }
+            point += 1;
+
+            block_ends.insert(block, point);
+
+            // If there were any in-edges from blocks numbered earlier
+            // in postorder ("loop backedges"), extend the start of
+            // the backward-range on all live values at this point to
+            // the origin of the edge. (In forward program order,
+            // extend the *end* of the liverange down to the end of
+            // the loop.)
+            //
+            // Note that we do this *after* inserting our own end
+            // above, so we handle self-loops properly.
+            for &pred in self.cfg.preds(block) {
+                if let Some(&end) = block_ends.get(&pred) {
+                    for live_end in live.values_mut() {
+                        *live_end = end;
+                    }
+                }
+            }
+        }
+
+        self.points = point;
+    }
+
+    fn handle_def(&mut self, live: &mut HashMap<Value, usize>, point: &mut usize, value: Value) {
+        // If the value was not live, make it so just for this
+        // point. Otherwise, end the liverange.
+        match live.entry(value) {
+            Entry::Vacant(_) => {
+                self.ranges.insert(value, *point..(*point + 1));
+            }
+            Entry::Occupied(o) => {
+                let start = o.remove();
+                self.ranges.insert(value, start..(*point + 1));
+            }
+        }
+    }
+
+    fn handle_use(&mut self, live: &mut HashMap<Value, usize>, point: &mut usize, value: Value) {
+        if self.trees.owner.contains_key(&value) {
+            // If this is a treeified value, then don't process the use,
+            // but process the instruction directly here.
+            self.handle_inst(live, point, value, /* root = */ false);
+        } else {
+            // Otherwise, update liveranges: make value live at this
+            // point if not live already.
+            live.entry(value).or_insert(*point);
+        }
+    }
+
+    fn handle_inst(
+        &mut self,
+        live: &mut HashMap<Value, usize>,
+        point: &mut usize,
+        value: Value,
+        root: bool,
+    ) {
+        let value = self.body.resolve_alias(value);
+
+        // If this is an instruction...
+        if let ValueDef::Operator(_, ref args, _) = &self.body.values[value] {
+            // Handle uses.
+            for &arg in args {
+                self.handle_use(live, point, arg);
+            }
+            // If root, we need to process the def.
+            if root {
+                *point += 1;
+                self.handle_def(live, point, value);
+            }
+        }
+        // Otherwise, it may be an alias (but resolved above) or
+        // PickOutput, which we "see through" in handle_use of
+        // consumers.
+    }
+
+    fn allocate(&mut self) {
+        // Sort values by ranges' starting points, then value to break ties.
+        let mut ranges: Vec<(Value, std::ops::Range<usize>)> =
+            self.ranges.iter().map(|(k, v)| (*k, v.clone())).collect();
+        ranges.sort_unstable_by_key(|(val, range)| (range.start, *val));
+
+        // Keep a list of expiring Locals by expiry point.
+        let mut expiring: HashMap<usize, SmallVec<[(Type, Local); 8]>> = HashMap::new();
+
+        // Iterate over allocation space, processing range starts (at
+        // which point we allocate) and ends (at which point we add to
+        // the freelist).
+        let mut range_idx = 0;
+        let mut freelist: HashMap<Type, Vec<Local>> = HashMap::new();
+
+        for i in 0..self.points {
+            // Process ends. (Ends are exclusive, so we do them
+            // first; another range can grab the local at the same
+            // point index in this same iteration.)
+            if let Some(expiring) = expiring.remove(&i) {
+                for (ty, local) in expiring {
+                    log::trace!(" -> expiring {} of type {} back to freelist", local, ty);
+                    freelist.entry(ty).or_insert_with(|| vec![]).push(local);
+                }
+            }
+
+            // Process starts.
+            while range_idx < ranges.len() && ranges[range_idx].1.start == i {
+                let (value, range) = ranges[range_idx].clone();
+                range_idx += 1;
+                log::trace!(
+                    "localify: processing range for {}: {}..{}",
+                    value,
+                    range.start,
+                    range.end
+                );
+
+                // If the value is an arg, ignore; these already have
+                // fixed locations.
+                if value.index() < self.body.n_params {
+                    continue;
+                }
+
+                // Try getting a local from the freelist; if not,
+                // allocate a new one.
+                let mut allocs = smallvec![];
+                let expiring = expiring.entry(range.end).or_insert_with(|| smallvec![]);
+                for &ty in self.body.values[value].tys() {
+                    let local = freelist
+                        .get_mut(&ty)
+                        .and_then(|v| v.pop())
+                        .unwrap_or_else(|| {
+                            log::trace!(" -> allocating new local of type {}", ty);
+                            self.results.locals.push(ty)
+                        });
+                    log::trace!(" -> got local {} of type {}", local, ty);
+                    allocs.push(local);
+                    expiring.push((ty, local));
+                }
+                self.results.values[value] = allocs;
+            }
         }
     }
 
     fn compute(mut self) -> Localifier {
-        // Create domtree preorder for traversal (we iterate in
-        // reverse preorder below).
-        let mut order = vec![];
-        order.push(self.body.entry);
-        let mut i = 0;
-        while i < order.len() {
-            for child in self.cfg.dom_children(order[i]) {
-                order.push(child);
-            }
-            i += 1;
-        }
-
-        for &block in order.iter().rev() {
-            self.process(block);
-        }
-
-        debug_assert!(self.livein_values[self.body.entry].is_empty());
-        debug_assert!(self.livein_locals[self.body.entry].is_empty());
-
+        self.find_ranges();
+        self.allocate();
         self.results
-    }
-
-    fn process(&mut self, block: Block) {
-        let mut live_values = HashSet::new();
-        let mut live_locals = HashSet::new();
-
-        // Collect liveins of all dominated blocks; this is our initial live-set.
-        for child in self.cfg.dom_children(block) {
-            for &livein_value in &self.livein_values[child] {
-                log::trace!(
-                    "localify: block {} gets livein value {} from block {}",
-                    block,
-                    livein_value,
-                    child
-                );
-                live_values.insert(livein_value);
-            }
-            for &livein_local in &self.livein_locals[child] {
-                live_locals.insert(livein_local);
-            }
-        }
-
-        log::trace!(
-            "localify: process block {}: liveout values {:?} locals {:?}",
-            block,
-            live_values,
-            live_locals
-        );
-
-        // For each use/def in reverse order, update live-set; on last
-        // use (first observed), allocate a local.
-        fn handle_use(
-            body: &FunctionBody,
-            cfg: &CFGInfo,
-            block: Block,
-            u: Value,
-            live_values: &mut HashSet<Value>,
-            live_locals: &mut HashSet<Local>,
-            results: &mut Localifier,
-            affinities: &HashMap<Value, SmallVec<[Value; 4]>>,
-        ) {
-            let u = body.resolve_alias(u);
-            if live_values.insert(u) {
-                // If there is already an allocation (e.g. for a
-                // function parameter), return.
-                if !results.values[u].is_empty() {
-                    // Ensure the local(s) are marked as live.
-                    for &local in &results.values[u] {
-                        live_locals.insert(local);
-                    }
-                    return;
-                }
-
-                // Need to create an allocation.
-                let def = &body.values[u];
-                match def {
-                    &ValueDef::Alias(_value) => {
-                        unreachable!();
-                    }
-                    &ValueDef::PickOutput(value, idx, _) => {
-                        handle_use(
-                            body,
-                            cfg,
-                            block,
-                            value,
-                            live_values,
-                            live_locals,
-                            results,
-                            affinities,
-                        );
-                        results.values[u] = smallvec![results.values[value][idx]];
-                    }
-                    &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => {
-                        // Uses from dominating blocks may be live
-                        // over a loop backedge, so for simplicity,
-                        // let's not reuse any locals for uses of
-                        // non-local defs.
-                        let can_reuse = cfg.def_block[u] == block;
-
-                        let locals = def
-                            .tys()
-                            .iter()
-                            .map(|&ty| {
-                                log::trace!(
-                                    "looking for location for {} can_reuse {} with live_locals {:?}",
-                                    u,
-                                    can_reuse,
-                                    live_locals,
-                                );
-                                let reused = if can_reuse {
-                                    // Try to find a local of the right type that is not live.
-                                    let affinities =
-                                        affinities.get(&u).map(|v| &v[..]).unwrap_or(&[]);
-                                    log::trace!(" -> affinities: {:?}", affinities);
-                                    let mut try_list = affinities
-                                        .iter()
-                                        .filter_map(|&aff_val| {
-                                            let local = *results.values[aff_val].get(0)?;
-                                            Some((local, results.locals[local]))
-                                        })
-                                        .chain(
-                                            results
-                                                .locals
-                                                .entries()
-                                                .map(|(local, &ty)| (local, ty)),
-                                        );
-
-                                    try_list
-                                        .find(|&(local, local_ty)| {
-                                            log::trace!(
-                                                " -> considering {} ty {:?}",
-                                                local,
-                                                local_ty
-                                            );
-                                            local_ty == ty && live_locals.insert(local)
-                                        })
-                                        .map(|(local, _)| local)
-                                } else {
-                                    None
-                                };
-                                log::trace!(" -> reused: {:?}", reused);
-
-                                reused.unwrap_or_else(|| {
-                                    let local = results.locals.push(ty);
-                                    live_locals.insert(local);
-                                    log::trace!(" -> new allocation: {}", local);
-                                    local
-                                })
-                            })
-                            .collect::<SmallVec<_>>();
-                        results.values[u] = locals;
-                    }
-                    &ValueDef::Placeholder(_) | &ValueDef::None => unreachable!(),
-                }
-            }
-        }
-
-        fn handle_def(
-            body: &FunctionBody,
-            d: Value,
-            live_values: &mut HashSet<Value>,
-            live_locals: &mut HashSet<Local>,
-            results: &Localifier,
-        ) {
-            if let ValueDef::Alias(..) = &body.values[d] {
-                return;
-            }
-
-            if live_values.remove(&d) {
-                for &local in &results.values[d] {
-                    live_locals.remove(&local);
-                }
-            }
-        }
-
-        self.body.blocks[block].terminator.visit_uses(|u| {
-            handle_use(
-                self.body,
-                self.cfg,
-                block,
-                u,
-                &mut live_values,
-                &mut live_locals,
-                &mut self.results,
-                &self.affinities,
-            )
-        });
-
-        fn visit_inst_uses(
-            body: &FunctionBody,
-            cfg: &CFGInfo,
-            trees: &Trees,
-            block: Block,
-            inst: Value,
-            live_values: &mut HashSet<Value>,
-            live_locals: &mut HashSet<Local>,
-            results: &mut Localifier,
-            affinities: &HashMap<Value, SmallVec<[Value; 4]>>,
-        ) {
-            body.values[inst].visit_uses(|u| {
-                // If treeified, then don't process use. However, do
-                // process uses of the treeified value.
-                if trees.owner.contains_key(&u) {
-                    visit_inst_uses(
-                        &body,
-                        &cfg,
-                        trees,
-                        block,
-                        u,
-                        live_values,
-                        live_locals,
-                        results,
-                        affinities,
-                    );
-                } else {
-                    handle_use(
-                        body,
-                        cfg,
-                        block,
-                        u,
-                        live_values,
-                        live_locals,
-                        results,
-                        affinities,
-                    )
-                }
-            });
-        }
-
-        for &inst in self.body.blocks[block].insts.iter().rev() {
-            handle_def(
-                self.body,
-                inst,
-                &mut live_values,
-                &mut live_locals,
-                &self.results,
-            );
-            visit_inst_uses(
-                &self.body,
-                &self.cfg,
-                &self.trees,
-                block,
-                inst,
-                &mut live_values,
-                &mut live_locals,
-                &mut self.results,
-                &self.affinities,
-            );
-        }
-
-        for &(_, param) in &self.body.blocks[block].params {
-            handle_def(
-                self.body,
-                param,
-                &mut live_values,
-                &mut live_locals,
-                &self.results,
-            );
-        }
-
-        log::trace!(
-            "localify: process block {}: livein values {:?} locals {:?}",
-            block,
-            live_values,
-            live_locals
-        );
-        self.livein_locals[block] = live_locals;
-        self.livein_values[block] = live_values;
     }
 }
