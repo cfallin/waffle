@@ -180,6 +180,7 @@ fn const_eval(op: &Operator, vals: &[ConstVal]) -> Option<ConstVal> {
         (Operator::I64Extend32S, [ConstVal::I64(a)]) => {
             Some(ConstVal::I64(*a as i32 as i64 as u64))
         }
+        (Operator::Select, [x, y, ConstVal::I32(k)]) => Some(if *k != 0 { *x } else { *y }),
 
         _ => None,
     }

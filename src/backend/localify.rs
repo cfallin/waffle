@@ -241,6 +241,47 @@ impl<'a> Context<'a> {
             )
         });
 
+        fn visit_inst_uses(
+            body: &FunctionBody,
+            cfg: &CFGInfo,
+            trees: &Trees,
+            block: Block,
+            inst: Value,
+            live_values: &mut HashSet<Value>,
+            live_locals: &mut HashSet<Local>,
+            results: &mut Localifier,
+            affinities: &HashMap<Value, SmallVec<[Value; 4]>>,
+        ) {
+            body.values[inst].visit_uses(|u| {
+                // If treeified, then don't process use. However, do
+                // process uses of the treeified value.
+                if trees.owner.contains_key(&u) {
+                    visit_inst_uses(
+                        &body,
+                        &cfg,
+                        trees,
+                        block,
+                        u,
+                        live_values,
+                        live_locals,
+                        results,
+                        affinities,
+                    );
+                } else {
+                    handle_use(
+                        body,
+                        cfg,
+                        block,
+                        u,
+                        live_values,
+                        live_locals,
+                        results,
+                        affinities,
+                    )
+                }
+            });
+        }
+
         for &inst in self.body.blocks[block].insts.iter().rev() {
             handle_def(
                 self.body,
@@ -249,21 +290,17 @@ impl<'a> Context<'a> {
                 &mut live_locals,
                 &self.results,
             );
-            self.body.values[inst].visit_uses(|u| {
-                // If treeified, then don't process use.
-                if !self.trees.owner.contains_key(&u) {
-                    handle_use(
-                        self.body,
-                        self.cfg,
-                        block,
-                        u,
-                        &mut live_values,
-                        &mut live_locals,
-                        &mut self.results,
-                        &self.affinities,
-                    )
-                }
-            });
+            visit_inst_uses(
+                &self.body,
+                &self.cfg,
+                &self.trees,
+                block,
+                inst,
+                &mut live_values,
+                &mut live_locals,
+                &mut self.results,
+                &self.affinities,
+            );
         }
 
         for &(_, param) in &self.body.blocks[block].params {
