@@ -387,6 +387,8 @@ impl LocalTracker {
                 self.cur_block,
                 old_mapping
             );
+        } else {
+            self.block_end.insert(self.cur_block, FxHashMap::default());
         }
     }
 
@@ -413,7 +415,12 @@ impl LocalTracker {
     }
 
     fn get_in_block(&mut self, body: &mut FunctionBody, at_block: Block, local: Local) -> Value {
-        log::trace!("get_in_block: at_block {} local {}", at_block, local);
+        log::trace!(
+            "get_in_block: at_block {} local {} cur_block {}",
+            at_block,
+            local,
+            self.cur_block
+        );
         let ty = body.locals[local];
 
         if self.cur_block == at_block {
