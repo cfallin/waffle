@@ -145,7 +145,7 @@ impl<'a> WasmFuncBackend<'a> {
                     // If this value is "owned", do nothing: it will be lowered in
                     // the one place it's used.
                     if self.trees.owner.contains_key(&inst) {
-                        return;
+                        continue;
                     }
                     self.lower_inst(inst, /* root = */ true, func);
                 }

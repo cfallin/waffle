@@ -1032,6 +1032,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             wasmparser::Operator::Return => {
                 let retvals = self.pop_n(self.module.signature(self.my_sig).returns.len());
                 self.emit_ret(&retvals[..]);
+                self.reachable = false;
             }
 
             _ => bail!(FrontendError::UnsupportedFeature(format!(
@@ -1056,6 +1057,13 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn handle_ctrl_op(&mut self, op: wasmparser::Operator<'a>) -> Result<bool> {
+        log::trace!(
+            "handle_ctrl_op: op {:?} reachable {} cur_block {}",
+            op,
+            self.reachable,
+            self.cur_block
+        );
+        log::trace!("ctrl stack: {:?}", self.ctrl_stack);
         match &op {
             wasmparser::Operator::End => {
                 let frame = self.ctrl_stack.pop();
@@ -1083,6 +1091,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
+                        let was_reachable = self.reachable;
                         if self.reachable {
                             let result_values =
                                 self.block_results(&results[..], *start_depth, self.cur_block);
@@ -1100,7 +1109,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         // Set `cur_block` only if currently set (otherwise, unreachable!)
                         self.cur_block = *out;
                         self.locals.start_block(*out, self.reachable);
-                        self.reachable = self.reachable
+                        self.reachable = was_reachable
                             || match &frame {
                                 Some(Frame::Block { out_reachable, .. }) => *out_reachable,
                                 _ => false,
@@ -1118,6 +1127,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
+                        let was_reachable = self.reachable;
                         if self.reachable {
                             let result_values =
                                 self.block_results(&results[..], *start_depth, self.cur_block);
@@ -1141,7 +1151,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             assert_eq!(self.op_stack.len(), *start_depth);
                         }
                         self.cur_block = *out;
-                        let was_reachable = self.reachable;
                         self.reachable = *head_reachable || self.reachable;
                         self.locals.seal_block_preds(*out, &mut self.body);
                         self.locals.start_block(*out, was_reachable);
@@ -1156,6 +1165,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     }) => {
                         // Generate a branch to the out-block with
                         // blockparams for the results.
+                        let was_reachable = self.reachable;
                         if self.reachable {
                             let result_values =
                                 self.block_results(&results[..], *start_depth, self.cur_block);
@@ -1163,7 +1173,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         }
                         self.op_stack.truncate(*start_depth);
                         self.cur_block = *out;
-                        let was_reachable = self.reachable;
                         self.reachable = *merge_reachable || self.reachable;
                         self.locals.seal_block_preds(*out, &mut self.body);
                         self.locals.start_block(*out, was_reachable);
@@ -1334,7 +1343,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             };
             self.body
                 .end_block(self.cur_block, Terminator::Br { target });
-            self.reachable = false;
             self.locals.finish_block(true);
         }
     }
@@ -1422,6 +1430,12 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn emit_ret(&mut self, values: &[Value]) {
+        log::trace!(
+            "emit_ret: cur_block {} reachable {} values {:?}",
+            self.cur_block,
+            self.reachable,
+            values
+        );
         if self.reachable {
             let values = values.to_vec();
             self.body
