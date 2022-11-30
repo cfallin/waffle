@@ -83,44 +83,44 @@ fn const_eval(op: &Operator, vals: &[ConstVal]) -> Option<ConstVal> {
         (Operator::I32GeU, [ConstVal::I32(a), ConstVal::I32(b)]) => {
             Some(ConstVal::I32(if a >= b { 1 } else { 0 }))
         }
-        (Operator::I64Eqz, [ConstVal::I64(a)]) => Some(ConstVal::I64(if *a == 0 { 1 } else { 0 })),
+        (Operator::I64Eqz, [ConstVal::I64(a)]) => Some(ConstVal::I32(if *a == 0 { 1 } else { 0 })),
         (Operator::I64Eq, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a == b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a == b { 1 } else { 0 }))
         }
         (Operator::I64Ne, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a != b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a != b { 1 } else { 0 }))
         }
         (Operator::I64LtS, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if (*a as i64) < (*b as i64) { 1 } else { 0 }))
+            Some(ConstVal::I32(if (*a as i64) < (*b as i64) { 1 } else { 0 }))
         }
         (Operator::I64LtU, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a < b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a < b { 1 } else { 0 }))
         }
         (Operator::I64GtS, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if (*a as i64) > (*b as i64) { 1 } else { 0 }))
+            Some(ConstVal::I32(if (*a as i64) > (*b as i64) { 1 } else { 0 }))
         }
         (Operator::I64GtU, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a > b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a > b { 1 } else { 0 }))
         }
         (Operator::I64LeS, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if (*a as i64) <= (*b as i64) {
+            Some(ConstVal::I32(if (*a as i64) <= (*b as i64) {
                 1
             } else {
                 0
             }))
         }
         (Operator::I64LeU, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a <= b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a <= b { 1 } else { 0 }))
         }
         (Operator::I64GeS, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if (*a as i64) >= (*b as i64) {
+            Some(ConstVal::I32(if (*a as i64) >= (*b as i64) {
                 1
             } else {
                 0
             }))
         }
         (Operator::I64GeU, [ConstVal::I64(a), ConstVal::I64(b)]) => {
-            Some(ConstVal::I64(if a >= b { 1 } else { 0 }))
+            Some(ConstVal::I32(if a >= b { 1 } else { 0 }))
         }
 
         (Operator::I32Add, [ConstVal::I32(a), ConstVal::I32(b)]) => {
