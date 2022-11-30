@@ -621,6 +621,7 @@ enum Frame {
         params: Vec<Type>,
         results: Vec<Type>,
         head_reachable: bool,
+        merge_reachable: bool,
     },
     Else {
         start_depth: usize,
@@ -688,6 +689,12 @@ impl Frame {
     fn set_reachable(&mut self) {
         match self {
             Frame::Block { out_reachable, .. } => *out_reachable = true,
+            Frame::If {
+                merge_reachable, ..
+            }
+            | Frame::Else {
+                merge_reachable, ..
+            } => *merge_reachable = true,
             _ => {}
         }
     }
@@ -1027,6 +1034,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     term_targets.push(block);
                 }
                 self.emit_br_table(index, default_term_target, &term_targets[..], &args[..]);
+                self.reachable = false;
             }
 
             wasmparser::Operator::Return => {
@@ -1123,6 +1131,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         ref param_values,
                         ref results,
                         head_reachable,
+                        merge_reachable,
                         ..
                     }) => {
                         // Generate a branch to the out-block with
@@ -1151,7 +1160,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                             assert_eq!(self.op_stack.len(), *start_depth);
                         }
                         self.cur_block = *out;
-                        self.reachable = *head_reachable || self.reachable;
+                        self.reachable = *head_reachable || self.reachable || *merge_reachable;
                         self.locals.seal_block_preds(*out, &mut self.body);
                         self.locals.start_block(*out, was_reachable);
                         self.push_block_params(results.len());
@@ -1253,6 +1262,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     params,
                     results,
                     head_reachable: self.reachable,
+                    merge_reachable: false,
                 });
                 self.emit_cond_branch(cond, if_true, &[], if_false, &[]);
                 self.locals.seal_block_preds(if_true, &mut self.body);
@@ -1270,6 +1280,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     params,
                     results,
                     head_reachable,
+                    merge_reachable,
                 } = self.ctrl_stack.pop().unwrap()
                 {
                     if self.reachable {
@@ -1284,7 +1295,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         out,
                         params,
                         results,
-                        merge_reachable: head_reachable,
+                        merge_reachable,
                     });
                     self.cur_block = el;
                     self.locals.start_block(el, self.reachable);
@@ -1380,7 +1391,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     },
                 },
             );
-            self.reachable = false;
             self.locals.finish_block(true);
         }
     }
@@ -1425,7 +1435,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 },
             );
             self.locals.finish_block(true);
-            self.reachable = false;
         }
     }
 
