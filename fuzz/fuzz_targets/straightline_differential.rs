@@ -1,5 +1,6 @@
 #![no_main]
 use libfuzzer_sys::{arbitrary, fuzz_target};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use waffle::Module;
 
@@ -139,12 +140,14 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
     };
 
     let parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
-    let roundtrip_bytes = parsed_module.to_wasm_bytes();
+    let roundtrip_bytes = parsed_module.to_wasm_bytes().unwrap();
 
     if let Ok(filename) = std::env::var("FUZZ_DUMP_WASM") {
         std::fs::write(format!("{}_orig.wasm", filename), &orig_bytes[..]).unwrap();
         std::fs::write(format!("{}_roundtrip.wasm", filename), &roundtrip_bytes[..]).unwrap();
     }
+
+    let total = TOTAL.fetch_add(1, Ordering::Relaxed);
 
     let roundtrip_module = wasmtime::Module::new(&engine, &roundtrip_bytes[..])
         .expect("failed to parse roundtripped wasm");
@@ -193,4 +196,16 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
         let b_data = b.data(&store);
         assert_eq!(a_data, b_data);
     }
+
+    success(total);
 });
+
+static TOTAL: AtomicU64 = AtomicU64::new(0);
+static SUCCESS: AtomicU64 = AtomicU64::new(0);
+
+fn success(total: u64) {
+    let value = SUCCESS.fetch_add(1, Ordering::Relaxed);
+    if value % 1000 == 0 {
+        eprintln!("SUCCESS: {} / TOTAL: {}", value, total);
+    }
+}
