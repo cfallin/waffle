@@ -460,10 +460,14 @@ impl LocalTracker {
 
             let placeholder = body.add_placeholder(ty);
             body.mark_value_as_local(placeholder, local);
-            self.block_end
-                .entry(at_block)
-                .or_insert_with(|| FxHashMap::default())
-                .insert(local, placeholder);
+            if at_block == self.cur_block {
+                self.in_cur_block.insert(local, placeholder);
+            } else {
+                self.block_end
+                    .get_mut(&at_block)
+                    .unwrap()
+                    .insert(local, placeholder);
+            }
             log::trace!(
                 " -> created placeholder and added as incomplete phi: {:?}",
                 placeholder
