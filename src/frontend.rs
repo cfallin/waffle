@@ -1296,7 +1296,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                         out,
                         params,
                         results,
-                        merge_reachable,
+                        merge_reachable: merge_reachable || self.reachable,
                     });
                     self.cur_block = el;
                     self.locals.start_block(el, self.reachable);

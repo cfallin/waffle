@@ -224,7 +224,6 @@ impl<'a> Module<'a> {
         let mut module = frontend::wasm_to_ir(bytes)?;
         for func_decl in module.funcs.values_mut() {
             if let Some(body) = func_decl.body_mut() {
-                crate::passes::rpo::run(body);
                 let cfg = crate::cfg::CFGInfo::new(body);
                 crate::passes::basic_opt::gvn(body, &cfg);
                 crate::passes::resolve_aliases::run(body);
