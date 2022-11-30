@@ -137,6 +137,10 @@ impl<'a> Context<'a> {
                 // If there is already an allocation (e.g. for a
                 // function parameter), return.
                 if !results.values[u].is_empty() {
+                    // Ensure the local(s) are marked as live.
+                    for &local in &results.values[u] {
+                        live_locals.insert(local);
+                    }
                     return;
                 }
 
@@ -170,10 +174,17 @@ impl<'a> Context<'a> {
                             .tys()
                             .iter()
                             .map(|&ty| {
+                                log::trace!(
+                                    "looking for location for {} can_reuse {} with live_locals {:?}",
+                                    u,
+                                    can_reuse,
+                                    live_locals,
+                                );
                                 let reused = if can_reuse {
                                     // Try to find a local of the right type that is not live.
                                     let affinities =
                                         affinities.get(&u).map(|v| &v[..]).unwrap_or(&[]);
+                                    log::trace!(" -> affinities: {:?}", affinities);
                                     let mut try_list = affinities
                                         .iter()
                                         .filter_map(|&aff_val| {
@@ -189,16 +200,23 @@ impl<'a> Context<'a> {
 
                                     try_list
                                         .find(|&(local, local_ty)| {
+                                            log::trace!(
+                                                " -> considering {} ty {:?}",
+                                                local,
+                                                local_ty
+                                            );
                                             local_ty == ty && live_locals.insert(local)
                                         })
                                         .map(|(local, _)| local)
                                 } else {
                                     None
                                 };
+                                log::trace!(" -> reused: {:?}", reused);
 
                                 reused.unwrap_or_else(|| {
                                     let local = results.locals.push(ty);
                                     live_locals.insert(local);
+                                    log::trace!(" -> new allocation: {}", local);
                                     local
                                 })
                             })
