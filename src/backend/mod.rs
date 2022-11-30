@@ -178,6 +178,7 @@ impl<'a> WasmFuncBackend<'a> {
     }
 
     fn lower_value(&self, value: Value, func: &mut wasm_encoder::Function) {
+        log::trace!("lower_value: value {}", value);
         let value = self.body.resolve_alias(value);
         let local = match &self.body.values[value] {
             &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => self.locals.values[value][0],
@@ -199,10 +200,12 @@ impl<'a> WasmFuncBackend<'a> {
     }
 
     fn lower_inst(&self, value: Value, root: bool, func: &mut wasm_encoder::Function) {
+        log::trace!("lower_inst: value {} root {}", value, root);
         match &self.body.values[value] {
-            &ValueDef::Operator(ref op, ref args, _) => {
+            &ValueDef::Operator(ref op, ref args, ref tys) => {
                 for &arg in &args[..] {
                     if self.trees.owner.contains_key(&arg) {
+                        log::trace!(" -> arg {} is owned", arg);
                         self.lower_inst(arg, /* root = */ false, func);
                     } else {
                         self.lower_value(arg, func);
@@ -214,6 +217,10 @@ impl<'a> WasmFuncBackend<'a> {
                         func.instruction(
                             &wasm_encoder::Instruction::LocalSet(local.index() as u32),
                         );
+                    }
+                    let leftovers = tys.len() - self.locals.values[value].len();
+                    for _ in 0..leftovers {
+                        func.instruction(&wasm_encoder::Instruction::Drop);
                     }
                 }
             }
