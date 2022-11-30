@@ -43,7 +43,7 @@ test = false
 doc = false
 
 [[bin]]
-name = "straightline_differential"
-path = "fuzz_targets/straightline_differential.rs"
+name = "differential"
+path = "fuzz_targets/differential.rs"
 test = false
 doc = false
