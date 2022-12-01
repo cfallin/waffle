@@ -58,7 +58,7 @@ impl<'a> Context<'a> {
         let mut point = 0;
 
         let mut live: HashMap<Value, usize> = HashMap::default();
-        let mut block_ends: HashMap<Block, usize> = HashMap::default();
+        let mut block_starts: HashMap<Block, usize> = HashMap::default();
         for &block in &self.cfg.postorder {
             self.body.blocks[block].terminator.visit_uses(|u| {
                 self.handle_use(&mut live, &mut point, u);
@@ -75,7 +75,7 @@ impl<'a> Context<'a> {
             }
             point += 1;
 
-            block_ends.insert(block, point);
+            block_starts.insert(block, point);
 
             // If there were any in-edges from blocks numbered earlier
             // in postorder ("loop backedges"), extend the start of
@@ -84,12 +84,12 @@ impl<'a> Context<'a> {
             // extend the *end* of the liverange down to the end of
             // the loop.)
             //
-            // Note that we do this *after* inserting our own end
+            // Note that we do this *after* inserting our own start
             // above, so we handle self-loops properly.
             for &pred in self.cfg.preds(block) {
-                if let Some(&end) = block_ends.get(&pred) {
-                    for live_end in live.values_mut() {
-                        *live_end = end;
+                if let Some(&start) = block_starts.get(&pred) {
+                    for live_start in live.values_mut() {
+                        *live_start = std::cmp::min(*live_start, start);
                     }
                 }
             }
@@ -101,12 +101,15 @@ impl<'a> Context<'a> {
     fn handle_def(&mut self, live: &mut HashMap<Value, usize>, point: &mut usize, value: Value) {
         // If the value was not live, make it so just for this
         // point. Otherwise, end the liverange.
+        log::trace!("localify: point {}: live {:?}: def {}", point, live, value);
         match live.entry(value) {
             Entry::Vacant(_) => {
+                log::trace!(" -> was dead; use {}..{}", *point, *point + 1);
                 self.ranges.insert(value, *point..(*point + 1));
             }
             Entry::Occupied(o) => {
                 let start = o.remove();
+                log::trace!(" -> was live; use {}..{}", start, *point + 1);
                 self.ranges.insert(value, start..(*point + 1));
             }
         }
@@ -114,7 +117,9 @@ impl<'a> Context<'a> {
 
     fn handle_use(&mut self, live: &mut HashMap<Value, usize>, point: &mut usize, value: Value) {
         let value = self.body.resolve_alias(value);
+        log::trace!("localify: point {}: live {:?}: use {}", point, live, value);
         if self.trees.owner.contains_key(&value) {
+            log::trace!(" -> treeified, going to inst");
             // If this is a treeified value, then don't process the use,
             // but process the instruction directly here.
             self.handle_inst(live, point, value, /* root = */ false);
@@ -133,16 +138,25 @@ impl<'a> Context<'a> {
         root: bool,
     ) {
         let value = self.body.resolve_alias(value);
+        log::trace!(
+            "localify: point {}: live {:?}: handling inst {} root {}",
+            point,
+            live,
+            value,
+            root
+        );
 
         // If this is an instruction...
         if let ValueDef::Operator(_, ref args, _) = &self.body.values[value] {
             // Handle uses.
             for &arg in args {
+                log::trace!(" -> arg {}", arg);
                 self.handle_use(live, point, arg);
             }
             // If root, we need to process the def.
             if root {
                 *point += 1;
+                log::trace!(" -> def {}", value);
                 self.handle_def(live, point, value);
             }
         }
