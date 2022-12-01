@@ -60,6 +60,8 @@ impl<'a> Context<'a> {
         let mut live: HashMap<Value, usize> = HashMap::default();
         let mut block_starts: HashMap<Block, usize> = HashMap::default();
         for &block in &self.cfg.postorder {
+            block_starts.insert(block, point);
+
             self.body.blocks[block].terminator.visit_uses(|u| {
                 self.handle_use(&mut live, &mut point, u);
             });
@@ -74,8 +76,6 @@ impl<'a> Context<'a> {
                 self.handle_def(&mut live, &mut point, param);
             }
             point += 1;
-
-            block_starts.insert(block, point);
 
             // If there were any in-edges from blocks numbered earlier
             // in postorder ("loop backedges"), extend the start of
