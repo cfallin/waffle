@@ -3,7 +3,7 @@
 
 use crate::backend::treeify::Trees;
 use crate::cfg::CFGInfo;
-use crate::entity::{EntityRef, EntityVec, PerEntity};
+use crate::entity::{EntityVec, PerEntity};
 use crate::ir::{Block, FunctionBody, Local, Type, Value, ValueDef};
 use smallvec::{smallvec, SmallVec};
 use std::collections::{hash_map::Entry, HashMap};
@@ -187,10 +187,12 @@ impl<'a> Context<'a> {
                     range.end
                 );
 
-                // If the value is an arg, ignore; these already have
-                // fixed locations.
-                if value.index() < self.body.n_params {
-                    continue;
+                // If the value is an arg on block0, ignore; these
+                // already have fixed locations.
+                if let &ValueDef::BlockParam(b, _, _) = &self.body.values[value] {
+                    if b == self.body.entry {
+                        continue;
+                    }
                 }
 
                 // Try getting a local from the freelist; if not,
