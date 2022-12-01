@@ -6,6 +6,7 @@ use crate::ir::{ExportKind, FuncDecl, FunctionBody, ImportKind, Module, Type, Va
 use crate::passes::rpo::RPO;
 use crate::Operator;
 use anyhow::Result;
+use rayon::prelude::*;
 use std::borrow::Cow;
 
 pub mod stackify;
@@ -689,10 +690,19 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&elem);
 
     let mut code = wasm_encoder::CodeSection::new();
-    for (func, func_decl) in module.funcs().skip(num_func_imports) {
-        let body = func_decl.body().unwrap();
-        log::debug!("Compiling {}", func);
-        let body = WasmFuncBackend::new(body)?.compile()?;
+    let bodies = module
+        .funcs()
+        .skip(num_func_imports)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|(func, func_decl)| -> Result<wasm_encoder::Function> {
+            let body = func_decl.body().unwrap();
+            log::debug!("Compiling {}", func);
+            WasmFuncBackend::new(body)?.compile()
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    for body in bodies {
         code.function(&body);
     }
     into_mod.section(&code);
