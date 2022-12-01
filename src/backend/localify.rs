@@ -113,6 +113,7 @@ impl<'a> Context<'a> {
     }
 
     fn handle_use(&mut self, live: &mut HashMap<Value, usize>, point: &mut usize, value: Value) {
+        let value = self.body.resolve_alias(value);
         if self.trees.owner.contains_key(&value) {
             // If this is a treeified value, then don't process the use,
             // but process the instruction directly here.
