@@ -65,7 +65,7 @@ impl<'a> Context<'a> {
             });
             point += 1;
 
-            for &inst in &self.body.blocks[block].insts {
+            for &inst in self.body.blocks[block].insts.iter().rev() {
                 self.handle_inst(&mut live, &mut point, inst, /* root = */ true);
                 point += 1;
             }
