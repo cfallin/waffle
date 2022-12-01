@@ -1052,6 +1052,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 // us the signature of all frames (since wasmparser
                 // validates the input for us). Pop that many args.
                 let default_frame = self.relative_frame(targets.default());
+                default_frame.set_reachable();
                 let default_term_target = default_frame.br_target();
                 let arg_len = default_frame.br_args().len();
                 let args = self.pop_n(arg_len);
@@ -1067,6 +1068,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     term_targets.push(block);
                 }
                 self.emit_br_table(index, default_term_target, &term_targets[..], &args[..]);
+                self.locals.finish_block(self.reachable);
                 self.reachable = false;
             }
 
