@@ -689,8 +689,9 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&elem);
 
     let mut code = wasm_encoder::CodeSection::new();
-    for (_func, func_decl) in module.funcs().skip(num_func_imports) {
+    for (func, func_decl) in module.funcs().skip(num_func_imports) {
         let body = func_decl.body().unwrap();
+        log::debug!("Compiling {}", func);
         let body = WasmFuncBackend::new(body)?.compile()?;
         code.function(&body);
     }
