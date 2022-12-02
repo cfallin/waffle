@@ -84,7 +84,7 @@ impl FunctionBody {
         id
     }
 
-    fn add_edge(&mut self, from: Block, to: Block) {
+    pub fn add_edge(&mut self, from: Block, to: Block) {
         let succ_pos = self.blocks[from].succs.len();
         let pred_pos = self.blocks[to].preds.len();
         self.blocks[from].succs.push(to);
@@ -171,6 +171,7 @@ impl FunctionBody {
     }
 
     pub fn set_terminator(&mut self, block: Block, terminator: Terminator) {
+        debug_assert_eq!(&self.blocks[block].terminator, &Terminator::None);
         log::trace!("block {} terminator {:?}", block, terminator);
         terminator.visit_successors(|succ| {
             self.add_edge(block, succ);
@@ -251,9 +252,17 @@ impl FunctionBody {
             };
 
             for (i, &inst) in block_def.insts.iter().enumerate() {
-                self.values[inst].visit_uses(|u| {
-                    visit_use(u, Some(i), Some(inst));
-                });
+                match &self.values[inst] {
+                    &ValueDef::Operator(_, ref args, _) => {
+                        for &arg in args {
+                            visit_use(arg, Some(i), Some(inst));
+                        }
+                    }
+                    &ValueDef::PickOutput(val, _, _) => {
+                        visit_use(val, Some(i), Some(inst));
+                    }
+                    _ => {}
+                }
             }
             let terminator_idx = block_def.insts.len();
             block_def.terminator.visit_uses(|u| {
@@ -290,7 +299,7 @@ pub struct BlockDef {
     pub params: Vec<(Type, Value)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockTarget {
     pub block: Block,
     pub args: Vec<Value>,
@@ -307,7 +316,7 @@ impl std::fmt::Display for BlockTarget {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Terminator {
     Br {
         target: BlockTarget,
