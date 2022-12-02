@@ -80,6 +80,9 @@ impl CFGInfo {
 
         let mut def_block: PerEntity<Value, Block> = PerEntity::default();
         for (block, block_def) in f.blocks.entries() {
+            for &(_, param) in &block_def.params {
+                def_block[param] = block;
+            }
             for &value in &block_def.insts {
                 def_block[value] = block;
             }

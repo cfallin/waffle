@@ -12,6 +12,15 @@ struct Options {
     #[structopt(short, long)]
     debug: bool,
 
+    #[structopt(
+        help = "Do basic optimizations: GVN and const-prop",
+        long = "basic-opts"
+    )]
+    basic_opts: bool,
+
+    #[structopt(help = "Transform to maximal SSA", long = "max-ssa")]
+    max_ssa: bool,
+
     #[structopt(subcommand)]
     command: Command,
 }
@@ -45,13 +54,25 @@ fn main() -> Result<()> {
         Command::PrintIR { wasm } => {
             let bytes = std::fs::read(wasm)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
-            let module = Module::from_wasm_bytes(&bytes[..])?;
+            let mut module = Module::from_wasm_bytes(&bytes[..])?;
+            if opts.basic_opts {
+                module.optimize();
+            }
+            if opts.max_ssa {
+                module.convert_to_max_ssa();
+            }
             println!("{}", module.display());
         }
         Command::RoundTrip { input, output } => {
             let bytes = std::fs::read(input)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
-            let module = Module::from_wasm_bytes(&bytes[..])?;
+            let mut module = Module::from_wasm_bytes(&bytes[..])?;
+            if opts.basic_opts {
+                module.optimize();
+            }
+            if opts.max_ssa {
+                module.convert_to_max_ssa();
+            }
             let produced = module.to_wasm_bytes()?;
             std::fs::write(output, &produced[..])?;
         }

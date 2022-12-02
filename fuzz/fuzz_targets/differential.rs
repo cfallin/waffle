@@ -134,7 +134,8 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
         }
     };
 
-    let parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
+    let mut parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
+    parsed_module.optimize();
     let roundtrip_bytes = parsed_module.to_wasm_bytes().unwrap();
 
     if let Ok(filename) = std::env::var("FUZZ_DUMP_WASM") {

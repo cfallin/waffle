@@ -221,19 +221,34 @@ impl<'a> Module<'a> {
     }
 
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
-        let mut module = frontend::wasm_to_ir(bytes)?;
-        for func_decl in module.funcs.values_mut() {
-            if let Some(body) = func_decl.body_mut() {
-                let cfg = crate::cfg::CFGInfo::new(body);
-                crate::passes::basic_opt::gvn(body, &cfg);
-                crate::passes::resolve_aliases::run(body);
-            }
-        }
-        Ok(module)
+        frontend::wasm_to_ir(bytes)
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
         backend::compile(self)
+    }
+
+    pub fn per_func_body<F: Fn(&mut FunctionBody)>(&mut self, f: F) {
+        for func_decl in self.funcs.values_mut() {
+            if let Some(body) = func_decl.body_mut() {
+                f(body);
+            }
+        }
+    }
+
+    pub fn optimize(&mut self) {
+        self.per_func_body(|body| {
+            let cfg = crate::cfg::CFGInfo::new(body);
+            crate::passes::basic_opt::gvn(body, &cfg);
+            crate::passes::resolve_aliases::run(body);
+        });
+    }
+
+    pub fn convert_to_max_ssa(&mut self) {
+        self.per_func_body(|body| {
+            let cfg = crate::cfg::CFGInfo::new(body);
+            crate::passes::maxssa::run(body, &cfg);
+        });
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>
