@@ -224,6 +224,10 @@ impl FunctionBody {
         let cfg = CFGInfo::new(self);
         let mut bad = vec![];
         for (block, block_def) in self.blocks.entries() {
+            // If block isn't reachable, skip it.
+            if cfg.rpo_pos[block].is_none() {
+                continue;
+            }
             let mut visit_use = |u: Value, i: Option<usize>, inst: Option<Value>| {
                 let u = self.resolve_alias(u);
                 if block_inst[u].is_none() {
