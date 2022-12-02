@@ -1,4 +1,5 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
+use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 
 #[derive(Clone, Debug)]
@@ -187,6 +188,87 @@ impl FunctionBody {
 
     pub fn display_verbose<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
         FunctionBodyDisplay(self, indent, /* verbose = */ true)
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        // Verify that every block's succs are accurate.
+        for (block, block_def) in self.blocks.entries() {
+            let mut actual_succs = vec![];
+            block_def
+                .terminator
+                .visit_successors(|succ| actual_succs.push(succ));
+            if &actual_succs[..] != &block_def.succs[..] {
+                anyhow::bail!(
+                    "Incorrect successors on {}: actual {:?}, stored {:?}",
+                    block,
+                    actual_succs,
+                    block_def.succs
+                );
+            }
+        }
+
+        // Compute the location where every value is defined.
+        let mut block_inst: PerEntity<Value, Option<(Block, Option<usize>)>> = PerEntity::default();
+        for (block, block_def) in self.blocks.entries() {
+            for &(_, param) in &block_def.params {
+                block_inst[param] = Some((block, None));
+            }
+            for (i, &inst) in block_def.insts.iter().enumerate() {
+                block_inst[inst] = Some((block, Some(i)));
+            }
+        }
+
+        // Verify that every instruction uses args at legal locations
+        // (same block but earlier, or a dominating block).
+        let cfg = CFGInfo::new(self);
+        let mut bad = vec![];
+        for (block, block_def) in self.blocks.entries() {
+            let mut visit_use = |u: Value, i: Option<usize>, inst: Option<Value>| {
+                let u = self.resolve_alias(u);
+                if block_inst[u].is_none() {
+                    bad.push(format!(
+                        "Use of arg {} at {:?} illegal: not defined",
+                        u, inst
+                    ));
+                    return;
+                }
+                let (def_block, def_idx) = block_inst[u].unwrap();
+                if def_block == block {
+                    if def_idx >= i {
+                        bad.push(format!(
+                            "Use of arg {} by {:?} does not dominate location",
+                            u, inst
+                        ));
+                    }
+                } else {
+                    if !cfg.dominates(def_block, block) {
+                        bad.push(format!(
+                            "Use of arg {} defined in {} by {:?} in {}: def does not dominate",
+                            u, def_block, inst, block
+                        ));
+                    }
+                }
+            };
+
+            for (i, &inst) in block_def.insts.iter().enumerate() {
+                self.values[inst].visit_uses(|u| {
+                    visit_use(u, Some(i), Some(inst));
+                });
+            }
+            let terminator_idx = block_def.insts.len();
+            block_def.terminator.visit_uses(|u| {
+                visit_use(u, Some(terminator_idx), None);
+            });
+        }
+        if bad.len() > 0 {
+            anyhow::bail!(
+                "Body is:\n{}\nError(s) in SSA: {:?}",
+                self.display_verbose(" | "),
+                bad
+            );
+        }
+
+        Ok(())
     }
 }
 
