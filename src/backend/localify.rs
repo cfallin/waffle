@@ -59,7 +59,7 @@ impl<'a> Context<'a> {
 
         let mut live: HashMap<Value, usize> = HashMap::default();
         let mut block_starts: HashMap<Block, usize> = HashMap::default();
-        for &block in &self.cfg.postorder {
+        for &block in self.cfg.rpo.values().rev() {
             block_starts.insert(block, point);
 
             self.body.blocks[block].terminator.visit_uses(|u| {
@@ -86,7 +86,7 @@ impl<'a> Context<'a> {
             //
             // Note that we do this *after* inserting our own start
             // above, so we handle self-loops properly.
-            for &pred in self.cfg.preds(block) {
+            for &pred in &self.body.blocks[block].preds {
                 if let Some(&start) = block_starts.get(&pred) {
                     for live_start in live.values_mut() {
                         *live_start = std::cmp::min(*live_start, start);

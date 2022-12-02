@@ -169,7 +169,7 @@ impl FunctionBody {
         self.value_blocks[value] = block;
     }
 
-    pub fn end_block(&mut self, block: Block, terminator: Terminator) {
+    pub fn set_terminator(&mut self, block: Block, terminator: Terminator) {
         log::trace!("block {} terminator {:?}", block, terminator);
         terminator.visit_successors(|succ| {
             self.add_edge(block, succ);

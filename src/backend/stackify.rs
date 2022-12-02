@@ -12,7 +12,6 @@
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
 use crate::ir::{Block, BlockTarget, FunctionBody, Terminator, Type, Value};
-use crate::passes::rpo::RPO;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
@@ -75,7 +74,6 @@ impl WasmLabel {
 pub struct Context<'a, 'b> {
     body: &'a FunctionBody,
     cfg: &'b CFGInfo,
-    rpo: &'b RPO,
     merge_nodes: HashSet<Block>,
     loop_headers: HashSet<Block>,
     ctrl_stack: Vec<CtrlEntry>,
@@ -99,13 +97,11 @@ impl CtrlEntry {
 }
 
 impl<'a, 'b> Context<'a, 'b> {
-    pub fn new(body: &'a FunctionBody, cfg: &'b CFGInfo, rpo: &'b RPO) -> anyhow::Result<Self> {
-        let (merge_nodes, loop_headers) =
-            Self::compute_merge_nodes_and_loop_headers(body, cfg, rpo)?;
+    pub fn new(body: &'a FunctionBody, cfg: &'b CFGInfo) -> anyhow::Result<Self> {
+        let (merge_nodes, loop_headers) = Self::compute_merge_nodes_and_loop_headers(body, cfg)?;
         Ok(Self {
             body,
             cfg,
-            rpo,
             merge_nodes,
             loop_headers,
             ctrl_stack: vec![],
@@ -121,15 +117,16 @@ impl<'a, 'b> Context<'a, 'b> {
     fn compute_merge_nodes_and_loop_headers(
         body: &FunctionBody,
         cfg: &CFGInfo,
-        rpo: &RPO,
     ) -> anyhow::Result<(HashSet<Block>, HashSet<Block>)> {
         let mut loop_headers = HashSet::new();
         let mut branched_once = HashSet::new();
         let mut merge_nodes = HashSet::new();
 
-        for (block_rpo, &block) in rpo.order.entries() {
-            for &succ in cfg.succs(block) {
-                let succ_rpo = rpo.rev[succ].unwrap();
+        for (block_rpo, &block) in cfg.rpo.entries() {
+            for &succ in &body.blocks[block].succs {
+                log::trace!("block {} rpo {} has succ {}", block, block_rpo, succ);
+                let succ_rpo = cfg.rpo_pos[succ].unwrap();
+                log::trace!(" -> succ rpo {}", succ_rpo);
                 if succ_rpo <= block_rpo {
                     if !cfg.dominates(succ, block) {
                         anyhow::bail!("Irreducible control flow: edge from {} to {}", block, succ);
@@ -147,7 +144,7 @@ impl<'a, 'b> Context<'a, 'b> {
 
         // Make any `select` target a "merge node" too, so it gets its
         // own block.
-        for &block in rpo.order.values() {
+        for &block in cfg.rpo.values() {
             if let &Terminator::Select {
                 ref targets,
                 ref default,
@@ -171,7 +168,8 @@ impl<'a, 'b> Context<'a, 'b> {
             .filter(|child| self.merge_nodes.contains(&child))
             .collect::<Vec<_>>();
         // Sort merge nodes so highest RPO number comes first.
-        merge_node_children.sort_unstable_by_key(|&block| std::cmp::Reverse(self.rpo.rev[block]));
+        merge_node_children
+            .sort_unstable_by_key(|&block| std::cmp::Reverse(self.cfg.rpo_pos[block]));
 
         let is_loop_header = self.loop_headers.contains(&block);
 
@@ -216,7 +214,7 @@ impl<'a, 'b> Context<'a, 'b> {
         // the target is either a merge block, or is a backward branch
         // (by RPO number).
         if self.merge_nodes.contains(&target.block)
-            || self.rpo.rev[target.block] <= self.rpo.rev[source]
+            || self.cfg.rpo_pos[target.block] <= self.cfg.rpo_pos[source]
         {
             let index = self.resolve_target(target.block);
             self.do_blockparam_transfer(

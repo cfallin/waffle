@@ -3,7 +3,6 @@
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
 use crate::ir::{ExportKind, FuncDecl, FunctionBody, ImportKind, Module, Type, Value, ValueDef};
-use crate::passes::rpo::RPO;
 use crate::Operator;
 use anyhow::Result;
 use rayon::prelude::*;
@@ -18,7 +17,6 @@ use localify::Localifier;
 
 pub struct WasmFuncBackend<'a> {
     body: &'a FunctionBody,
-    rpo: RPO,
     trees: Trees,
     ctrl: Vec<WasmBlock<'a>>,
     locals: Localifier,
@@ -34,17 +32,15 @@ impl<'a> WasmFuncBackend<'a> {
     pub fn new(body: &'a FunctionBody) -> Result<WasmFuncBackend<'a>> {
         log::debug!("Backend compiling:\n{}\n", body.display_verbose("| "));
         let cfg = CFGInfo::new(body);
-        let rpo = RPO::compute(body);
-        log::debug!("RPO:\n{:?}\n", rpo);
+        log::debug!("CFG:\n{:?}\n", cfg);
         let trees = Trees::compute(body);
         log::debug!("Trees:\n{:?}\n", trees);
-        let ctrl = StackifyContext::new(body, &cfg, &rpo)?.compute();
+        let ctrl = StackifyContext::new(body, &cfg)?.compute();
         log::debug!("Ctrl:\n{:?}\n", ctrl);
         let locals = Localifier::compute(body, &cfg, &trees);
         log::debug!("Locals:\n{:?}\n", locals);
         Ok(WasmFuncBackend {
             body,
-            rpo,
             trees,
             ctrl,
             locals,
@@ -148,7 +144,9 @@ impl<'a> WasmFuncBackend<'a> {
                     if self.trees.owner.contains_key(&inst) {
                         continue;
                     }
-                    self.lower_inst(inst, /* root = */ true, func);
+                    if let &ValueDef::Operator(..) = &self.body.values[inst] {
+                        self.lower_inst(inst, /* root = */ true, func);
+                    }
                 }
             }
             WasmBlock::BlockParams { from, to } => {

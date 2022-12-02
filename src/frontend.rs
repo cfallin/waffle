@@ -1397,7 +1397,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 args,
             };
             self.body
-                .end_block(self.cur_block, Terminator::Br { target });
+                .set_terminator(self.cur_block, Terminator::Br { target });
         }
     }
 
@@ -1420,7 +1420,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if self.reachable {
             let if_true_args = if_true_args.to_vec();
             let if_false_args = if_false_args.to_vec();
-            self.body.end_block(
+            self.body.set_terminator(
                 self.cur_block,
                 Terminator::CondBr {
                     cond,
@@ -1468,7 +1468,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 args: default_args,
             };
 
-            self.body.end_block(
+            self.body.set_terminator(
                 self.cur_block,
                 Terminator::Select {
                     value: index,
@@ -1489,7 +1489,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if self.reachable {
             let values = values.to_vec();
             self.body
-                .end_block(self.cur_block, Terminator::Return { values });
+                .set_terminator(self.cur_block, Terminator::Return { values });
             self.reachable = false;
         }
     }
@@ -1501,7 +1501,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             self.reachable
         );
         if self.reachable {
-            self.body.end_block(self.cur_block, Terminator::Unreachable);
+            self.body
+                .set_terminator(self.cur_block, Terminator::Unreachable);
             self.reachable = false;
         }
     }

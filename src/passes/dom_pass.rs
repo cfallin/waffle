@@ -1,4 +1,4 @@
-//! Domtree-based pass.
+//! Simple framework for a domtree-based pass.
 
 use crate::cfg::CFGInfo;
 use crate::ir::{Block, FunctionBody};

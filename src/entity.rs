@@ -103,15 +103,15 @@ impl<Idx: EntityRef, T: Clone + Debug> EntityVec<Idx, T> {
         (0..self.0.len()).map(|index| Idx::new(index))
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &T> {
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = &T> {
         self.0.iter()
     }
 
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut T> {
+    pub fn values_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> {
         self.0.iter_mut()
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (Idx, &T)> {
+    pub fn entries(&self) -> impl DoubleEndedIterator<Item = (Idx, &T)> {
         self.0
             .iter()
             .enumerate()
