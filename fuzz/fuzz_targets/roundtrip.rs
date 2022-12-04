@@ -7,7 +7,7 @@ fuzz_target!(|module: wasm_smith::Module| {
     let _ = env_logger::try_init();
     log::debug!("original module: {:?}", module);
     let orig_bytes = module.to_bytes();
-    let parsed_module = match Module::from_wasm_bytes(&orig_bytes[..]) {
+    let mut parsed_module = match Module::from_wasm_bytes(&orig_bytes[..]) {
         Ok(m) => m,
         Err(e) => {
             match e.downcast::<FrontendError>() {
@@ -24,5 +24,6 @@ fuzz_target!(|module: wasm_smith::Module| {
             }
         }
     };
+    parsed_module.optimize();
     let _ = parsed_module.to_wasm_bytes();
 });
