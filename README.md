@@ -49,24 +49,6 @@ The backend operates in three stages:
   allocation (using a simple linear-scan algorithm) to assign all SSA values to
   locals such that no live-ranges overlap in the same local.
 
-  We use Wasm locals rather than the stack for most dataflow. We can use the
-  stack in a limited way, opportunistically, but doing more requires
-  sophisticated scheduling (moving operators so they occur at the right time),
-  which we haven't yet implemented. 
-
-  We could allocate a local per SSA value, but this is very wasteful. First,
-  there is a limit to the number of locals supported by most engines. Second,
-  "baseline" compilation strategies typically just allocate a stackslot per
-  local, and so this would create huge, sparsely-used frames.
-
-  Instead, we reuse locals by tracking live-ranges of each SSA value and
-  assigning non-overlapping ranges to the same local. This is actually a very
-  simple register allocator. It remains simpler than other production
-  allocators by (i) only tracking a single span for each SSA value, rather than
-  a discontiguous set of spans, and (ii) freely reaching for new locals when
-  needed rather than "spilling" (it behaves as if the register file is
-  infinite).
-
 ## Comparisons / Related Work
 
 - Like [Binaryen](https://github.com/WebAssembly/binaryen) but with an SSA IR,
