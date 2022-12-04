@@ -2,22 +2,22 @@
 
 Synopsis: an SSA IR compiler framework for Wasm-to-Wasm transforms, in Rust.
 
-## Status: incomplete with known bugs
+## Status: working for Wasm MVP; roundtrips complex modules successfully
 
-The transform from Wasm to IR works well, and has been fuzzed.
+The transforms from Wasm to IR and from IR to Wasm work well, and has been
+fuzzed in various ways. In particular, waffle is fuzzed by roundtripping Wasm
+through SSA IR and back, and differentially executing the original and
+roundtripped Wasm under Wasmtime (with limits on execution time). At this time,
+no correctness bugs have been found.
 
-The transform from IR to Wasm works to roundtrip a simple WASI "hello world"
-written in C, but appears to have some bugs still. There are a few fuzzing
-oracles (differential execution of roundtripped code, double-roundtripping)
-that I have tried to use to shake out bugs, but it's not quite there yet.
+Waffle is able to roundtrip (convert to IR, then compile back to Wasm) complex
+modules such as the SpiderMonkey JS engine compiled to Wasm.
 
-Nothing in a middle-end has been designed or written, and the IR traversal APIs
-could use work. I'm trying to get roundtripping working with the right basic
-abstraction (CFG of SSA) first.
+Waffle has some basic mid-end optimizations working, such as GVN and constant
+propagation. Much more could be done on this.
 
-This is a *hobby side project*; please do not expect support or rely on this
-for anything critical! I'm happy to accept PRs that make this more
-production-ready, of course.
+There are various ways in which the generated Wasm bytecode could be improved;
+work is ongoing on this.
 
 ## Architecture
 
@@ -33,20 +33,21 @@ Cranelift's does, except that memory, table, etc. operations remain at the Wasm
 abstraction layer (are not lowered into implementation details), and arithmetic
 operators mirror Wasm's exactly.
 
-The backend operates in several stages:
+The backend operates in three stages:
 
-* [Structured control flow recovery](src/backend/structured.rs), which computes
-  a loop nest then adds blocks for noncontiguous forward edges, mirroring the
-  [Stackifier](https://medium.com/leaningtech/solving-the-structured-control-flow-problem-once-and-for-all-5123117b1ee2)
-  algorithm.
+* [Structured control flow recovery](src/backend/stackify.rs), which uses
+  [Ramsey's algorithm](https://dl.acm.org/doi/abs/10.1145/3547621) to convert
+  the CFG back into an AST of Wasm control-flow primitives (blocks, loops, and
+  if-then AST nodes).
 
-* [Serialization](src/backend/serialize.rs), converting the CFG itself into a
-  linear sequence of Wasm operators, with resolved block targets and explicit
-  use of the stack. References to locals lowered from SSA are still virtual
-  (not allocated yet).
+* [Treeification](src/backend/treeify.rs), which computes whether some SSA
+  values are used only once and can be moved to just before their single
+  consumer, computing the value directly onto the Wasm stack without the need
+  for an intermediate local. This is a very simple form of code scheduling.
 
-* [Location assignment ("regalloc")](src/backend/locations.rs), allocating Wasm
-  locals to store values as they flow from operator to operator.
+* [Localification](src/backend/localify.rs), which performs a register
+  allocation (using a simple linear-scan algorithm) to assign all SSA values to
+  locals such that no live-ranges overlap in the same local.
 
   We use Wasm locals rather than the stack for most dataflow. We can use the
   stack in a limited way, opportunistically, but doing more requires
@@ -65,10 +66,6 @@ The backend operates in several stages:
   a discontiguous set of spans, and (ii) freely reaching for new locals when
   needed rather than "spilling" (it behaves as if the register file is
   infinite).
-
-* [Finalization](src/backend/final.rs), doing a few final rewrite steps to get
-  actual Wasm bytecode, produced using
-  [wasm-encoder](https://github.com/bytecodealliance/wasm-tools/blob/main/crates/wasm-encoder/README.md).
 
 ## Comparisons / Related Work
 
