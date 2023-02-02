@@ -151,7 +151,7 @@ impl<'a> Display for ModuleDisplay<'a> {
             writeln!(f, "    start = {}", func)?;
         }
         let mut sig_strs = HashMap::new();
-        for (sig, sig_data) in self.0.signatures() {
+        for (sig, sig_data) in self.0.signatures.entries() {
             let arg_tys = sig_data
                 .params
                 .iter()
@@ -166,14 +166,14 @@ impl<'a> Display for ModuleDisplay<'a> {
             sig_strs.insert(sig, sig_str.clone());
             writeln!(f, "  {}: {}", sig, sig_str)?;
         }
-        for (global, global_data) in self.0.globals() {
+        for (global, global_data) in self.0.globals.entries() {
             writeln!(
                 f,
                 "  {}: {:?} # {}",
                 global, global_data.value, global_data.ty
             )?;
         }
-        for (table, table_data) in self.0.tables() {
+        for (table, table_data) in self.0.tables.entries() {
             writeln!(f, "  {}: {}", table, table_data.ty)?;
             if let Some(funcs) = &table_data.func_elements {
                 for (i, &func) in funcs.iter().enumerate() {
@@ -181,7 +181,7 @@ impl<'a> Display for ModuleDisplay<'a> {
                 }
             }
         }
-        for (memory, memory_data) in self.0.memories() {
+        for (memory, memory_data) in self.0.memories.entries() {
             writeln!(
                 f,
                 "  {}: initial {} max {:?}",
@@ -201,17 +201,17 @@ impl<'a> Display for ModuleDisplay<'a> {
                 )?;
             }
         }
-        for import in self.0.imports() {
+        for import in &self.0.imports {
             writeln!(
                 f,
                 "  import \"{}\".\"{}\": {}",
                 import.module, import.name, import.kind
             )?;
         }
-        for export in self.0.exports() {
+        for export in &self.0.exports {
             writeln!(f, "  export \"{}\": {}", export.name, export.kind)?;
         }
-        for (func, func_decl) in self.0.funcs() {
+        for (func, func_decl) in self.0.funcs.entries() {
             match func_decl {
                 FuncDecl::Body(sig, body) => {
                     writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;

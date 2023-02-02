@@ -62,7 +62,7 @@ fn handle_payload<'a>(
             for ty in reader {
                 let ty = ty?;
                 let wasmparser::Type::Func(fty) = ty;
-                module.frontend_add_signature(fty.into());
+                module.signatures.push(fty.into());
             }
         }
         Payload::ImportSection(reader) => {
@@ -72,15 +72,16 @@ fn handle_payload<'a>(
                 let name = import.name.to_owned();
                 let kind = match import.ty {
                     TypeRef::Func(sig_idx) => {
-                        let func =
-                            module.frontend_add_func(FuncDecl::Import(Signature::from(sig_idx)));
+                        let func = module
+                            .funcs
+                            .push(FuncDecl::Import(Signature::from(sig_idx)));
                         *next_func += 1;
                         ImportKind::Func(func)
                     }
                     TypeRef::Global(ty) => {
                         let mutable = ty.mutable;
                         let ty = ty.content_type.into();
-                        let global = module.frontend_add_global(GlobalData {
+                        let global = module.globals.push(GlobalData {
                             ty,
                             value: None,
                             mutable,
@@ -92,7 +93,7 @@ fn handle_payload<'a>(
                         ImportKind::Table(table)
                     }
                     TypeRef::Memory(mem) => {
-                        let mem = module.frontend_add_memory(MemoryData {
+                        let mem = module.memories.push(MemoryData {
                             initial_pages: mem.initial as usize,
                             maximum_pages: mem.maximum.map(|max| max as usize),
                             segments: vec![],
@@ -106,7 +107,7 @@ fn handle_payload<'a>(
                         )));
                     }
                 };
-                module.frontend_add_import(Import {
+                module.imports.push(Import {
                     module: module_name,
                     name,
                     kind,
@@ -119,7 +120,7 @@ fn handle_payload<'a>(
                 let mutable = global.ty.mutable;
                 let ty = global.ty.content_type.into();
                 let init_expr = parse_init_expr(&global.init_expr)?;
-                module.frontend_add_global(GlobalData {
+                module.globals.push(GlobalData {
                     ty,
                     value: init_expr,
                     mutable,
@@ -135,17 +136,19 @@ fn handle_payload<'a>(
         Payload::FunctionSection(reader) => {
             for sig_idx in reader {
                 let sig_idx = Signature::from(sig_idx?);
-                module.frontend_add_func(FuncDecl::Body(sig_idx, FunctionBody::default()));
+                module
+                    .funcs
+                    .push(FuncDecl::Body(sig_idx, FunctionBody::default()));
             }
         }
         Payload::CodeSectionEntry(body) => {
             let func_idx = Func::new(*next_func);
             *next_func += 1;
 
-            let my_sig = module.func(func_idx).sig();
+            let my_sig = module.funcs[func_idx].sig();
             let body = parse_body(module, my_sig, body)?;
 
-            let existing_body = module.func_mut(func_idx).body_mut().unwrap();
+            let existing_body = module.funcs[func_idx].body_mut().unwrap();
             *existing_body = body;
         }
         Payload::ExportSection(reader) => {
@@ -160,14 +163,14 @@ fn handle_payload<'a>(
                     _ => None,
                 };
                 if let Some(kind) = kind {
-                    module.frontend_add_export(Export { name, kind });
+                    module.exports.push(Export { name, kind });
                 }
             }
         }
         Payload::MemorySection(reader) => {
             for memory in reader {
                 let memory = memory?;
-                module.frontend_add_memory(MemoryData {
+                module.memories.push(MemoryData {
                     initial_pages: memory.initial as usize,
                     maximum_pages: memory.maximum.map(|max| max as usize),
                     segments: vec![],
@@ -186,8 +189,7 @@ fn handle_payload<'a>(
                         let data = segment.data.to_vec();
                         let memory = Memory::from(*memory_index);
                         let offset = parse_init_expr(offset_expr)?.unwrap_or(0) as usize;
-                        module
-                            .memory_mut(memory)
+                        module.memories[memory]
                             .segments
                             .push(MemorySegment { offset, data });
                     }
@@ -232,7 +234,7 @@ fn handle_payload<'a>(
                             funcs.push(func);
                         }
 
-                        let table_items = module.table_mut(table).func_elements.as_mut().unwrap();
+                        let table_items = module.tables[table].func_elements.as_mut().unwrap();
                         let new_size = offset.checked_add(funcs.len()).ok_or_else(|| {
                             FrontendError::TooLarge(format!(
                                 "Overflowing element offset + length: {} + {}",
@@ -274,11 +276,11 @@ fn parse_body<'a>(
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
 
-    for &param in &module.signature(my_sig).params[..] {
+    for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param.into());
     }
-    ret.n_params = module.signature(my_sig).params.len();
-    for &r in &module.signature(my_sig).returns[..] {
+    ret.n_params = module.signatures[my_sig].params.len();
+    for &r in &module.signatures[my_sig].returns[..] {
         ret.rets.push(r.into());
     }
 
@@ -294,7 +296,7 @@ fn parse_body<'a>(
     trace!(
         "Parsing function body: locals = {:?} sig = {:?}",
         ret.locals,
-        module.signature(my_sig)
+        module.signatures[my_sig]
     );
 
     let mut builder = FunctionBodyBuilder::new(module, my_sig, &mut ret);
@@ -303,7 +305,7 @@ fn parse_body<'a>(
     builder.locals.seal_block_preds(entry, &mut builder.body);
     builder.locals.start_block(entry);
 
-    for (arg_idx, &arg_ty) in module.signature(my_sig).params.iter().enumerate() {
+    for (arg_idx, &arg_ty) in module.signatures[my_sig].params.iter().enumerate() {
         let local_idx = Local::new(arg_idx);
         builder.body.add_blockparam(entry, arg_ty);
         let value = builder.body.blocks[entry].params.last().unwrap().1;
@@ -312,7 +314,7 @@ fn parse_body<'a>(
         builder.locals.set(local_idx, value);
     }
 
-    let n_args = module.signature(my_sig).params.len();
+    let n_args = module.signatures[my_sig].params.len();
     for (offset, local_ty) in locals.values().enumerate() {
         let local_idx = Local::new(n_args + offset);
         builder.locals.declare(local_idx, *local_ty);
@@ -746,7 +748,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         };
 
         // Push initial implicit Block.
-        let results = module.signature(my_sig).returns.to_vec();
+        let results = module.signatures[my_sig].returns.to_vec();
         let out = ret.body.add_block();
         ret.add_block_params(out, &results[..]);
         ret.ctrl_stack.push(Frame::Block {
@@ -1073,7 +1075,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             }
 
             wasmparser::Operator::Return => {
-                let retvals = self.pop_n(self.module.signature(self.my_sig).returns.len());
+                let retvals = self.pop_n(self.module.signatures[self.my_sig].returns.len());
                 self.emit_ret(&retvals[..]);
                 self.reachable = false;
             }
@@ -1114,7 +1116,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                     None => {
                         if self.reachable {
                             let retvals =
-                                self.pop_n(self.module.signature(self.my_sig).returns.len());
+                                self.pop_n(self.module.signatures[self.my_sig].returns.len());
                             self.emit_ret(&retvals[..]);
                         } else {
                             self.emit_unreachable();
@@ -1369,7 +1371,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             BlockType::Empty => (vec![], vec![]),
             BlockType::Type(ret_ty) => (vec![], vec![ret_ty.into()]),
             BlockType::FuncType(sig_idx) => {
-                let sig = &self.module.signature(Signature::from(sig_idx));
+                let sig = &self.module.signatures[Signature::from(sig_idx)];
                 (
                     Vec::from(sig.params.clone()),
                     Vec::from(sig.returns.clone()),

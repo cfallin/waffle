@@ -6,14 +6,14 @@ use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
-    orig_bytes: &'a [u8],
-    funcs: EntityVec<Func, FuncDecl>,
-    signatures: EntityVec<Signature, SignatureData>,
-    globals: EntityVec<Global, GlobalData>,
-    tables: EntityVec<Table, TableData>,
-    imports: Vec<Import>,
-    exports: Vec<Export>,
-    memories: EntityVec<Memory, MemoryData>,
+    pub orig_bytes: &'a [u8],
+    pub funcs: EntityVec<Func, FuncDecl>,
+    pub signatures: EntityVec<Signature, SignatureData>,
+    pub globals: EntityVec<Global, GlobalData>,
+    pub tables: EntityVec<Table, TableData>,
+    pub imports: Vec<Import>,
+    pub exports: Vec<Export>,
+    pub memories: EntityVec<Memory, MemoryData>,
     pub start_func: Option<Func>,
 }
 
@@ -142,59 +142,6 @@ impl<'a> Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn func<'b>(&'b self, id: Func) -> &'b FuncDecl {
-        &self.funcs[id]
-    }
-    pub fn func_mut<'b>(&'b mut self, id: Func) -> &'b mut FuncDecl {
-        &mut self.funcs[id]
-    }
-    pub fn funcs<'b>(&'b self) -> impl Iterator<Item = (Func, &'b FuncDecl)> {
-        self.funcs.entries()
-    }
-    pub fn signature<'b>(&'b self, id: Signature) -> &'b SignatureData {
-        &self.signatures[id]
-    }
-    pub fn signatures<'b>(&'b self) -> impl Iterator<Item = (Signature, &'b SignatureData)> {
-        self.signatures.entries()
-    }
-    pub fn global<'b>(&'b self, id: Global) -> &'b GlobalData {
-        &self.globals[id]
-    }
-    pub fn globals<'b>(&'b self) -> impl Iterator<Item = (Global, &'b GlobalData)> + 'b {
-        self.globals.entries()
-    }
-    pub fn table<'b>(&'b self, id: Table) -> &'b TableData {
-        &self.tables[id]
-    }
-    pub fn tables<'b>(&'b self) -> impl Iterator<Item = (Table, &'b TableData)> + 'b {
-        self.tables.entries()
-    }
-    pub fn memories<'b>(&'b self) -> impl Iterator<Item = (Memory, &'b MemoryData)> + 'b {
-        self.memories.entries()
-    }
-    pub fn imports<'b>(&'b self) -> impl Iterator<Item = &'b Import> + 'b {
-        self.imports.iter()
-    }
-    pub fn exports<'b>(&'b self) -> impl Iterator<Item = &'b Export> + 'b {
-        self.exports.iter()
-    }
-    pub fn table_mut<'b>(&'b mut self, table: Table) -> &'b mut TableData {
-        &mut self.tables[table]
-    }
-    pub fn memory<'b>(&'b self, memory: Memory) -> &'b MemoryData {
-        &self.memories[memory]
-    }
-
-    pub fn memory_mut<'b>(&'b mut self, memory: Memory) -> &'b mut MemoryData {
-        &mut self.memories[memory]
-    }
-
-    pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
-        self.signatures.push(ty);
-    }
-    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) -> Func {
-        self.funcs.push(body)
-    }
     pub(crate) fn frontend_add_table(&mut self, ty: Type, max: Option<u32>) -> Table {
         let func_elements = if ty == Type::FuncRef {
             Some(vec![])
@@ -206,18 +153,6 @@ impl<'a> Module<'a> {
             func_elements,
             max,
         })
-    }
-    pub(crate) fn frontend_add_global(&mut self, global: GlobalData) -> Global {
-        self.globals.push(global)
-    }
-    pub(crate) fn frontend_add_import(&mut self, import: Import) {
-        self.imports.push(import);
-    }
-    pub(crate) fn frontend_add_export(&mut self, export: Export) {
-        self.exports.push(export);
-    }
-    pub(crate) fn frontend_add_memory(&mut self, memory: MemoryData) -> Memory {
-        self.memories.push(memory)
     }
 
     pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
@@ -256,9 +191,5 @@ impl<'a> Module<'a> {
         'b: 'a,
     {
         ModuleDisplay(self)
-    }
-
-    pub fn add_func(&mut self, sig: Signature, func: FunctionBody) -> Func {
-        self.funcs.push(FuncDecl::Body(sig, func))
     }
 }

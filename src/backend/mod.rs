@@ -519,7 +519,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     let mut into_mod = wasm_encoder::Module::new();
 
     let mut types = wasm_encoder::TypeSection::new();
-    for (_sig, sig_data) in module.signatures() {
+    for sig_data in module.signatures.values() {
         let params = sig_data
             .params
             .iter()
@@ -537,16 +537,16 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     let mut num_table_imports = 0;
     let mut num_global_imports = 0;
     let mut num_mem_imports = 0;
-    for import in module.imports() {
+    for import in &module.imports {
         let entity = match &import.kind {
             &ImportKind::Func(func) => {
                 num_func_imports += 1;
-                let func = module.func(func);
+                let func = &module.funcs[func];
                 wasm_encoder::EntityType::Function(func.sig().index() as u32)
             }
             &ImportKind::Table(table) => {
                 num_table_imports += 1;
-                let table = module.table(table);
+                let table = &module.tables[table];
                 wasm_encoder::EntityType::Table(wasm_encoder::TableType {
                     element_type: wasm_encoder::ValType::from(table.ty),
                     minimum: table
@@ -559,7 +559,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             }
             &ImportKind::Global(global) => {
                 num_global_imports += 1;
-                let global = module.global(global);
+                let global = &module.globals[global];
                 wasm_encoder::EntityType::Global(wasm_encoder::GlobalType {
                     val_type: wasm_encoder::ValType::from(global.ty),
                     mutable: global.mutable,
@@ -567,7 +567,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             }
             &ImportKind::Memory(mem) => {
                 num_mem_imports += 1;
-                let mem = module.memory(mem);
+                let mem = &module.memories[mem];
                 wasm_encoder::EntityType::Memory(wasm_encoder::MemoryType {
                     memory64: false,
                     shared: false,
@@ -582,7 +582,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&imports);
 
     let mut funcs = wasm_encoder::FunctionSection::new();
-    for (func, func_decl) in module.funcs().skip(num_func_imports) {
+    for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
             FuncDecl::Import(_) => anyhow::bail!("Import comes after func with body: {}", func),
             FuncDecl::Body(sig, _) => {
@@ -593,7 +593,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&funcs);
 
     let mut tables = wasm_encoder::TableSection::new();
-    for (_table, table_data) in module.tables().skip(num_table_imports) {
+    for table_data in module.tables.values().skip(num_table_imports) {
         tables.table(wasm_encoder::TableType {
             element_type: wasm_encoder::ValType::from(table_data.ty),
             minimum: table_data
@@ -607,7 +607,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&tables);
 
     let mut memories = wasm_encoder::MemorySection::new();
-    for (_mem, mem_data) in module.memories().skip(num_mem_imports) {
+    for mem_data in module.memories.values().skip(num_mem_imports) {
         memories.memory(wasm_encoder::MemoryType {
             minimum: mem_data.initial_pages as u64,
             maximum: mem_data.maximum_pages.map(|val| val as u64),
@@ -618,7 +618,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&memories);
 
     let mut globals = wasm_encoder::GlobalSection::new();
-    for (_global, global_data) in module.globals().skip(num_global_imports) {
+    for global_data in module.globals.values().skip(num_global_imports) {
         globals.global(
             wasm_encoder::GlobalType {
                 val_type: wasm_encoder::ValType::from(global_data.ty),
@@ -630,7 +630,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&globals);
 
     let mut exports = wasm_encoder::ExportSection::new();
-    for export in module.exports() {
+    for export in &module.exports {
         match &export.kind {
             &ExportKind::Table(table) => {
                 exports.export(
@@ -672,7 +672,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     }
 
     let mut elem = wasm_encoder::ElementSection::new();
-    for (table, table_data) in module.tables() {
+    for (table, table_data) in module.tables.entries() {
         if let Some(elts) = &table_data.func_elements {
             for (i, &elt) in elts.iter().enumerate() {
                 if elt.is_valid() {
@@ -690,7 +690,8 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
 
     let mut code = wasm_encoder::CodeSection::new();
     let bodies = module
-        .funcs()
+        .funcs
+        .entries()
         .skip(num_func_imports)
         .collect::<Vec<_>>()
         .par_iter()
@@ -707,7 +708,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&code);
 
     let mut data = wasm_encoder::DataSection::new();
-    for (mem, mem_data) in module.memories() {
+    for (mem, mem_data) in module.memories.entries() {
         for segment in &mem_data.segments {
             data.active(
                 mem.index() as u32,

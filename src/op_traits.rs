@@ -14,11 +14,11 @@ pub fn op_inputs(
         &Operator::Unreachable | &Operator::Nop => Ok(Cow::Borrowed(&[])),
 
         &Operator::Call { function_index } => {
-            let sig = module.func(function_index).sig();
-            Ok(Vec::from(module.signature(sig).params.clone()).into())
+            let sig = module.funcs[function_index].sig();
+            Ok(Vec::from(module.signatures[sig].params.clone()).into())
         }
         &Operator::CallIndirect { sig_index, .. } => {
-            let mut params = module.signature(sig_index).params.to_vec();
+            let mut params = module.signatures[sig_index].params.to_vec();
             params.push(Type::I32);
             Ok(params.into())
         }
@@ -30,7 +30,7 @@ pub fn op_inputs(
         &Operator::TypedSelect { ty } => Ok(vec![ty, ty, Type::I32].into()),
 
         &Operator::GlobalGet { .. } => Ok(Cow::Borrowed(&[])),
-        &Operator::GlobalSet { global_index } => Ok(vec![module.global(global_index).ty].into()),
+        &Operator::GlobalSet { global_index } => Ok(vec![module.globals[global_index].ty].into()),
 
         Operator::I32Load { .. }
         | Operator::I64Load { .. }
@@ -213,10 +213,10 @@ pub fn op_inputs(
         Operator::I64ReinterpretF64 => Ok(Cow::Borrowed(&[Type::F64])),
         Operator::TableGet { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::TableSet { table_index } => {
-            Ok(vec![Type::I32, module.table(*table_index).ty].into())
+            Ok(vec![Type::I32, module.tables[*table_index].ty].into())
         }
         Operator::TableGrow { table_index } => {
-            Ok(vec![Type::I32, module.table(*table_index).ty].into())
+            Ok(vec![Type::I32, module.tables[*table_index].ty].into())
         }
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[])),
@@ -233,11 +233,11 @@ pub fn op_outputs(
         &Operator::Unreachable | &Operator::Nop => Ok(Cow::Borrowed(&[])),
 
         &Operator::Call { function_index } => {
-            let sig = module.func(function_index).sig();
-            Ok(Vec::from(module.signature(sig).returns.clone()).into())
+            let sig = module.funcs[function_index].sig();
+            Ok(Vec::from(module.signatures[sig].returns.clone()).into())
         }
         &Operator::CallIndirect { sig_index, .. } => {
-            Ok(Vec::from(module.signature(sig_index).returns.clone()).into())
+            Ok(Vec::from(module.signatures[sig_index].returns.clone()).into())
         }
 
         &Operator::Select => {
@@ -245,7 +245,7 @@ pub fn op_outputs(
             Ok(vec![val_ty].into())
         }
         &Operator::TypedSelect { ty } => Ok(vec![ty].into()),
-        &Operator::GlobalGet { global_index } => Ok(vec![module.global(global_index).ty].into()),
+        &Operator::GlobalGet { global_index } => Ok(vec![module.globals[global_index].ty].into()),
         &Operator::GlobalSet { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::I32Load { .. }
@@ -419,7 +419,7 @@ pub fn op_outputs(
         Operator::F64ReinterpretI64 => Ok(Cow::Borrowed(&[Type::F64])),
         Operator::I32ReinterpretF32 => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::I64ReinterpretF64 => Ok(Cow::Borrowed(&[Type::I64])),
-        Operator::TableGet { table_index } => Ok(vec![module.table(*table_index).ty].into()),
+        Operator::TableGet { table_index } => Ok(vec![module.tables[*table_index].ty].into()),
         Operator::TableSet { .. } => Ok(Cow::Borrowed(&[])),
         Operator::TableGrow { .. } => Ok(Cow::Borrowed(&[])),
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[Type::I32])),

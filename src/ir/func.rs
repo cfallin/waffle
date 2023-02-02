@@ -54,9 +54,9 @@ pub struct FunctionBody {
 
 impl FunctionBody {
     pub fn new(module: &Module, sig: Signature) -> FunctionBody {
-        let locals = EntityVec::from(module.signature(sig).params.clone());
+        let locals = EntityVec::from(module.signatures[sig].params.clone());
         let n_params = locals.len();
-        let rets = module.signature(sig).returns.clone();
+        let rets = module.signatures[sig].returns.clone();
         let mut blocks = EntityVec::default();
         let entry = blocks.push(BlockDef::default());
         let mut values = EntityVec::default();
