@@ -94,6 +94,23 @@ impl FunctionBody {
         log::trace!("add_edge: from {} to {}", from, to);
     }
 
+    pub fn recompute_edges(&mut self) {
+        for block in self.blocks.values_mut() {
+            block.preds.clear();
+            block.succs.clear();
+            block.pos_in_succ_pred.clear();
+            block.pos_in_pred_succ.clear();
+        }
+
+        for block in 0..self.blocks.len() {
+            let block = Block::new(block);
+            let terminator = self.blocks[block].terminator.clone();
+            terminator.visit_successors(|succ| {
+                self.add_edge(block, succ);
+            });
+        }
+    }
+
     pub fn add_value(&mut self, value: ValueDef) -> Value {
         log::trace!("add_value: def {:?}", value);
         let value = self.values.push(value);

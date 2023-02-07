@@ -241,6 +241,7 @@ impl<'a> Module<'a> {
             let cfg = crate::cfg::CFGInfo::new(body);
             crate::passes::basic_opt::gvn(body, &cfg);
             crate::passes::resolve_aliases::run(body);
+            crate::passes::empty_blocks::run(body);
         });
     }
 
