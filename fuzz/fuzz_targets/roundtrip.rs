@@ -24,6 +24,7 @@ fuzz_target!(|module: wasm_smith::Module| {
             }
         }
     };
+    parsed_module.expand_all_funcs().unwrap();
     parsed_module.optimize();
     let _ = parsed_module.to_wasm_bytes();
 });

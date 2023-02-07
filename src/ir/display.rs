@@ -217,6 +217,10 @@ impl<'a> Display for ModuleDisplay<'a> {
                     writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
                     writeln!(f, "{}", body.display("    "))?;
                 }
+                FuncDecl::Lazy(sig, reader) => {
+                    writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
+                    writeln!(f, "  # raw bytes (length {})", reader.range().len())?;
+                }
                 FuncDecl::Import(sig) => {
                     writeln!(f, "  {}: {} # {}", func, sig, sig_strs.get(&sig).unwrap())?;
                 }

@@ -1,18 +1,33 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
+use crate::frontend::parse_body;
+use anyhow::Result;
 
 #[derive(Clone, Debug)]
-pub enum FuncDecl {
+pub enum FuncDecl<'a> {
     Import(Signature),
+    Lazy(Signature, wasmparser::FunctionBody<'a>),
     Body(Signature, FunctionBody),
 }
 
-impl FuncDecl {
+impl<'a> FuncDecl<'a> {
     pub fn sig(&self) -> Signature {
         match self {
             FuncDecl::Import(sig) => *sig,
+            FuncDecl::Lazy(sig, ..) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
+        }
+    }
+
+    pub fn parse(&mut self, module: &Module) -> Result<()> {
+        match self {
+            FuncDecl::Lazy(sig, body) => {
+                let body = parse_body(module, *sig, body)?;
+                *self = FuncDecl::Body(*sig, body);
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 

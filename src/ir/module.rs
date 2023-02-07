@@ -6,8 +6,8 @@ use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
-    orig_bytes: &'a [u8],
-    funcs: EntityVec<Func, FuncDecl>,
+    pub orig_bytes: &'a [u8],
+    funcs: EntityVec<Func, FuncDecl<'a>>,
     signatures: EntityVec<Signature, SignatureData>,
     globals: EntityVec<Global, GlobalData>,
     tables: EntityVec<Table, TableData>,
@@ -142,13 +142,13 @@ impl<'a> Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn func<'b>(&'b self, id: Func) -> &'b FuncDecl {
+    pub fn func<'b>(&'b self, id: Func) -> &'b FuncDecl<'a> {
         &self.funcs[id]
     }
-    pub fn func_mut<'b>(&'b mut self, id: Func) -> &'b mut FuncDecl {
+    pub fn func_mut<'b>(&'b mut self, id: Func) -> &'b mut FuncDecl<'a> {
         &mut self.funcs[id]
     }
-    pub fn funcs<'b>(&'b self) -> impl Iterator<Item = (Func, &'b FuncDecl)> {
+    pub fn funcs<'b>(&'b self) -> impl Iterator<Item = (Func, &'b FuncDecl<'a>)> {
         self.funcs.entries()
     }
     pub fn signature<'b>(&'b self, id: Signature) -> &'b SignatureData {
@@ -192,7 +192,7 @@ impl<'a> Module<'a> {
     pub(crate) fn frontend_add_signature(&mut self, ty: SignatureData) {
         self.signatures.push(ty);
     }
-    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl) -> Func {
+    pub(crate) fn frontend_add_func(&mut self, body: FuncDecl<'a>) -> Func {
         self.funcs.push(body)
     }
     pub(crate) fn frontend_add_table(&mut self, ty: Type, max: Option<u32>) -> Table {
@@ -234,6 +234,23 @@ impl<'a> Module<'a> {
                 f(body);
             }
         }
+    }
+
+    pub fn expand_func<'b>(&'b mut self, id: Func) -> Result<&'b FuncDecl<'a>> {
+        let mut funcs = std::mem::take(&mut self.funcs);
+        let ret = funcs[id].parse(self);
+        self.funcs = funcs;
+        ret.and(Ok(&self.funcs[id]))
+    }
+
+    pub fn expand_all_funcs(&mut self) -> Result<()> {
+        let mut funcs = std::mem::take(&mut self.funcs);
+        let mut ret = Ok(());
+        for func_decl in funcs.values_mut() {
+            ret = ret.and_then(|_| func_decl.parse(self));
+        }
+        self.funcs = funcs;
+        ret
     }
 
     pub fn optimize(&mut self) {
