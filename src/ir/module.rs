@@ -236,14 +236,14 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub fn expand_func<'b>(&'b mut self, id: Func) -> Result<&'b FuncDecl<'a>> {
+    pub fn expand_func<'b>(&'b mut self, id: Func) -> Result<&'b mut FuncDecl<'a>> {
         if let FuncDecl::Lazy(..) = self.funcs[id] {
             // End the borrow. This is cheap (a slice copy).
             let mut func = self.funcs[id].clone();
             func.parse(self)?;
             self.funcs[id] = func;
         }
-        Ok(&self.funcs[id])
+        Ok(&mut self.funcs[id])
     }
 
     pub fn expand_all_funcs(&mut self) -> Result<()> {
@@ -252,22 +252,6 @@ impl<'a> Module<'a> {
             self.expand_func(id)?;
         }
         Ok(())
-    }
-
-    pub fn optimize(&mut self) {
-        self.per_func_body(|body| {
-            let cfg = crate::cfg::CFGInfo::new(body);
-            crate::passes::basic_opt::gvn(body, &cfg);
-            crate::passes::resolve_aliases::run(body);
-            crate::passes::empty_blocks::run(body);
-        });
-    }
-
-    pub fn convert_to_max_ssa(&mut self) {
-        self.per_func_body(|body| {
-            let cfg = crate::cfg::CFGInfo::new(body);
-            crate::passes::maxssa::run(body, &cfg);
-        });
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>

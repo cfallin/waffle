@@ -190,14 +190,10 @@ impl<'a> Display for ModuleDisplay<'a> {
             for seg in &memory_data.segments {
                 writeln!(
                     f,
-                    "    {} offset {}: [{}]",
+                    "    {} offset {}: # {} bytes",
                     memory,
                     seg.offset,
-                    seg.data
-                        .iter()
-                        .map(|&byte| format!("0x{:02x}", byte))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    seg.data.len()
                 )?;
             }
         }
