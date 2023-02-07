@@ -1,5 +1,5 @@
 use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
-use crate::entity::EntityVec;
+use crate::entity::{EntityRef, EntityVec};
 use crate::ir::FunctionBody;
 use crate::{backend, frontend};
 use anyhow::Result;
@@ -237,20 +237,21 @@ impl<'a> Module<'a> {
     }
 
     pub fn expand_func<'b>(&'b mut self, id: Func) -> Result<&'b FuncDecl<'a>> {
-        let mut funcs = std::mem::take(&mut self.funcs);
-        let ret = funcs[id].parse(self);
-        self.funcs = funcs;
-        ret.and(Ok(&self.funcs[id]))
+        if let FuncDecl::Lazy(..) = self.funcs[id] {
+            // End the borrow. This is cheap (a slice copy).
+            let mut func = self.funcs[id].clone();
+            func.parse(self)?;
+            self.funcs[id] = func;
+        }
+        Ok(&self.funcs[id])
     }
 
     pub fn expand_all_funcs(&mut self) -> Result<()> {
-        let mut funcs = std::mem::take(&mut self.funcs);
-        let mut ret = Ok(());
-        for func_decl in funcs.values_mut() {
-            ret = ret.and_then(|_| func_decl.parse(self));
+        for id in 0..self.funcs.len() {
+            let id = Func::new(id);
+            self.expand_func(id)?;
         }
-        self.funcs = funcs;
-        ret
+        Ok(())
     }
 
     pub fn optimize(&mut self) {
