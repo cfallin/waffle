@@ -98,24 +98,28 @@ impl DebugMap {
                     .collect::<Vec<_>>();
 
                 // Parse the line-number program.
-                let mut rows = prog.rows();
-                while let Ok(Some((_, row))) = rows.next_row() {
-                    let pc = row.address() + low_pc;
-                    let pc = pc as u32;
-                    let file = (row.file_index() - 1) as usize;
-                    let file = filename_map[file] as u32;
-                    let line = row.line().map(|v| v.get()).unwrap_or(0) as u32;
-                    let col = match row.column() {
-                        gimli::read::ColumnType::LeftEdge => 0,
-                        gimli::read::ColumnType::Column(col) => col.get(),
-                    } as u32;
 
-                    lines.push(DebugLine {
-                        pc,
-                        file,
-                        line,
-                        col,
-                    });
+                let (prog, sequences) = prog.sequences().unwrap();
+                for seq in sequences {
+                    let mut rows = prog.resume_from(&seq);
+                    while let Ok(Some((_, row))) = rows.next_row() {
+                        let pc = row.address() + low_pc;
+                        let pc = pc as u32;
+                        let file = (row.file_index() - 1) as usize;
+                        let file = filename_map[file] as u32;
+                        let line = row.line().map(|v| v.get()).unwrap_or(0) as u32;
+                        let col = match row.column() {
+                            gimli::read::ColumnType::LeftEdge => 0,
+                            gimli::read::ColumnType::Column(col) => col.get(),
+                        } as u32;
+
+                        lines.push(DebugLine {
+                            pc,
+                            file,
+                            line,
+                            col,
+                        });
+                    }
                 }
             }
         }
