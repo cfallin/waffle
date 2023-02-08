@@ -209,16 +209,37 @@ impl<'a> Display for ModuleDisplay<'a> {
         }
         for (func, func_decl) in self.0.funcs.entries() {
             match func_decl {
-                FuncDecl::Body(sig, body) => {
-                    writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
+                FuncDecl::Body(sig, name, body) => {
+                    writeln!(
+                        f,
+                        "  {} \"{}\": {} = # {}",
+                        func,
+                        name,
+                        sig,
+                        sig_strs.get(&sig).unwrap()
+                    )?;
                     writeln!(f, "{}", body.display("    "))?;
                 }
-                FuncDecl::Lazy(sig, reader) => {
-                    writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
+                FuncDecl::Lazy(sig, name, reader) => {
+                    writeln!(
+                        f,
+                        "  {} \"{}\": {} = # {}",
+                        func,
+                        name,
+                        sig,
+                        sig_strs.get(&sig).unwrap()
+                    )?;
                     writeln!(f, "  # raw bytes (length {})", reader.range().len())?;
                 }
-                FuncDecl::Import(sig) => {
-                    writeln!(f, "  {}: {} # {}", func, sig, sig_strs.get(&sig).unwrap())?;
+                FuncDecl::Import(sig, name) => {
+                    writeln!(
+                        f,
+                        "  {} \"{}\": {} # {}",
+                        func,
+                        name,
+                        sig,
+                        sig_strs.get(&sig).unwrap()
+                    )?;
                 }
             }
         }

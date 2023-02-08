@@ -11,7 +11,9 @@ use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
 use std::convert::TryFrom;
-use wasmparser::{BlockType, DataKind, ExternalKind, Parser, Payload, TypeRef};
+use wasmparser::{
+    BlockType, DataKind, ExternalKind, Name, NameSectionReader, Parser, Payload, TypeRef,
+};
 
 pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::with_orig_bytes(bytes);
@@ -74,7 +76,7 @@ fn handle_payload<'a>(
                     TypeRef::Func(sig_idx) => {
                         let func = module
                             .funcs
-                            .push(FuncDecl::Import(Signature::from(sig_idx)));
+                            .push(FuncDecl::Import(Signature::from(sig_idx), "".to_owned()));
                         *next_func += 1;
                         ImportKind::Func(func)
                     }
@@ -136,17 +138,20 @@ fn handle_payload<'a>(
         Payload::FunctionSection(reader) => {
             for sig_idx in reader {
                 let sig_idx = Signature::from(sig_idx?);
-                module
-                    .funcs
-                    .push(FuncDecl::Body(sig_idx, FunctionBody::default()));
+                module.funcs.push(FuncDecl::Body(
+                    sig_idx,
+                    "".to_owned(),
+                    FunctionBody::default(),
+                ));
             }
         }
         Payload::CodeSectionEntry(body) => {
             let func_idx = Func::new(*next_func);
             *next_func += 1;
 
-            let my_sig = module.funcs[func_idx].sig();
-            module.funcs[func_idx] = FuncDecl::Lazy(my_sig, body);
+            let sig = module.funcs[func_idx].sig();
+            let name = module.funcs[func_idx].name().to_owned();
+            module.funcs[func_idx] = FuncDecl::Lazy(sig, name, body);
         }
         Payload::ExportSection(reader) => {
             for export in reader {
@@ -193,7 +198,21 @@ fn handle_payload<'a>(
                 }
             }
         }
-        Payload::CustomSection { .. } => {}
+        Payload::CustomSection(reader) if reader.name() == "name" => {
+            let name_reader = NameSectionReader::new(reader.data(), reader.data_offset())?;
+            for subsection in name_reader {
+                let subsection = subsection?;
+                match subsection {
+                    Name::Function(names) => {
+                        for name in names {
+                            let name = name?;
+                            module.funcs[Func::new(name.index as usize)].set_name(name.name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
         Payload::CodeSectionStart { .. } => {}
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {

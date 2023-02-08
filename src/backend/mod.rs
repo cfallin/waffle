@@ -584,8 +584,8 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     let mut funcs = wasm_encoder::FunctionSection::new();
     for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
-            FuncDecl::Import(_) => anyhow::bail!("Import comes after func with body: {}", func),
-            FuncDecl::Lazy(sig, _) | FuncDecl::Body(sig, _) => {
+            FuncDecl::Import(_, _) => anyhow::bail!("Import comes after func with body: {}", func),
+            FuncDecl::Lazy(sig, _, _) | FuncDecl::Body(sig, _, _) => {
                 funcs.function(sig.index() as u32);
             }
         }
@@ -702,17 +702,17 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         .par_iter()
         .map(|(func, func_decl)| -> Result<FuncOrRawBytes> {
             match func_decl {
-                FuncDecl::Lazy(_, reader) => {
+                FuncDecl::Lazy(_, _name, reader) => {
                     let data = &module.orig_bytes[reader.range()];
                     Ok(FuncOrRawBytes::Raw(data))
                 }
-                FuncDecl::Body(_, body) => {
-                    log::debug!("Compiling {}", func);
+                FuncDecl::Body(_, name, body) => {
+                    log::debug!("Compiling {} \"{}\"", func, name);
                     WasmFuncBackend::new(body)?
                         .compile()
                         .map(|f| FuncOrRawBytes::Func(f))
                 }
-                FuncDecl::Import(_) => unreachable!("Should have skipped imports"),
+                FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
             }
         })
         .collect::<Result<Vec<FuncOrRawBytes<'_>>>>()?;
@@ -740,6 +740,14 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         }
     }
     into_mod.section(&data);
+
+    let mut names = wasm_encoder::NameSection::new();
+    let mut func_names = wasm_encoder::NameMap::new();
+    for (func, decl) in module.funcs.entries() {
+        func_names.append(func.index() as u32, decl.name());
+    }
+    names.functions(&func_names);
+    into_mod.section(&names);
 
     Ok(into_mod.finish())
 }

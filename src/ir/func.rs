@@ -6,15 +6,15 @@ use anyhow::Result;
 
 #[derive(Clone, Debug)]
 pub enum FuncDecl<'a> {
-    Import(Signature),
-    Lazy(Signature, wasmparser::FunctionBody<'a>),
-    Body(Signature, FunctionBody),
+    Import(Signature, String),
+    Lazy(Signature, String, wasmparser::FunctionBody<'a>),
+    Body(Signature, String, FunctionBody),
 }
 
 impl<'a> FuncDecl<'a> {
     pub fn sig(&self) -> Signature {
         match self {
-            FuncDecl::Import(sig) => *sig,
+            FuncDecl::Import(sig, ..) => *sig,
             FuncDecl::Lazy(sig, ..) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
         }
@@ -22,9 +22,9 @@ impl<'a> FuncDecl<'a> {
 
     pub fn parse(&mut self, module: &Module) -> Result<()> {
         match self {
-            FuncDecl::Lazy(sig, body) => {
+            FuncDecl::Lazy(sig, name, body) => {
                 let body = parse_body(module, *sig, body)?;
-                *self = FuncDecl::Body(*sig, body);
+                *self = FuncDecl::Body(*sig, name.clone(), body);
                 Ok(())
             }
             _ => Ok(()),
@@ -33,7 +33,7 @@ impl<'a> FuncDecl<'a> {
 
     pub fn optimize(&mut self) {
         match self {
-            FuncDecl::Body(_, body) => {
+            FuncDecl::Body(_, _, body) => {
                 body.optimize();
             }
             _ => {}
@@ -42,7 +42,7 @@ impl<'a> FuncDecl<'a> {
 
     pub fn convert_to_max_ssa(&mut self) {
         match self {
-            FuncDecl::Body(_, body) => {
+            FuncDecl::Body(_, _, body) => {
                 body.convert_to_max_ssa();
             }
             _ => {}
@@ -51,15 +51,31 @@ impl<'a> FuncDecl<'a> {
 
     pub fn body(&self) -> Option<&FunctionBody> {
         match self {
-            FuncDecl::Body(_, body) => Some(body),
+            FuncDecl::Body(_, _, body) => Some(body),
             _ => None,
         }
     }
 
     pub fn body_mut(&mut self) -> Option<&mut FunctionBody> {
         match self {
-            FuncDecl::Body(_, body) => Some(body),
+            FuncDecl::Body(_, _, body) => Some(body),
             _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
+                &name[..]
+            }
+        }
+    }
+
+    pub fn set_name(&mut self, new_name: &str) {
+        match self {
+            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
+                *name = new_name.to_owned()
+            }
         }
     }
 }
