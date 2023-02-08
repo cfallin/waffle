@@ -34,10 +34,7 @@ impl<'a> FuncDecl<'a> {
     pub fn optimize(&mut self) {
         match self {
             FuncDecl::Body(_, body) => {
-                let cfg = crate::cfg::CFGInfo::new(body);
-                crate::passes::basic_opt::gvn(body, &cfg);
-                crate::passes::resolve_aliases::run(body);
-                crate::passes::empty_blocks::run(body);
+                body.optimize();
             }
             _ => {}
         }
@@ -46,8 +43,7 @@ impl<'a> FuncDecl<'a> {
     pub fn convert_to_max_ssa(&mut self) {
         match self {
             FuncDecl::Body(_, body) => {
-                let cfg = crate::cfg::CFGInfo::new(body);
-                crate::passes::maxssa::run(body, &cfg);
+                body.convert_to_max_ssa();
             }
             _ => {}
         }
@@ -113,6 +109,18 @@ impl FunctionBody {
             value_blocks,
             value_locals: PerEntity::default(),
         }
+    }
+
+    pub fn optimize(&mut self) {
+        let cfg = crate::cfg::CFGInfo::new(self);
+        crate::passes::basic_opt::gvn(self, &cfg);
+        crate::passes::resolve_aliases::run(self);
+        crate::passes::empty_blocks::run(self);
+    }
+
+    pub fn convert_to_max_ssa(&mut self) {
+        let cfg = crate::cfg::CFGInfo::new(self);
+        crate::passes::maxssa::run(self, &cfg);
     }
 
     pub fn add_block(&mut self) -> Block {
