@@ -190,14 +190,10 @@ impl<'a> Display for ModuleDisplay<'a> {
             for seg in &memory_data.segments {
                 writeln!(
                     f,
-                    "    {} offset {}: [{}]",
+                    "    {} offset {}: # {} bytes",
                     memory,
                     seg.offset,
-                    seg.data
-                        .iter()
-                        .map(|&byte| format!("0x{:02x}", byte))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    seg.data.len()
                 )?;
             }
         }
@@ -216,6 +212,10 @@ impl<'a> Display for ModuleDisplay<'a> {
                 FuncDecl::Body(sig, body) => {
                     writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
                     writeln!(f, "{}", body.display("    "))?;
+                }
+                FuncDecl::Lazy(sig, reader) => {
+                    writeln!(f, "  {}: {} = # {}", func, sig, sig_strs.get(&sig).unwrap())?;
+                    writeln!(f, "  # raw bytes (length {})", reader.range().len())?;
                 }
                 FuncDecl::Import(sig) => {
                     writeln!(f, "  {}: {} # {}", func, sig, sig_strs.get(&sig).unwrap())?;

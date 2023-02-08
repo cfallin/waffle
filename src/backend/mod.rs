@@ -585,7 +585,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
             FuncDecl::Import(_) => anyhow::bail!("Import comes after func with body: {}", func),
-            FuncDecl::Body(sig, _) => {
+            FuncDecl::Lazy(sig, _) | FuncDecl::Body(sig, _) => {
                 funcs.function(sig.index() as u32);
             }
         }
@@ -689,21 +689,43 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&elem);
 
     let mut code = wasm_encoder::CodeSection::new();
+    enum FuncOrRawBytes<'a> {
+        Func(wasm_encoder::Function),
+        Raw(&'a [u8]),
+    }
+
     let bodies = module
         .funcs
         .entries()
         .skip(num_func_imports)
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|(func, func_decl)| -> Result<wasm_encoder::Function> {
-            let body = func_decl.body().unwrap();
-            log::debug!("Compiling {}", func);
-            WasmFuncBackend::new(body)?.compile()
+        .map(|(func, func_decl)| -> Result<FuncOrRawBytes> {
+            match func_decl {
+                FuncDecl::Lazy(_, reader) => {
+                    let data = &module.orig_bytes[reader.range()];
+                    Ok(FuncOrRawBytes::Raw(data))
+                }
+                FuncDecl::Body(_, body) => {
+                    log::debug!("Compiling {}", func);
+                    WasmFuncBackend::new(body)?
+                        .compile()
+                        .map(|f| FuncOrRawBytes::Func(f))
+                }
+                FuncDecl::Import(_) => unreachable!("Should have skipped imports"),
+            }
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<Result<Vec<FuncOrRawBytes<'_>>>>()?;
 
     for body in bodies {
-        code.function(&body);
+        match body {
+            FuncOrRawBytes::Func(f) => {
+                code.function(&f);
+            }
+            FuncOrRawBytes::Raw(bytes) => {
+                code.raw(bytes);
+            }
+        }
     }
     into_mod.section(&code);
 

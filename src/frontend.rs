@@ -146,10 +146,7 @@ fn handle_payload<'a>(
             *next_func += 1;
 
             let my_sig = module.funcs[func_idx].sig();
-            let body = parse_body(module, my_sig, body)?;
-
-            let existing_body = module.funcs[func_idx].body_mut().unwrap();
-            *existing_body = body;
+            module.funcs[func_idx] = FuncDecl::Lazy(my_sig, body);
         }
         Payload::ExportSection(reader) => {
             for export in reader {
@@ -269,10 +266,10 @@ fn handle_payload<'a>(
     Ok(())
 }
 
-fn parse_body<'a>(
+pub(crate) fn parse_body<'a>(
     module: &'a Module,
     my_sig: Signature,
-    body: wasmparser::FunctionBody,
+    body: &mut wasmparser::FunctionBody,
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
 

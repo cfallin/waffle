@@ -1,18 +1,51 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
+use crate::frontend::parse_body;
+use anyhow::Result;
 
 #[derive(Clone, Debug)]
-pub enum FuncDecl {
+pub enum FuncDecl<'a> {
     Import(Signature),
+    Lazy(Signature, wasmparser::FunctionBody<'a>),
     Body(Signature, FunctionBody),
 }
 
-impl FuncDecl {
+impl<'a> FuncDecl<'a> {
     pub fn sig(&self) -> Signature {
         match self {
             FuncDecl::Import(sig) => *sig,
+            FuncDecl::Lazy(sig, ..) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
+        }
+    }
+
+    pub fn parse(&mut self, module: &Module) -> Result<()> {
+        match self {
+            FuncDecl::Lazy(sig, body) => {
+                let body = parse_body(module, *sig, body)?;
+                *self = FuncDecl::Body(*sig, body);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub fn optimize(&mut self) {
+        match self {
+            FuncDecl::Body(_, body) => {
+                body.optimize();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn convert_to_max_ssa(&mut self) {
+        match self {
+            FuncDecl::Body(_, body) => {
+                body.convert_to_max_ssa();
+            }
+            _ => {}
         }
     }
 
@@ -78,6 +111,18 @@ impl FunctionBody {
         }
     }
 
+    pub fn optimize(&mut self) {
+        let cfg = crate::cfg::CFGInfo::new(self);
+        crate::passes::basic_opt::gvn(self, &cfg);
+        crate::passes::resolve_aliases::run(self);
+        crate::passes::empty_blocks::run(self);
+    }
+
+    pub fn convert_to_max_ssa(&mut self) {
+        let cfg = crate::cfg::CFGInfo::new(self);
+        crate::passes::maxssa::run(self, &cfg);
+    }
+
     pub fn add_block(&mut self) -> Block {
         let id = self.blocks.push(BlockDef::default());
         log::trace!("add_block: block {}", id);
@@ -92,6 +137,23 @@ impl FunctionBody {
         self.blocks[from].pos_in_succ_pred.push(pred_pos);
         self.blocks[to].pos_in_pred_succ.push(succ_pos);
         log::trace!("add_edge: from {} to {}", from, to);
+    }
+
+    pub fn recompute_edges(&mut self) {
+        for block in self.blocks.values_mut() {
+            block.preds.clear();
+            block.succs.clear();
+            block.pos_in_succ_pred.clear();
+            block.pos_in_pred_succ.clear();
+        }
+
+        for block in 0..self.blocks.len() {
+            let block = Block::new(block);
+            let terminator = self.blocks[block].terminator.clone();
+            terminator.visit_successors(|succ| {
+                self.add_edge(block, succ);
+            });
+        }
     }
 
     pub fn add_value(&mut self, value: ValueDef) -> Value {

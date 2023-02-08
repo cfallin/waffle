@@ -41,6 +41,19 @@ enum Command {
     },
 }
 
+fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
+    if opts.basic_opts || opts.max_ssa {
+        module.expand_all_funcs()?;
+    }
+    if opts.basic_opts {
+        module.per_func_body(|body| body.optimize());
+    }
+    if opts.max_ssa {
+        module.per_func_body(|body| body.convert_to_max_ssa());
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let opts = Options::from_args();
 
@@ -50,29 +63,19 @@ fn main() -> Result<()> {
     }
     let _ = logger.try_init();
 
-    match opts.command {
+    match &opts.command {
         Command::PrintIR { wasm } => {
             let bytes = std::fs::read(wasm)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let mut module = Module::from_wasm_bytes(&bytes[..])?;
-            if opts.basic_opts {
-                module.optimize();
-            }
-            if opts.max_ssa {
-                module.convert_to_max_ssa();
-            }
+            apply_options(&opts, &mut module)?;
             println!("{}", module.display());
         }
         Command::RoundTrip { input, output } => {
             let bytes = std::fs::read(input)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let mut module = Module::from_wasm_bytes(&bytes[..])?;
-            if opts.basic_opts {
-                module.optimize();
-            }
-            if opts.max_ssa {
-                module.convert_to_max_ssa();
-            }
+            apply_options(&opts, &mut module)?;
             let produced = module.to_wasm_bytes()?;
             std::fs::write(output, &produced[..])?;
         }

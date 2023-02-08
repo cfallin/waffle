@@ -1,5 +1,5 @@
 use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
-use crate::entity::EntityVec;
+use crate::entity::{EntityRef, EntityVec};
 use crate::ir::FunctionBody;
 use crate::{backend, frontend};
 use anyhow::Result;
@@ -7,7 +7,7 @@ use anyhow::Result;
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
     pub orig_bytes: &'a [u8],
-    pub funcs: EntityVec<Func, FuncDecl>,
+    pub funcs: EntityVec<Func, FuncDecl<'a>>,
     pub signatures: EntityVec<Signature, SignatureData>,
     pub globals: EntityVec<Global, GlobalData>,
     pub tables: EntityVec<Table, TableData>,
@@ -171,19 +171,22 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub fn optimize(&mut self) {
-        self.per_func_body(|body| {
-            let cfg = crate::cfg::CFGInfo::new(body);
-            crate::passes::basic_opt::gvn(body, &cfg);
-            crate::passes::resolve_aliases::run(body);
-        });
+    pub fn expand_func<'b>(&'b mut self, id: Func) -> Result<&'b mut FuncDecl<'a>> {
+        if let FuncDecl::Lazy(..) = self.funcs[id] {
+            // End the borrow. This is cheap (a slice copy).
+            let mut func = self.funcs[id].clone();
+            func.parse(self)?;
+            self.funcs[id] = func;
+        }
+        Ok(&mut self.funcs[id])
     }
 
-    pub fn convert_to_max_ssa(&mut self) {
-        self.per_func_body(|body| {
-            let cfg = crate::cfg::CFGInfo::new(body);
-            crate::passes::maxssa::run(body, &cfg);
-        });
+    pub fn expand_all_funcs(&mut self) -> Result<()> {
+        for id in 0..self.funcs.len() {
+            let id = Func::new(id);
+            self.expand_func(id)?;
+        }
+        Ok(())
     }
 
     pub fn display<'b>(&'b self) -> ModuleDisplay<'b>
