@@ -19,10 +19,12 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
+    let mut debug_ctx = DebugContext::default();
     for payload in parser.parse_all(bytes) {
         let payload = payload?;
-        handle_payload(&mut module, payload, &mut next_func)?;
+        handle_payload(&mut module, payload, &mut next_func, &mut debug_ctx)?;
     }
+    module.debug_map = debug_ctx.compute_map();
 
     Ok(module)
 }
@@ -53,10 +55,36 @@ fn parse_init_expr<'a>(init_expr: &wasmparser::ConstExpr<'a>) -> Result<Option<u
     })
 }
 
+#[derive(Default)]
+struct DebugContext<'a> {
+    debug_info: Option<gimli::read::DebugInfo<gimli::read::EndianSlice<'a, gimli::LittleEndian>>>,
+    debug_abbrev:
+        Option<gimli::read::DebugAbbrev<gimli::read::EndianSlice<'a, gimli::LittleEndian>>>,
+    debug_line: Option<gimli::read::DebugLine<gimli::read::EndianSlice<'a, gimli::LittleEndian>>>,
+    debug_str: Option<gimli::read::DebugStr<gimli::read::EndianSlice<'a, gimli::LittleEndian>>>,
+}
+
+impl<'a> DebugContext<'a> {
+    fn compute_map(self) -> DebugMap {
+        match (
+            self.debug_info,
+            self.debug_abbrev,
+            self.debug_line,
+            self.debug_str,
+        ) {
+            (Some(debug_info), Some(debug_abbrev), Some(debug_line), Some(debug_str)) => {
+                DebugMap::compute(debug_info, debug_abbrev, debug_line, debug_str)
+            }
+            _ => DebugMap::default(),
+        }
+    }
+}
+
 fn handle_payload<'a>(
     module: &mut Module<'a>,
     payload: Payload<'a>,
     next_func: &mut usize,
+    debug_ctx: &mut DebugContext<'a>,
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
@@ -213,6 +241,31 @@ fn handle_payload<'a>(
                 }
             }
         }
+        Payload::CustomSection(reader) if reader.name() == ".debug_info" => {
+            debug_ctx.debug_info = Some(gimli::read::DebugInfo::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_abbrev" => {
+            debug_ctx.debug_abbrev = Some(gimli::read::DebugAbbrev::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_line" => {
+            debug_ctx.debug_line = Some(gimli::read::DebugLine::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_str" => {
+            debug_ctx.debug_str = Some(gimli::read::DebugStr::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(_) => {}
         Payload::CodeSectionStart { .. } => {}
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
