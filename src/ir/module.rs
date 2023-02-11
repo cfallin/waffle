@@ -1,6 +1,6 @@
 use super::{Func, FuncDecl, Global, Memory, ModuleDisplay, Signature, Table, Type};
 use crate::entity::{EntityRef, EntityVec};
-use crate::ir::FunctionBody;
+use crate::ir::{Debug, DebugMap, FunctionBody};
 use crate::{backend, frontend};
 use anyhow::Result;
 
@@ -15,6 +15,8 @@ pub struct Module<'a> {
     pub exports: Vec<Export>,
     pub memories: EntityVec<Memory, MemoryData>,
     pub start_func: Option<Func>,
+    pub debug: Debug,
+    pub debug_map: DebugMap,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -137,6 +139,8 @@ impl<'a> Module<'a> {
             exports: vec![],
             memories: EntityVec::default(),
             start_func: None,
+            debug: Debug::default(),
+            debug_map: DebugMap::default(),
         }
     }
 }

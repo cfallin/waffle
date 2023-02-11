@@ -7,6 +7,7 @@ use crate::errors::FrontendError;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
+use addr2line::gimli;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
@@ -19,10 +20,13 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
+    let mut dwarf = gimli::Dwarf::default();
     for payload in parser.parse_all(bytes) {
         let payload = payload?;
-        handle_payload(&mut module, payload, &mut next_func)?;
+        handle_payload(&mut module, payload, &mut next_func, &mut dwarf)?;
     }
+    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug);
+    module.debug_map = debug_map;
 
     Ok(module)
 }
@@ -57,6 +61,7 @@ fn handle_payload<'a>(
     module: &mut Module<'a>,
     payload: Payload<'a>,
     next_func: &mut usize,
+    dwarf: &mut gimli::Dwarf<gimli::EndianSlice<'a, gimli::LittleEndian>>,
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
@@ -213,6 +218,38 @@ fn handle_payload<'a>(
                 }
             }
         }
+        Payload::CustomSection(reader) if reader.name() == ".debug_info" => {
+            dwarf.debug_info = gimli::DebugInfo::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_abbrev" => {
+            dwarf.debug_abbrev = gimli::DebugAbbrev::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_addr" => {
+            dwarf.debug_addr =
+                gimli::DebugAddr::from(gimli::EndianSlice::new(reader.data(), gimli::LittleEndian));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_aranges" => {
+            dwarf.debug_aranges = gimli::DebugAranges::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_line" => {
+            dwarf.debug_line = gimli::DebugLine::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_line_str" => {
+            dwarf.debug_line_str = gimli::DebugLineStr::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_str" => {
+            dwarf.debug_str = gimli::DebugStr::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_str_offsets" => {
+            dwarf.debug_str_offsets = gimli::DebugStrOffsets::from(gimli::EndianSlice::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_types" => {
+            dwarf.debug_types = gimli::DebugTypes::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(_) => {}
         Payload::CodeSectionStart { .. } => {}
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
