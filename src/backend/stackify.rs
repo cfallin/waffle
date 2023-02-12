@@ -129,7 +129,13 @@ impl<'a, 'b> Context<'a, 'b> {
                 log::trace!(" -> succ rpo {}", succ_rpo);
                 if succ_rpo <= block_rpo {
                     if !cfg.dominates(succ, block) {
-                        anyhow::bail!("Irreducible control flow: edge from {} to {}", block, succ);
+                        anyhow::bail!(
+                            "Irreducible control flow: edge from {} ({}) to {} ({})",
+                            block,
+                            body.blocks[block].desc,
+                            succ,
+                            body.blocks[succ].desc
+                        );
                     }
                     // Backward branch.
                     loop_headers.insert(succ);
