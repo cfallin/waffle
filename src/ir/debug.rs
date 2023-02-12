@@ -55,8 +55,8 @@ impl DebugMap {
     pub(crate) fn from_dwarf<R: gimli::Reader>(
         dwarf: gimli::Dwarf<R>,
         debug: &mut Debug,
-    ) -> DebugMap {
-        let ctx = addr2line::Context::from_dwarf(dwarf).unwrap();
+    ) -> anyhow::Result<DebugMap> {
+        let ctx = addr2line::Context::from_dwarf(dwarf)?;
         let mut tuples = vec![];
 
         let mut locs = ctx.find_location_range(0, u64::MAX).unwrap();
@@ -66,13 +66,13 @@ impl DebugMap {
             tuples.push((start as u32, end as u32, loc));
         }
 
-        log::trace!("tuples:");
+        println!("tuples:");
         for &(start, end, loc) in &tuples {
-            log::trace!(" {:x} - {:x}: {}", start, end, loc);
+            println!(" {:x} - {:x}: {}", start, end, loc);
         }
-        log::trace!("files: {:?}", debug.source_files);
-        log::trace!("locs: {:?}", debug.source_locs);
+        println!("files: {:?}", debug.source_files);
+        println!("locs: {:?}", debug.source_locs);
 
-        DebugMap { tuples }
+        Ok(DebugMap { tuples })
     }
 }

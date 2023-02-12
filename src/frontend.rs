@@ -21,11 +21,22 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let parser = Parser::new(0);
     let mut next_func = 0;
     let mut dwarf = gimli::Dwarf::default();
+    let mut extra_sections = ExtraSections::default();
     for payload in parser.parse_all(bytes) {
         let payload = payload?;
-        handle_payload(&mut module, payload, &mut next_func, &mut dwarf)?;
+        handle_payload(
+            &mut module,
+            payload,
+            &mut next_func,
+            &mut dwarf,
+            &mut extra_sections,
+        )?;
     }
-    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug);
+    dwarf.locations =
+        gimli::LocationLists::new(extra_sections.debug_loc, extra_sections.debug_loclists);
+    dwarf.ranges =
+        gimli::RangeLists::new(extra_sections.debug_ranges, extra_sections.debug_rnglists);
+    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug)?;
     module.debug_map = debug_map;
 
     Ok(module)
@@ -57,11 +68,20 @@ fn parse_init_expr<'a>(init_expr: &wasmparser::ConstExpr<'a>) -> Result<Option<u
     })
 }
 
+#[derive(Default)]
+struct ExtraSections<'a> {
+    debug_loc: gimli::DebugLoc<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_loclists: gimli::DebugLocLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_ranges: gimli::DebugRanges<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_rnglists: gimli::DebugRngLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+}
+
 fn handle_payload<'a>(
     module: &mut Module<'a>,
     payload: Payload<'a>,
     next_func: &mut usize,
     dwarf: &mut gimli::Dwarf<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    extra_sections: &mut ExtraSections<'a>,
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
@@ -248,6 +268,21 @@ fn handle_payload<'a>(
         }
         Payload::CustomSection(reader) if reader.name() == ".debug_types" => {
             dwarf.debug_types = gimli::DebugTypes::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_loc" => {
+            extra_sections.debug_loc = gimli::DebugLoc::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_loclists" => {
+            extra_sections.debug_loclists =
+                gimli::DebugLocLists::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_ranges" => {
+            extra_sections.debug_ranges =
+                gimli::DebugRanges::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_rnglists" => {
+            extra_sections.debug_rnglists =
+                gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
         }
         Payload::CustomSection(_) => {}
         Payload::CodeSectionStart { .. } => {}
