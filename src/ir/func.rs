@@ -379,6 +379,8 @@ pub struct BlockDef {
     pub pos_in_pred_succ: Vec<usize>,
     /// Type and Value for each blockparam.
     pub params: Vec<(Type, Value)>,
+    /// Descriptive name for the block, if any.
+    pub desc: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
