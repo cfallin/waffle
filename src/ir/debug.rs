@@ -65,10 +65,16 @@ impl DebugMap {
             let loc = debug.intern_loc(file, loc.line.unwrap_or(0), loc.column.unwrap_or(0));
             tuples.push((start as u32, end as u32, loc));
         }
+        tuples.sort();
 
         println!("tuples:");
-        for &(start, end, loc) in &tuples {
-            println!(" {:x} - {:x}: {}", start, end, loc);
+        let mut last = 0;
+        for &(start, len, loc) in &tuples {
+            if start < last {
+                println!("  WARNING: OVERLAP");
+            }
+            last = start + len;
+            println!(" {:x} - {:x}: {}", start, start + len, loc);
         }
         println!("files: {:?}", debug.source_files);
         println!("locs: {:?}", debug.source_locs);
