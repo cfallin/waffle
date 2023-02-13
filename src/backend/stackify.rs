@@ -124,7 +124,14 @@ impl<'a, 'b> Context<'a, 'b> {
 
         for (block_rpo, &block) in cfg.rpo.entries() {
             for &succ in &body.blocks[block].succs {
-                log::trace!("block {} rpo {} has succ {}", block, block_rpo, succ);
+                log::trace!(
+                    "block {} ({}) rpo {} has succ {} ({})",
+                    block,
+                    body.blocks[block].desc,
+                    block_rpo,
+                    succ,
+                    body.blocks[succ].desc,
+                );
                 let succ_rpo = cfg.rpo_pos[succ].unwrap();
                 log::trace!(" -> succ rpo {}", succ_rpo);
                 if succ_rpo <= block_rpo {

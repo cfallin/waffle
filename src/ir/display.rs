@@ -78,7 +78,14 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                 .iter()
                 .map(|(ty, val)| format!("{}: {}", val, ty))
                 .collect::<Vec<_>>();
-            writeln!(f, "{}  {}({}):", self.1, block_id, block_params.join(", "))?;
+            writeln!(
+                f,
+                "{}  {}({}): # {}",
+                self.1,
+                block_id,
+                block_params.join(", "),
+                block.desc
+            )?;
             writeln!(
                 f,
                 "{}    # preds: {}",
@@ -86,7 +93,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                 block
                     .preds
                     .iter()
-                    .map(|pred| format!("{}", pred))
+                    .map(|pred| format!("{} ({})", pred, self.0.blocks[*pred].desc))
                     .collect::<Vec<_>>()
                     .join(", ")
             )?;
@@ -97,7 +104,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                 block
                     .succs
                     .iter()
-                    .map(|succ| format!("{}", succ))
+                    .map(|succ| format!("{} ({})", succ, self.0.blocks[*succ].desc))
                     .collect::<Vec<_>>()
                     .join(", ")
             )?;
