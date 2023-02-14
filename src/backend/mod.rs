@@ -31,7 +31,7 @@ macro_rules! op {
 impl<'a> WasmFuncBackend<'a> {
     pub fn new(body: &'a FunctionBody) -> Result<WasmFuncBackend<'a>> {
         body.validate()?;
-        log::debug!("Backend compiling:\n{}\n", body.display_verbose("| "));
+        log::debug!("Backend compiling:\n{}\n", body.display_verbose("| ", None));
         let cfg = CFGInfo::new(body);
         log::debug!("CFG:\n{:?}\n", cfg);
         let trees = Trees::compute(body);

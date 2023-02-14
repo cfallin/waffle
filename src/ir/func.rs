@@ -265,12 +265,20 @@ impl FunctionBody {
         self.locals.push(ty)
     }
 
-    pub fn display<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
-        FunctionBodyDisplay(self, indent, /* verbose = */ false)
+    pub fn display<'a>(
+        &'a self,
+        indent: &'a str,
+        module: Option<&'a Module>,
+    ) -> FunctionBodyDisplay<'a> {
+        FunctionBodyDisplay(self, indent, /* verbose = */ false, module)
     }
 
-    pub fn display_verbose<'a>(&'a self, indent: &'a str) -> FunctionBodyDisplay<'a> {
-        FunctionBodyDisplay(self, indent, /* verbose = */ true)
+    pub fn display_verbose<'a>(
+        &'a self,
+        indent: &'a str,
+        module: Option<&'a Module>,
+    ) -> FunctionBodyDisplay<'a> {
+        FunctionBodyDisplay(self, indent, /* verbose = */ true, module)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -358,7 +366,7 @@ impl FunctionBody {
         if bad.len() > 0 {
             anyhow::bail!(
                 "Body is:\n{}\nError(s) in SSA: {:?}",
-                self.display_verbose(" | "),
+                self.display_verbose(" | ", None),
                 bad
             );
         }

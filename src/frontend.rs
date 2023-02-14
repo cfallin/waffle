@@ -373,7 +373,7 @@ impl<'a> DebugLocReader<'a> {
     }
 
     fn get_loc(&mut self, offset: usize) -> SourceLoc {
-        let offset = u32::try_from(offset).unwrap();
+        let offset = u32::try_from(offset).unwrap() + self.code_offset;
         while self.locs.len() > 0 {
             let (start, len, loc) = self.locs[0];
             if offset < start {

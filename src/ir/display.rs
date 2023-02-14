@@ -1,6 +1,7 @@
 //! Displaying IR.
 
-use super::{FuncDecl, FunctionBody, Module, ValueDef};
+use super::{FuncDecl, FunctionBody, Module, SourceLoc, ValueDef};
+use crate::entity::EntityRef;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
@@ -8,6 +9,7 @@ pub struct FunctionBodyDisplay<'a>(
     pub(crate) &'a FunctionBody,
     pub(crate) &'a str,
     pub(crate) bool,
+    pub(crate) Option<&'a Module<'a>>,
 );
 
 impl<'a> Display for FunctionBodyDisplay<'a> {
@@ -121,15 +123,26 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     ValueDef::Operator(op, args, tys) => {
                         let args = args.iter().map(|&v| format!("{}", v)).collect::<Vec<_>>();
                         let tys = tys.iter().map(|&ty| format!("{}", ty)).collect::<Vec<_>>();
+                        let loc = if self.0.source_locs[inst] != SourceLoc::invalid()
+                            && self.3.is_some()
+                        {
+                            let module = self.3.as_ref().unwrap();
+                            let loc = self.0.source_locs[inst];
+                            let data = &module.debug.source_locs[loc];
+                            let filename = &module.debug.source_files[data.file];
+                            format!("@{} {}:{}:{}", loc, filename, data.line, data.col)
+                        } else {
+                            "".to_owned()
+                        };
                         writeln!(
                             f,
-                            "{}    {} = {} {} # {} @{}",
+                            "{}    {} = {} {} # {} {}",
                             self.1,
                             inst,
                             op,
                             args.join(", "),
                             tys.join(", "),
-                            self.0.source_locs[inst],
+                            loc,
                         )?;
                     }
                     ValueDef::PickOutput(val, idx, ty) => {
@@ -226,7 +239,7 @@ impl<'a> Display for ModuleDisplay<'a> {
                         sig,
                         sig_strs.get(&sig).unwrap()
                     )?;
-                    writeln!(f, "{}", body.display("    "))?;
+                    writeln!(f, "{}", body.display("    ", Some(self.0)))?;
                 }
                 FuncDecl::Lazy(sig, name, reader) => {
                     writeln!(
