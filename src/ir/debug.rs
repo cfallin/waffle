@@ -5,7 +5,6 @@ use crate::entity::EntityVec;
 use addr2line::gimli;
 use std::collections::hash_map::Entry as HashEntry;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 declare_entity!(SourceFile, "file");
 declare_entity!(SourceLoc, "loc");
@@ -49,7 +48,9 @@ impl Debug {
 
 #[derive(Clone, Debug, Default)]
 pub struct DebugMap {
-    tuples: Vec<(u32, u32, SourceLoc)>,
+    /// Each tuple is `(start, len, loc)`. The `start` offset is
+    /// relative to the Wasm code section (*not* the entire file).
+    pub tuples: Vec<(u32, u32, SourceLoc)>,
 }
 
 impl DebugMap {
@@ -78,22 +79,5 @@ impl DebugMap {
         });
 
         Ok(DebugMap { tuples })
-    }
-
-    pub(crate) fn locs_from_offset<'a>(&'a self, offset: usize) -> &'a [(u32, u32, SourceLoc)] {
-        let offset = u32::try_from(offset).unwrap();
-        let start = match self.tuples.binary_search_by(|&(start, len, _)| {
-            if offset < start {
-                std::cmp::Ordering::Greater
-            } else if offset >= (start + len) {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Equal
-            }
-        }) {
-            Ok(idx) => idx,
-            Err(first_after) => first_after,
-        };
-        &self.tuples[start..]
     }
 }

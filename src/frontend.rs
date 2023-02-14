@@ -358,18 +358,23 @@ fn handle_payload<'a>(
 }
 
 struct DebugLocReader<'a> {
+    code_section_offset: u32,
     locs: &'a [(u32, u32, SourceLoc)],
 }
 
 impl<'a> DebugLocReader<'a> {
     fn new(module: &'a Module, offset: usize) -> Self {
         DebugLocReader {
-            locs: module.debug_map.locs_from_offset(offset),
+            code_section_offset: u32::try_from(offset).unwrap(),
+            locs: &module.debug_map.tuples[..],
         }
     }
 
     fn get_loc(&mut self, offset: usize) -> SourceLoc {
-        let offset = u32::try_from(offset).unwrap();
+        let offset = u32::try_from(offset)
+            .unwrap()
+            .checked_sub(self.code_section_offset)
+            .unwrap();
         while self.locs.len() > 0 {
             let (start, len, loc) = self.locs[0];
             if offset < start {
