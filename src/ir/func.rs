@@ -2,6 +2,7 @@ use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, V
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
+use crate::ir::SourceLoc;
 use anyhow::Result;
 
 #[derive(Clone, Debug)]
@@ -99,6 +100,8 @@ pub struct FunctionBody {
     pub value_blocks: PerEntity<Value, Block>,
     /// Wasm locals that values correspond to, if any.
     pub value_locals: PerEntity<Value, Option<Local>>,
+    /// Debug source locations of each value.
+    pub source_locs: PerEntity<Value, SourceLoc>,
 }
 
 impl FunctionBody {
@@ -124,6 +127,7 @@ impl FunctionBody {
             values,
             value_blocks,
             value_locals: PerEntity::default(),
+            source_locs: PerEntity::default(),
         }
     }
 

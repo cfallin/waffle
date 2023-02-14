@@ -5,23 +5,24 @@ use crate::entity::EntityVec;
 use addr2line::gimli;
 use std::collections::hash_map::Entry as HashEntry;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 declare_entity!(SourceFile, "file");
 declare_entity!(SourceLoc, "loc");
 
 #[derive(Clone, Debug, Default)]
 pub struct Debug {
-    source_files: EntityVec<SourceFile, String>,
+    pub source_files: EntityVec<SourceFile, String>,
     source_file_dedup: HashMap<String, SourceFile>,
-    source_locs: EntityVec<SourceLoc, SourceLocData>,
+    pub source_locs: EntityVec<SourceLoc, SourceLocData>,
     source_loc_dedup: HashMap<SourceLocData, SourceLoc>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SourceLocData {
-    file: SourceFile,
-    line: u32,
-    col: u32,
+    pub file: SourceFile,
+    pub line: u32,
+    pub col: u32,
 }
 
 impl Debug {
@@ -60,25 +61,39 @@ impl DebugMap {
         let mut tuples = vec![];
 
         let mut locs = ctx.find_location_range(0, u64::MAX).unwrap();
-        while let Some((start, end, loc)) = locs.next() {
+        while let Some((start, len, loc)) = locs.next() {
             let file = debug.intern_file(loc.file.unwrap_or(""));
             let loc = debug.intern_loc(file, loc.line.unwrap_or(0), loc.column.unwrap_or(0));
-            tuples.push((start as u32, end as u32, loc));
+            tuples.push((start as u32, len as u32, loc));
         }
         tuples.sort();
 
-        println!("tuples:");
         let mut last = 0;
-        for &(start, len, loc) in &tuples {
-            if start < last {
-                println!("  WARNING: OVERLAP");
+        tuples.retain(|&(start, len, _)| {
+            let retain = start >= last;
+            if retain {
+                last = start + len;
             }
-            last = start + len;
-            println!(" {:x} - {:x}: {}", start, start + len, loc);
-        }
-        println!("files: {:?}", debug.source_files);
-        println!("locs: {:?}", debug.source_locs);
+            retain
+        });
 
         Ok(DebugMap { tuples })
+    }
+
+    pub(crate) fn locs_from_offset<'a>(&'a self, offset: usize) -> &'a [(u32, u32, SourceLoc)] {
+        let offset = u32::try_from(offset).unwrap();
+        let start = match self.tuples.binary_search_by(|&(start, len, _)| {
+            if offset < start {
+                std::cmp::Ordering::Greater
+            } else if offset >= (start + len) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }) {
+            Ok(idx) => idx,
+            Err(first_after) => first_after,
+        };
+        &self.tuples[start..]
     }
 }

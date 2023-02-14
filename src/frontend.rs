@@ -357,12 +357,42 @@ fn handle_payload<'a>(
     Ok(())
 }
 
+struct DebugLocReader<'a> {
+    locs: &'a [(u32, u32, SourceLoc)],
+}
+
+impl<'a> DebugLocReader<'a> {
+    fn new(module: &'a Module, offset: usize) -> Self {
+        DebugLocReader {
+            locs: module.debug_map.locs_from_offset(offset),
+        }
+    }
+
+    fn get_loc(&mut self, offset: usize) -> SourceLoc {
+        let offset = u32::try_from(offset).unwrap();
+        while self.locs.len() > 0 {
+            let (start, len, loc) = self.locs[0];
+            if offset < start {
+                break;
+            }
+            if offset > (start + len) {
+                self.locs = &self.locs[1..];
+            }
+            return loc;
+        }
+        SourceLoc::invalid()
+    }
+}
+
 pub(crate) fn parse_body<'a>(
     module: &'a Module,
     my_sig: Signature,
     body: &mut wasmparser::FunctionBody,
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
+
+    let start_offset = body.range().start;
+    let mut debug_locs = DebugLocReader::new(module, start_offset);
 
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param.into());
@@ -409,17 +439,18 @@ pub(crate) fn parse_body<'a>(
     }
 
     let ops = body.get_operators_reader()?;
-    for op in ops.into_iter() {
-        let op = op?;
+    for item in ops.into_iter_with_offsets() {
+        let (op, offset) = item?;
+        let loc = debug_locs.get_loc(offset);
         if builder.reachable {
-            builder.handle_op(op)?;
+            builder.handle_op(op, loc)?;
         } else {
             builder.handle_op_unreachable(op)?;
         }
     }
 
     if builder.reachable {
-        builder.handle_op(wasmparser::Operator::Return)?;
+        builder.handle_op(wasmparser::Operator::Return, SourceLoc::invalid())?;
     }
 
     for block in builder.body.blocks.iter() {
@@ -878,7 +909,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn handle_op(&mut self, op: wasmparser::Operator<'a>) -> Result<()> {
+    fn handle_op(&mut self, op: wasmparser::Operator<'a>, loc: SourceLoc) -> Result<()> {
         trace!("handle_op: {:?}", op);
         trace!("op_stack = {:?}", self.op_stack);
         trace!("ctrl_stack = {:?}", self.ctrl_stack);
@@ -1089,7 +1120,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableSet { .. }
             | wasmparser::Operator::TableGrow { .. }
             | wasmparser::Operator::TableSize { .. } => {
-                self.emit(Operator::try_from(&op).unwrap())?
+                self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 
             wasmparser::Operator::Nop => {}
@@ -1610,7 +1641,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn emit(&mut self, op: Operator) -> Result<()> {
+    fn emit(&mut self, op: Operator, loc: SourceLoc) -> Result<()> {
         let inputs = op_inputs(self.module, &self.op_stack[..], &op)?;
         let outputs = op_outputs(self.module, &self.op_stack[..], &op)?;
 
@@ -1641,6 +1672,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if self.reachable {
             self.body.append_to_block(self.cur_block, value);
         }
+        self.body.source_locs[value] = loc;
 
         if n_outputs == 1 {
             let output_ty = outputs[0];
