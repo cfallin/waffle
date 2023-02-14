@@ -48,8 +48,10 @@ impl Debug {
 
 #[derive(Clone, Debug, Default)]
 pub struct DebugMap {
+    /// Offset of code section relative to the Wasm file start.
+    pub code_offset: u32,
     /// Each tuple is `(start, len, loc)`. The `start` offset is
-    /// relative to the Wasm code section (*not* the entire file).
+    /// relative to the code section.
     pub tuples: Vec<(u32, u32, SourceLoc)>,
 }
 
@@ -57,6 +59,7 @@ impl DebugMap {
     pub(crate) fn from_dwarf<R: gimli::Reader>(
         dwarf: gimli::Dwarf<R>,
         debug: &mut Debug,
+        code_offset: u32,
     ) -> anyhow::Result<DebugMap> {
         let ctx = addr2line::Context::from_dwarf(dwarf)?;
         let mut tuples = vec![];
@@ -65,6 +68,7 @@ impl DebugMap {
         while let Some((start, len, loc)) = locs.next() {
             let file = debug.intern_file(loc.file.unwrap_or(""));
             let loc = debug.intern_loc(file, loc.line.unwrap_or(0), loc.column.unwrap_or(0));
+            log::trace!("tuple: loc {} start {:x} len {:x}", loc, start, len);
             tuples.push((start as u32, len as u32, loc));
         }
         tuples.sort();
@@ -78,6 +82,9 @@ impl DebugMap {
             retain
         });
 
-        Ok(DebugMap { tuples })
+        Ok(DebugMap {
+            code_offset,
+            tuples,
+        })
     }
 }
