@@ -123,12 +123,13 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                         let tys = tys.iter().map(|&ty| format!("{}", ty)).collect::<Vec<_>>();
                         writeln!(
                             f,
-                            "{}    {} = {} {} # {}",
+                            "{}    {} = {} {} # {} @{}",
                             self.1,
                             inst,
                             op,
                             args.join(", "),
-                            tys.join(", ")
+                            tys.join(", "),
+                            self.0.source_locs[inst],
                         )?;
                     }
                     ValueDef::PickOutput(val, idx, ty) => {
@@ -249,6 +250,16 @@ impl<'a> Display for ModuleDisplay<'a> {
                     )?;
                 }
             }
+        }
+        for (loc, loc_data) in self.0.debug.source_locs.entries() {
+            writeln!(
+                f,
+                "  {} = {} line {} column {}",
+                loc, loc_data.file, loc_data.line, loc_data.col
+            )?;
+        }
+        for (file, file_name) in self.0.debug.source_files.entries() {
+            writeln!(f, "  {} = \"{}\"", file, file_name)?;
         }
         writeln!(f, "}}")?;
         Ok(())

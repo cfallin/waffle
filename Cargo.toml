@@ -18,3 +18,7 @@ smallvec = "1.7"
 rayon = "1.5"
 lazy_static = "1.4"
 libc = "0.2"
+addr2line = "0.19"
+
+[patch.crates-io]
+gimli = { git = "https://github.com/philipc/gimli", branch = "line-tombstone" }

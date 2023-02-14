@@ -7,6 +7,7 @@ use crate::errors::FrontendError;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
+use addr2line::gimli;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
 use log::trace;
@@ -19,10 +20,24 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
     let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
+    let mut dwarf = gimli::Dwarf::default();
+    let mut extra_sections = ExtraSections::default();
     for payload in parser.parse_all(bytes) {
         let payload = payload?;
-        handle_payload(&mut module, payload, &mut next_func)?;
+        handle_payload(
+            &mut module,
+            payload,
+            &mut next_func,
+            &mut dwarf,
+            &mut extra_sections,
+        )?;
     }
+    dwarf.locations =
+        gimli::LocationLists::new(extra_sections.debug_loc, extra_sections.debug_loclists);
+    dwarf.ranges =
+        gimli::RangeLists::new(extra_sections.debug_ranges, extra_sections.debug_rnglists);
+    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug)?;
+    module.debug_map = debug_map;
 
     Ok(module)
 }
@@ -53,10 +68,20 @@ fn parse_init_expr<'a>(init_expr: &wasmparser::ConstExpr<'a>) -> Result<Option<u
     })
 }
 
+#[derive(Default)]
+struct ExtraSections<'a> {
+    debug_loc: gimli::DebugLoc<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_loclists: gimli::DebugLocLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_ranges: gimli::DebugRanges<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    debug_rnglists: gimli::DebugRngLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+}
+
 fn handle_payload<'a>(
     module: &mut Module<'a>,
     payload: Payload<'a>,
     next_func: &mut usize,
+    dwarf: &mut gimli::Dwarf<gimli::EndianSlice<'a, gimli::LittleEndian>>,
+    extra_sections: &mut ExtraSections<'a>,
 ) -> Result<()> {
     trace!("Wasm parser item: {:?}", payload);
     match payload {
@@ -213,6 +238,53 @@ fn handle_payload<'a>(
                 }
             }
         }
+        Payload::CustomSection(reader) if reader.name() == ".debug_info" => {
+            dwarf.debug_info = gimli::DebugInfo::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_abbrev" => {
+            dwarf.debug_abbrev = gimli::DebugAbbrev::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_addr" => {
+            dwarf.debug_addr =
+                gimli::DebugAddr::from(gimli::EndianSlice::new(reader.data(), gimli::LittleEndian));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_aranges" => {
+            dwarf.debug_aranges = gimli::DebugAranges::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_line" => {
+            dwarf.debug_line = gimli::DebugLine::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_line_str" => {
+            dwarf.debug_line_str = gimli::DebugLineStr::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_str" => {
+            dwarf.debug_str = gimli::DebugStr::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_str_offsets" => {
+            dwarf.debug_str_offsets = gimli::DebugStrOffsets::from(gimli::EndianSlice::new(
+                reader.data(),
+                gimli::LittleEndian,
+            ));
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_types" => {
+            dwarf.debug_types = gimli::DebugTypes::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_loc" => {
+            extra_sections.debug_loc = gimli::DebugLoc::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_loclists" => {
+            extra_sections.debug_loclists =
+                gimli::DebugLocLists::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_ranges" => {
+            extra_sections.debug_ranges =
+                gimli::DebugRanges::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(reader) if reader.name() == ".debug_rnglists" => {
+            extra_sections.debug_rnglists =
+                gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
+        }
+        Payload::CustomSection(_) => {}
         Payload::CodeSectionStart { .. } => {}
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
@@ -285,12 +357,42 @@ fn handle_payload<'a>(
     Ok(())
 }
 
+struct DebugLocReader<'a> {
+    locs: &'a [(u32, u32, SourceLoc)],
+}
+
+impl<'a> DebugLocReader<'a> {
+    fn new(module: &'a Module, offset: usize) -> Self {
+        DebugLocReader {
+            locs: module.debug_map.locs_from_offset(offset),
+        }
+    }
+
+    fn get_loc(&mut self, offset: usize) -> SourceLoc {
+        let offset = u32::try_from(offset).unwrap();
+        while self.locs.len() > 0 {
+            let (start, len, loc) = self.locs[0];
+            if offset < start {
+                break;
+            }
+            if offset > (start + len) {
+                self.locs = &self.locs[1..];
+            }
+            return loc;
+        }
+        SourceLoc::invalid()
+    }
+}
+
 pub(crate) fn parse_body<'a>(
     module: &'a Module,
     my_sig: Signature,
     body: &mut wasmparser::FunctionBody,
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
+
+    let start_offset = body.range().start;
+    let mut debug_locs = DebugLocReader::new(module, start_offset);
 
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param.into());
@@ -337,17 +439,18 @@ pub(crate) fn parse_body<'a>(
     }
 
     let ops = body.get_operators_reader()?;
-    for op in ops.into_iter() {
-        let op = op?;
+    for item in ops.into_iter_with_offsets() {
+        let (op, offset) = item?;
+        let loc = debug_locs.get_loc(offset);
         if builder.reachable {
-            builder.handle_op(op)?;
+            builder.handle_op(op, loc)?;
         } else {
             builder.handle_op_unreachable(op)?;
         }
     }
 
     if builder.reachable {
-        builder.handle_op(wasmparser::Operator::Return)?;
+        builder.handle_op(wasmparser::Operator::Return, SourceLoc::invalid())?;
     }
 
     for block in builder.body.blocks.iter() {
@@ -806,7 +909,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn handle_op(&mut self, op: wasmparser::Operator<'a>) -> Result<()> {
+    fn handle_op(&mut self, op: wasmparser::Operator<'a>, loc: SourceLoc) -> Result<()> {
         trace!("handle_op: {:?}", op);
         trace!("op_stack = {:?}", self.op_stack);
         trace!("ctrl_stack = {:?}", self.ctrl_stack);
@@ -1017,7 +1120,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableSet { .. }
             | wasmparser::Operator::TableGrow { .. }
             | wasmparser::Operator::TableSize { .. } => {
-                self.emit(Operator::try_from(&op).unwrap())?
+                self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 
             wasmparser::Operator::Nop => {}
@@ -1538,7 +1641,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
-    fn emit(&mut self, op: Operator) -> Result<()> {
+    fn emit(&mut self, op: Operator, loc: SourceLoc) -> Result<()> {
         let inputs = op_inputs(self.module, &self.op_stack[..], &op)?;
         let outputs = op_outputs(self.module, &self.op_stack[..], &op)?;
 
@@ -1569,6 +1672,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         if self.reachable {
             self.body.append_to_block(self.cur_block, value);
         }
+        self.body.source_locs[value] = loc;
 
         if n_outputs == 1 {
             let output_ty = outputs[0];
