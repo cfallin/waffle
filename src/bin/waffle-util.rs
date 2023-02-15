@@ -42,9 +42,7 @@ enum Command {
 }
 
 fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
-    if opts.basic_opts || opts.max_ssa {
-        module.expand_all_funcs()?;
-    }
+    module.expand_all_funcs()?;
     if opts.basic_opts {
         module.per_func_body(|body| body.optimize());
     }
