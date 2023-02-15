@@ -36,7 +36,7 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
         gimli::LocationLists::new(extra_sections.debug_loc, extra_sections.debug_loclists);
     dwarf.ranges =
         gimli::RangeLists::new(extra_sections.debug_ranges, extra_sections.debug_rnglists);
-    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug, extra_sections.code_offset)?;
+    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug)?;
     module.debug_map = debug_map;
 
     Ok(module)
@@ -74,7 +74,6 @@ struct ExtraSections<'a> {
     debug_loclists: gimli::DebugLocLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
     debug_ranges: gimli::DebugRanges<gimli::EndianSlice<'a, gimli::LittleEndian>>,
     debug_rnglists: gimli::DebugRngLists<gimli::EndianSlice<'a, gimli::LittleEndian>>,
-    code_offset: u32,
 }
 
 fn handle_payload<'a>(
@@ -172,7 +171,6 @@ fn handle_payload<'a>(
             }
         }
         Payload::CodeSectionEntry(body) => {
-            extra_sections.code_offset = body.range().start as u32;
             let func_idx = Func::new(*next_func);
             *next_func += 1;
 
@@ -360,20 +358,33 @@ fn handle_payload<'a>(
 }
 
 struct DebugLocReader<'a> {
-    code_offset: u32,
     locs: &'a [(u32, u32, SourceLoc)],
 }
 
 impl<'a> DebugLocReader<'a> {
-    fn new(module: &'a Module) -> Self {
+    fn new(module: &'a Module, func_offset_in_file: u32) -> Self {
+        let start = match module
+            .debug_map
+            .tuples
+            .binary_search_by(|&(start, len, _)| {
+                use std::cmp::Ordering::*;
+                if start > func_offset_in_file {
+                    Greater
+                } else if (start + len) <= func_offset_in_file {
+                    Less
+                } else {
+                    Equal
+                }
+            }) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
         DebugLocReader {
-            code_offset: module.debug_map.code_offset,
-            locs: &module.debug_map.tuples[..],
+            locs: &module.debug_map.tuples[start..],
         }
     }
 
     fn get_loc(&mut self, offset: usize) -> SourceLoc {
-        // TODO: add `code_offset`?
         let offset = u32::try_from(offset).unwrap();
         while self.locs.len() > 0 {
             let (start, len, loc) = self.locs[0];
@@ -396,7 +407,7 @@ pub(crate) fn parse_body<'a>(
 ) -> Result<FunctionBody> {
     let mut ret: FunctionBody = FunctionBody::default();
 
-    let mut debug_locs = DebugLocReader::new(module);
+    let mut debug_locs = DebugLocReader::new(module, body.range().start as u32);
 
     for &param in &module.signatures[my_sig].params[..] {
         ret.locals.push(param.into());
