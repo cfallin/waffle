@@ -16,7 +16,12 @@ use wasmparser::{
     BlockType, DataKind, ExternalKind, Name, NameSectionReader, Parser, Payload, TypeRef,
 };
 
-pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrontendOptions {
+    pub debug: bool,
+}
+
+pub fn wasm_to_ir<'a>(bytes: &'a [u8], options: &FrontendOptions) -> Result<Module<'a>> {
     let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
@@ -36,8 +41,11 @@ pub fn wasm_to_ir(bytes: &[u8]) -> Result<Module<'_>> {
         gimli::LocationLists::new(extra_sections.debug_loc, extra_sections.debug_loclists);
     dwarf.ranges =
         gimli::RangeLists::new(extra_sections.debug_ranges, extra_sections.debug_rnglists);
-    let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug, extra_sections.code_offset)?;
-    module.debug_map = debug_map;
+
+    if options.debug {
+        let debug_map = DebugMap::from_dwarf(dwarf, &mut module.debug, extra_sections.code_offset)?;
+        module.debug_map = debug_map;
+    }
 
     Ok(module)
 }

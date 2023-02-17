@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use waffle::Module;
+use waffle::{FrontendOptions, Module};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "waffle-util", about = "WAFFLE utility.")]
@@ -17,6 +17,13 @@ struct Options {
         long = "basic-opts"
     )]
     basic_opts: bool,
+
+    #[structopt(
+        help = "Enable parsing of debug-info from input",
+        short = "g",
+        long = "debug-info"
+    )]
+    debug_info: bool,
 
     #[structopt(help = "Transform to maximal SSA", long = "max-ssa")]
     max_ssa: bool,
@@ -61,18 +68,21 @@ fn main() -> Result<()> {
     }
     let _ = logger.try_init();
 
+    let mut options = FrontendOptions::default();
+    options.debug = opts.debug_info;
+
     match &opts.command {
         Command::PrintIR { wasm } => {
             let bytes = std::fs::read(wasm)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
-            let mut module = Module::from_wasm_bytes(&bytes[..])?;
+            let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
             apply_options(&opts, &mut module)?;
             println!("{}", module.display());
         }
         Command::RoundTrip { input, output } => {
             let bytes = std::fs::read(input)?;
             debug!("Loaded {} bytes of Wasm data", bytes.len());
-            let mut module = Module::from_wasm_bytes(&bytes[..])?;
+            let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
             apply_options(&opts, &mut module)?;
             let produced = module.to_wasm_bytes()?;
             std::fs::write(output, &produced[..])?;

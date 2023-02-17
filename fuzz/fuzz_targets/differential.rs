@@ -2,7 +2,7 @@
 use libfuzzer_sys::{arbitrary, fuzz_target};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use waffle::Module;
+use waffle::{FrontendOptions, Module};
 
 fn reject(bytes: &[u8]) -> bool {
     let parser = wasmparser::Parser::new(0);
@@ -134,8 +134,9 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
         }
     };
 
-    let mut parsed_module = Module::from_wasm_bytes(&orig_bytes[..]).unwrap();
-    parsed_module.optimize();
+    let mut parsed_module =
+        Module::from_wasm_bytes(&orig_bytes[..], &FrontendOptions::default()).unwrap();
+    parsed_module.per_func_body(|body| body.optimize());
     let roundtrip_bytes = parsed_module.to_wasm_bytes().unwrap();
 
     if let Ok(filename) = std::env::var("FUZZ_DUMP_WASM") {

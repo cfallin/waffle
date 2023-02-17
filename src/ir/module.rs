@@ -4,6 +4,8 @@ use crate::ir::{Debug, DebugMap, FunctionBody};
 use crate::{backend, frontend};
 use anyhow::Result;
 
+pub use crate::frontend::FrontendOptions;
+
 #[derive(Clone, Debug)]
 pub struct Module<'a> {
     pub orig_bytes: &'a [u8],
@@ -159,8 +161,8 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn from_wasm_bytes(bytes: &'a [u8]) -> Result<Self> {
-        frontend::wasm_to_ir(bytes)
+    pub fn from_wasm_bytes(bytes: &'a [u8], options: &FrontendOptions) -> Result<Self> {
+        frontend::wasm_to_ir(bytes, options)
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
