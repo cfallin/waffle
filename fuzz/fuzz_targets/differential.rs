@@ -136,6 +136,7 @@ fuzz_target!(|module: wasm_smith::ConfiguredModule<Config>| {
 
     let mut parsed_module =
         Module::from_wasm_bytes(&orig_bytes[..], &FrontendOptions::default()).unwrap();
+    parsed_module.expand_all_funcs().unwrap();
     parsed_module.per_func_body(|body| body.optimize());
     let roundtrip_bytes = parsed_module.to_wasm_bytes().unwrap();
 
