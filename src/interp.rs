@@ -561,7 +561,28 @@ pub fn const_eval(
             Some(ConstVal::F32(f32::from_bits(*a).trunc().to_bits()))
         }
         (Operator::F32Nearest, [ConstVal::F32(a)]) => {
-            Some(ConstVal::F32(f32::from_bits(*a).round().to_bits()))
+            // See
+            // https://github.com/paritytech/wasmi/blob/43ce25d47e26498b9372369345e75dc9632eca8f/crates/core/src/value.rs#L662
+            // for the origin of this algorithm.
+            //
+            // When https://github.com/rust-lang/rust/pull/95317 is
+            // resolved and the resulting API is stable, we can switch
+            // to that instead.
+            let a = f32::from_bits(*a);
+            let round = a.round();
+            let nearest = if a.fract().abs() != 0.5 {
+                round
+            } else {
+                let rem = round % 2.0;
+                if rem == 1.0 {
+                    a.floor()
+                } else if rem == -1.0 {
+                    a.ceil()
+                } else {
+                    round
+                }
+            };
+            Some(ConstVal::F32(nearest.to_bits()))
         }
         (Operator::F32Sqrt, [ConstVal::F32(a)]) => {
             Some(ConstVal::F32(f32::from_bits(*a).sqrt().to_bits()))
@@ -604,7 +625,21 @@ pub fn const_eval(
             Some(ConstVal::F64(f64::from_bits(*a).trunc().to_bits()))
         }
         (Operator::F64Nearest, [ConstVal::F64(a)]) => {
-            Some(ConstVal::F64(f64::from_bits(*a).round().to_bits()))
+            let a = f64::from_bits(*a);
+            let round = a.round();
+            let nearest = if a.fract().abs() != 0.5 {
+                round
+            } else {
+                let rem = round % 2.0;
+                if rem == 1.0 {
+                    a.floor()
+                } else if rem == -1.0 {
+                    a.ceil()
+                } else {
+                    round
+                }
+            };
+            Some(ConstVal::F64(nearest.to_bits()))
         }
         (Operator::F64Sqrt, [ConstVal::F64(a)]) => {
             Some(ConstVal::F64(f64::from_bits(*a).sqrt().to_bits()))
