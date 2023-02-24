@@ -4,6 +4,7 @@ use anyhow::Result;
 use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
+use waffle::InterpContext;
 use waffle::{FrontendOptions, Module};
 
 #[derive(Debug, StructOpt)]
@@ -46,6 +47,11 @@ enum Command {
         #[structopt(help = "Wasm file to produce", short = "o")]
         output: PathBuf,
     },
+    #[structopt(name = "interp", about = "Interpret Waffle IR from Wasm")]
+    Interp {
+        #[structopt(help = "Wasm file to parse", short = "i")]
+        input: PathBuf,
+    },
 }
 
 fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
@@ -86,6 +92,29 @@ fn main() -> Result<()> {
             apply_options(&opts, &mut module)?;
             let produced = module.to_wasm_bytes()?;
             std::fs::write(output, &produced[..])?;
+        }
+        Command::Interp { input } => {
+            let bytes = std::fs::read(input)?;
+            debug!("Loaded {} bytes of Wasm data", bytes.len());
+            let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
+            apply_options(&opts, &mut module)?;
+            // Ensure all functions are expanded -- this is necessary
+            // for interpretation.
+            module.expand_all_funcs()?;
+            let mut ctx = InterpContext::new(&module);
+            debug!("Calling start function");
+            if let Some(start) = module.start_func {
+                ctx.call(&module, start, &[]).unwrap();
+            }
+            // Find a function called `_start`, if any.
+            if let Some(waffle::Export {
+                kind: waffle::ExportKind::Func(func),
+                ..
+            }) = module.exports.iter().find(|e| &e.name == "_start")
+            {
+                debug!("Calling _start");
+                ctx.call(&module, *func, &[]).unwrap();
+            }
         }
     }
 
