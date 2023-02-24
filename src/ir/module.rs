@@ -83,7 +83,7 @@ pub struct Import {
     pub kind: ImportKind,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ImportKind {
     Table(Table),
     Func(Func),
