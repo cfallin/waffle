@@ -14,7 +14,6 @@ pub struct InterpContext {
     memories: PerEntity<Memory, InterpMemory>,
     tables: PerEntity<Table, InterpTable>,
     globals: PerEntity<Global, ConstVal>,
-    trace_log: Vec<(usize, Vec<ConstVal>)>,
 }
 
 type MultiVal = SmallVec<[ConstVal; 2]>;
@@ -73,7 +72,6 @@ impl InterpContext {
             memories,
             tables,
             globals,
-            trace_log: vec![],
         }
     }
 
@@ -191,7 +189,7 @@ impl InterpContext {
                                 multivalue[0]
                             })
                             .collect::<Vec<_>>();
-                        self.trace_log.push((id, args));
+                        eprintln!("TRACE: {}: {:?}", id, &args[..]);
                         smallvec![]
                     }
                     &ValueDef::None | &ValueDef::Placeholder(..) | &ValueDef::BlockParam(..) => {
