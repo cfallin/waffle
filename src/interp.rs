@@ -575,10 +575,10 @@ pub fn const_eval(
             (f32::from_bits(*a) / f32::from_bits(*b)).to_bits(),
         )),
         (Operator::F32Min, [ConstVal::F32(a), ConstVal::F32(b)]) => Some(ConstVal::F32(
-            f32::min(f32::from_bits(*a), f32::from_bits(*b)).to_bits(),
+            f32_min(f32::from_bits(*a), f32::from_bits(*b)).to_bits(),
         )),
         (Operator::F32Max, [ConstVal::F32(a), ConstVal::F32(b)]) => Some(ConstVal::F32(
-            f32::max(f32::from_bits(*a), f32::from_bits(*b)).to_bits(),
+            f32_max(f32::from_bits(*a), f32::from_bits(*b)).to_bits(),
         )),
         (Operator::F32Copysign, [ConstVal::F32(a), ConstVal::F32(b)]) => Some(ConstVal::F32(
             f32::copysign(f32::from_bits(*a), f32::from_bits(*b)).to_bits(),
@@ -618,10 +618,10 @@ pub fn const_eval(
             (f64::from_bits(*a) / f64::from_bits(*b)).to_bits(),
         )),
         (Operator::F64Min, [ConstVal::F64(a), ConstVal::F64(b)]) => Some(ConstVal::F64(
-            f64::min(f64::from_bits(*a), f64::from_bits(*b)).to_bits(),
+            f64_min(f64::from_bits(*a), f64::from_bits(*b)).to_bits(),
         )),
         (Operator::F64Max, [ConstVal::F64(a), ConstVal::F64(b)]) => Some(ConstVal::F64(
-            f64::max(f64::from_bits(*a), f64::from_bits(*b)).to_bits(),
+            f64_max(f64::from_bits(*a), f64::from_bits(*b)).to_bits(),
         )),
         (Operator::F64Copysign, [ConstVal::F64(a), ConstVal::F64(b)]) => Some(ConstVal::F64(
             f64::copysign(f64::from_bits(*a), f64::from_bits(*b)).to_bits(),
@@ -1023,4 +1023,33 @@ pub(crate) fn write_u32(mem: &mut InterpMemory, addr: u32, data: u32) {
 pub(crate) fn write_u64(mem: &mut InterpMemory, addr: u32, data: u64) {
     let addr = addr as usize;
     mem.data[addr..(addr + 8)].copy_from_slice(&data.to_le_bytes()[..]);
+}
+
+fn f32_min(a: f32, b: f32) -> f32 {
+    if a.is_nan() || b.is_nan() {
+        f32::NAN
+    } else {
+        f32::min(a, b)
+    }
+}
+fn f32_max(a: f32, b: f32) -> f32 {
+    if a.is_nan() || b.is_nan() {
+        f32::NAN
+    } else {
+        f32::max(a, b)
+    }
+}
+fn f64_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        f64::min(a, b)
+    }
+}
+fn f64_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        f64::max(a, b)
+    }
 }
