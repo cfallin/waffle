@@ -14,6 +14,25 @@ pub struct InterpContext {
     memories: PerEntity<Memory, InterpMemory>,
     tables: PerEntity<Table, InterpTable>,
     globals: PerEntity<Global, ConstVal>,
+    trace_log: Vec<(usize, Vec<ConstVal>)>,
+}
+
+type MultiVal = SmallVec<[ConstVal; 2]>;
+
+#[derive(Clone, Debug)]
+pub enum InterpResult {
+    Ok(MultiVal),
+    Exit,
+    Trap,
+}
+
+impl InterpResult {
+    pub fn ok(self) -> anyhow::Result<MultiVal> {
+        match self {
+            InterpResult::Ok(vals) => Ok(vals),
+            other => anyhow::bail!("Bad InterpResult: {:?}", other),
+        }
+    }
 }
 
 impl InterpContext {
@@ -54,15 +73,11 @@ impl InterpContext {
             memories,
             tables,
             globals,
+            trace_log: vec![],
         }
     }
 
-    pub fn call(
-        &mut self,
-        module: &Module<'_>,
-        func: Func,
-        args: &[ConstVal],
-    ) -> Option<SmallVec<[ConstVal; 2]>> {
+    pub fn call(&mut self, module: &Module<'_>, func: Func, args: &[ConstVal]) -> InterpResult {
         let body = match &module.funcs[func] {
             FuncDecl::Lazy(..) => panic!("Un-expanded function"),
             FuncDecl::Import(..) => {
@@ -111,7 +126,11 @@ impl InterpContext {
                                 multivalue[0]
                             })
                             .collect::<Vec<_>>();
-                        self.call(module, function_index, &args[..])?
+                        let result = self.call(module, function_index, &args[..]);
+                        match result {
+                            InterpResult::Ok(vals) => vals,
+                            _ => return result,
+                        }
                     }
                     &ValueDef::Operator(
                         Operator::CallIndirect { table_index, .. },
@@ -129,7 +148,11 @@ impl InterpContext {
                             .collect::<Vec<_>>();
                         let idx = args.last().unwrap().as_u32().unwrap() as usize;
                         let func = self.tables[table_index].elements[idx];
-                        self.call(module, func, &args[..args.len() - 1])?
+                        let result = self.call(module, func, &args[..args.len() - 1]);
+                        match result {
+                            InterpResult::Ok(vals) => vals,
+                            _ => return result,
+                        }
                     }
                     &ValueDef::Operator(ref op, ref args, _) => {
                         let args = args
@@ -149,10 +172,27 @@ impl InterpContext {
                             Some(result) => result,
                             None => {
                                 log::trace!("const_eval failed on {:?} args {:?}", op, args);
-                                return None;
+                                return InterpResult::Trap;
                             }
                         };
                         smallvec![result]
+                    }
+                    &ValueDef::Trace(id, ref args) => {
+                        let args = args
+                            .iter()
+                            .map(|&arg| {
+                                let arg = body.resolve_alias(arg);
+                                let multivalue = frame
+                                    .values
+                                    .get(&arg)
+                                    .ok_or_else(|| format!("Unset SSA value: {}", arg))
+                                    .unwrap();
+                                assert_eq!(multivalue.len(), 1);
+                                multivalue[0]
+                            })
+                            .collect::<Vec<_>>();
+                        self.trace_log.push((id, args));
+                        smallvec![]
                     }
                     &ValueDef::None | &ValueDef::Placeholder(..) | &ValueDef::BlockParam(..) => {
                         unreachable!();
@@ -165,7 +205,7 @@ impl InterpContext {
 
             match &body.blocks[frame.cur_block].terminator {
                 &Terminator::None => unreachable!(),
-                &Terminator::Unreachable => return None,
+                &Terminator::Unreachable => return InterpResult::Trap,
                 &Terminator::Br { ref target } => {
                     frame.apply_target(body, target);
                 }
@@ -206,15 +246,15 @@ impl InterpContext {
                         })
                         .collect();
                     log::trace!("returning from {}: {:?}", func, values);
-                    return Some(values);
+                    return InterpResult::Ok(values);
                 }
             }
         }
     }
 
-    fn call_import(&mut self, name: &str, args: &[ConstVal]) -> Option<SmallVec<[ConstVal; 2]>> {
+    fn call_import(&mut self, name: &str, args: &[ConstVal]) -> InterpResult {
         if let Some(ret) = wasi::call_wasi(&mut self.memories[Memory::from(0)], name, args) {
-            return Some(ret);
+            return ret;
         }
         panic!("Unknown import: {} with args: {:?}", name, args);
     }
