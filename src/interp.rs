@@ -697,44 +697,68 @@ pub fn const_eval(
 
         (Operator::I32TruncSatF32S, [ConstVal::F32(a)]) => {
             let a = f32::from_bits(*a);
-            Some(ConstVal::I32(
-                a.min(i32::MAX as f32).max(i32::MIN as f32) as i32 as u32,
-            ))
+            Some(ConstVal::I32(if a.is_nan() {
+                0
+            } else {
+                a.min(i32::MAX as f32).max(i32::MIN as f32) as i32 as u32
+            }))
         }
         (Operator::I32TruncSatF32U, [ConstVal::F32(a)]) => {
             let a = f32::from_bits(*a);
-            Some(ConstVal::I32(a.min(u32::MAX as f32) as u32))
+            Some(ConstVal::I32(if a.is_nan() {
+                0
+            } else {
+                a.min(u32::MAX as f32).max(0.0) as u32
+            }))
         }
         (Operator::I32TruncSatF64S, [ConstVal::F64(a)]) => {
             let a = f64::from_bits(*a);
-            Some(ConstVal::I32(
-                a.min(i32::MAX as f64).max(i32::MIN as f64) as i32 as u32,
-            ))
+            Some(ConstVal::I32(if a.is_nan() {
+                0
+            } else {
+                a.min(i32::MAX as f64).max(i32::MIN as f64) as i32 as u32
+            }))
         }
         (Operator::I32TruncSatF64U, [ConstVal::F64(a)]) => {
             let a = f64::from_bits(*a);
-            Some(ConstVal::I32(a.min(u32::MAX as f64) as u32))
+            Some(ConstVal::I32(if a.is_nan() {
+                0
+            } else {
+                a.min(u32::MAX as f64).max(0.0) as u32
+            }))
         }
 
         (Operator::I64TruncSatF32S, [ConstVal::F32(a)]) => {
             let a = f32::from_bits(*a);
-            Some(ConstVal::I64(
-                a.min(i64::MAX as f32).max(i64::MIN as f32) as i64 as u64,
-            ))
+            Some(ConstVal::I64(if a.is_nan() {
+                0
+            } else {
+                a.min(i64::MAX as f32).max(i64::MIN as f32) as i64 as u64
+            }))
         }
         (Operator::I64TruncSatF32U, [ConstVal::F32(a)]) => {
             let a = f32::from_bits(*a);
-            Some(ConstVal::I64(a.min(u64::MAX as f32) as u64))
+            Some(ConstVal::I64(if a.is_nan() {
+                0
+            } else {
+                a.min(u64::MAX as f32).max(0.0) as u64
+            }))
         }
         (Operator::I64TruncSatF64S, [ConstVal::F64(a)]) => {
             let a = f64::from_bits(*a);
-            Some(ConstVal::I64(
-                a.min(i64::MAX as f64).max(i64::MIN as f64) as i64 as u64,
-            ))
+            Some(ConstVal::I64(if a.is_nan() {
+                0
+            } else {
+                a.min(i64::MAX as f64).max(i64::MIN as f64) as i64 as u64
+            }))
         }
         (Operator::I64TruncSatF64U, [ConstVal::F64(a)]) => {
             let a = f64::from_bits(*a);
-            Some(ConstVal::I64(a.min(u64::MAX as f64) as u64))
+            Some(ConstVal::I64(if a.is_nan() {
+                0
+            } else {
+                a.min(u64::MAX as f64).max(0.0) as u64
+            }))
         }
 
         (Operator::F32ConvertI32S, [ConstVal::I32(a)]) => {
