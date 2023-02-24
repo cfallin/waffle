@@ -678,7 +678,7 @@ impl std::fmt::Display for Operator {
             Operator::I32Store { memory } => write!(f, "i32store<{}>", memory)?,
             Operator::I64Store { memory } => write!(f, "i64store<{}>", memory)?,
             Operator::F32Store { memory } => write!(f, "f32store<{}>", memory)?,
-            Operator::F64Store { memory } => write!(f, "f642store<{}>", memory)?,
+            Operator::F64Store { memory } => write!(f, "f64store<{}>", memory)?,
             Operator::I32Store8 { memory } => write!(f, "i32store8<{}>", memory)?,
             Operator::I32Store16 { memory } => write!(f, "i32store16<{}>", memory)?,
             Operator::I64Store8 { memory } => write!(f, "i64store8<{}>", memory)?,

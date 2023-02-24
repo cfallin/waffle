@@ -141,7 +141,13 @@ impl InterpContext {
                                 multivalue[0]
                             })
                             .collect::<Vec<_>>();
-                        let result = const_eval(op, &args[..], Some(self))?;
+                        let result = match const_eval(op, &args[..], Some(self)) {
+                            Some(result) => result,
+                            None => {
+                                log::trace!("const_eval failed on {:?} args {:?}", op, args);
+                                return None;
+                            }
+                        };
                         smallvec![result]
                     }
                     &ValueDef::None | &ValueDef::Placeholder(..) | &ValueDef::BlockParam(..) => {
@@ -361,6 +367,92 @@ pub fn const_eval(
             Some(ConstVal::I32(if a >= b { 1 } else { 0 }))
         }
 
+        (Operator::F32Eq, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) == f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F32Ne, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) != f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F32Lt, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) < f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F32Gt, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) > f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F32Le, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) <= f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F32Ge, [ConstVal::F32(a), ConstVal::F32(b)]) => {
+            Some(ConstVal::I32(if f32::from_bits(*a) >= f32::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+
+        (Operator::F64Eq, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) == f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F64Ne, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) != f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F64Lt, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) < f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F64Gt, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) > f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F64Le, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) <= f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+        (Operator::F64Ge, [ConstVal::F64(a), ConstVal::F64(b)]) => {
+            Some(ConstVal::I32(if f64::from_bits(*a) >= f64::from_bits(*b) {
+                1
+            } else {
+                0
+            }))
+        }
+
         (Operator::I32Clz, [ConstVal::I32(x)]) => Some(ConstVal::I32(x.leading_zeros())),
         (Operator::I32Ctz, [ConstVal::I32(x)]) => Some(ConstVal::I32(x.trailing_zeros())),
         (Operator::I32Popcnt, [ConstVal::I32(x)]) => Some(ConstVal::I32(x.count_ones())),
@@ -461,6 +553,9 @@ pub fn const_eval(
         (Operator::F32Floor, [ConstVal::F32(a)]) => {
             Some(ConstVal::F32(f32::from_bits(*a).floor().to_bits()))
         }
+        (Operator::F32Trunc, [ConstVal::F32(a)]) => {
+            Some(ConstVal::F32(f32::from_bits(*a).trunc().to_bits()))
+        }
         (Operator::F32Nearest, [ConstVal::F32(a)]) => {
             Some(ConstVal::F32(f32::from_bits(*a).round().to_bits()))
         }
@@ -500,6 +595,9 @@ pub fn const_eval(
         }
         (Operator::F64Floor, [ConstVal::F64(a)]) => {
             Some(ConstVal::F64(f64::from_bits(*a).floor().to_bits()))
+        }
+        (Operator::F64Trunc, [ConstVal::F64(a)]) => {
+            Some(ConstVal::F64(f64::from_bits(*a).trunc().to_bits()))
         }
         (Operator::F64Nearest, [ConstVal::F64(a)]) => {
             Some(ConstVal::F64(f64::from_bits(*a).round().to_bits()))
@@ -837,7 +935,25 @@ pub fn const_eval(
                 ConstVal::None
             })
         }
-        _ => None,
+        (Operator::F32Store { memory }, [ConstVal::I32(addr), ConstVal::F32(data)]) => {
+            ctx.map(|global| {
+                let addr = *addr + memory.offset;
+                write_u32(&mut global.memories[memory.memory], addr, *data);
+                ConstVal::None
+            })
+        }
+        (Operator::F64Store { memory }, [ConstVal::I32(addr), ConstVal::F64(data)]) => {
+            ctx.map(|global| {
+                let addr = *addr + memory.offset;
+                write_u64(&mut global.memories[memory.memory], addr, *data);
+                ConstVal::None
+            })
+        }
+        (op, args) => unimplemented!(
+            "Undefined operator or arg combination: {:?}, {:?}",
+            op,
+            args
+        ),
     }
 }
 
