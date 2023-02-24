@@ -1,6 +1,6 @@
 //! Waffle IR interpreter.
 
-use crate::entity::PerEntity;
+use crate::entity::{EntityRef, PerEntity};
 use crate::ir::*;
 use crate::ops::Operator;
 use smallvec::{smallvec, SmallVec};
@@ -65,7 +65,11 @@ impl InterpContext {
     ) -> Option<SmallVec<[ConstVal; 2]>> {
         let body = match &module.funcs[func] {
             FuncDecl::Lazy(..) => panic!("Un-expanded function"),
-            FuncDecl::Import(_, name) => return self.call_import(&name[..], args),
+            FuncDecl::Import(..) => {
+                let import = &module.imports[func.index()];
+                assert_eq!(import.kind, ImportKind::Func(func));
+                return self.call_import(&import.name[..], args);
+            }
             FuncDecl::Body(_, _, body) => body,
         };
 

@@ -9,18 +9,25 @@ pub fn call_wasi(
     args: &[ConstVal],
 ) -> Option<SmallVec<[ConstVal; 2]>> {
     match name {
-        "__wasi_fd_prestat_get" => {
+        "fd_prestat_get" => {
             Some(smallvec![ConstVal::I32(8)]) // BADF
         }
-        "__wasi_args_sizes_get" => {
+        "args_sizes_get" => {
             let p_argc = args[0].as_u32().unwrap();
             let p_argv_size = args[1].as_u32().unwrap();
             write_u32(mem, p_argc, 0);
             write_u32(mem, p_argv_size, 0);
             Some(smallvec![ConstVal::I32(0)])
         }
-        "__wasi_args_get" => Some(smallvec![ConstVal::I32(0)]),
-        "__wasi_fd_fdstat_get" => {
+        "environ_sizes_get" => {
+            let p_environ_count = args[0].as_u32().unwrap();
+            let p_environ_buf_size = args[0].as_u32().unwrap();
+            write_u32(mem, p_environ_count, 0);
+            write_u32(mem, p_environ_buf_size, 0);
+            Some(smallvec![ConstVal::I32(0)])
+        }
+        "args_get" => Some(smallvec![ConstVal::I32(0)]),
+        "fd_fdstat_get" => {
             let fd = args[0].as_u32().unwrap();
             let p_fdstat_t = args[1].as_u32().unwrap();
             if fd == 1 {
@@ -33,7 +40,7 @@ pub fn call_wasi(
                 None
             }
         }
-        "__wasi_fd_write" => {
+        "fd_write" => {
             let fd = args[0].as_u32().unwrap();
             let p_iovs = args[1].as_u32().unwrap();
             let iovs_len = args[2].as_u32().unwrap();
@@ -54,9 +61,14 @@ pub fn call_wasi(
                 None
             }
         }
-        "__wasi_proc_exit" => {
+        "proc_exit" => {
             eprintln!("WASI exit: {:?}", args[0]);
             None
+        }
+        "clock_time_get" => {
+            let p_time = args[2].as_u32().unwrap();
+            write_u32(mem, p_time, 0);
+            Some(smallvec![ConstVal::I32(0)])
         }
         _ => None,
     }
