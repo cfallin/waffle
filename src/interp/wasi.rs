@@ -70,6 +70,11 @@ pub fn call_wasi(
             write_u32(mem, p_time, 0);
             Some(smallvec![ConstVal::I32(0)])
         }
+        "clock_res_get" => {
+            let p_res = args[1].as_u32().unwrap();
+            write_u32(mem, p_res, 1);
+            Some(smallvec![ConstVal::I32(0)])
+        }
         _ => None,
     }
 }
