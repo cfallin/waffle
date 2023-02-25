@@ -3,6 +3,7 @@ use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
+use crate::passes::Fuel;
 use anyhow::Result;
 
 #[derive(Clone, Debug)]
@@ -32,10 +33,10 @@ impl<'a> FuncDecl<'a> {
         }
     }
 
-    pub fn optimize(&mut self) {
+    pub fn optimize(&mut self, fuel: &mut Fuel) {
         match self {
             FuncDecl::Body(_, _, body) => {
-                body.optimize();
+                body.optimize(fuel);
             }
             _ => {}
         }
@@ -131,9 +132,9 @@ impl FunctionBody {
         }
     }
 
-    pub fn optimize(&mut self) {
+    pub fn optimize(&mut self, fuel: &mut Fuel) {
         let cfg = crate::cfg::CFGInfo::new(self);
-        crate::passes::basic_opt::gvn(self, &cfg);
+        crate::passes::basic_opt::gvn(self, &cfg, fuel);
         crate::passes::resolve_aliases::run(self);
         crate::passes::ssa::run(self, &cfg);
     }

@@ -4,19 +4,28 @@ use crate::cfg::CFGInfo;
 use crate::interp::{const_eval, ConstVal};
 use crate::ir::*;
 use crate::passes::dom_pass::{dom_pass, DomtreePass};
+use crate::passes::Fuel;
 use crate::scoped_map::ScopedMap;
 use crate::Operator;
 
-pub fn gvn(body: &mut FunctionBody, cfg: &CFGInfo) {
-    dom_pass::<GVNPass>(body, cfg, &mut GVNPass::default());
+pub fn gvn(body: &mut FunctionBody, cfg: &CFGInfo, fuel: &mut Fuel) {
+    dom_pass::<GVNPass<'_>>(
+        body,
+        cfg,
+        &mut GVNPass {
+            map: ScopedMap::default(),
+            fuel,
+        },
+    );
 }
 
-#[derive(Clone, Debug, Default)]
-struct GVNPass {
+#[derive(Debug)]
+struct GVNPass<'a> {
     map: ScopedMap<ValueDef, Value>,
+    fuel: &'a mut Fuel,
 }
 
-impl DomtreePass for GVNPass {
+impl<'a> DomtreePass for GVNPass<'a> {
     fn enter(&mut self, block: Block, body: &mut FunctionBody) {
         self.map.push_level();
         self.optimize(block, body);
@@ -34,10 +43,14 @@ fn value_is_pure(value: Value, body: &FunctionBody) -> bool {
     }
 }
 
-impl GVNPass {
+impl<'a> GVNPass<'a> {
     fn optimize(&mut self, block: Block, body: &mut FunctionBody) {
         let mut i = 0;
         while i < body.blocks[block].insts.len() {
+            if !self.fuel.consume() {
+                return;
+            }
+
             let inst = body.blocks[block].insts[i];
             i += 1;
             if value_is_pure(inst, body) {
