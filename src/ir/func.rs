@@ -135,6 +135,7 @@ impl FunctionBody {
         let cfg = crate::cfg::CFGInfo::new(self);
         crate::passes::basic_opt::gvn(self, &cfg);
         crate::passes::resolve_aliases::run(self);
+        crate::passes::ssa::run(self, &cfg);
     }
 
     pub fn convert_to_max_ssa(&mut self) {

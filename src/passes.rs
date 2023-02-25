@@ -6,3 +6,4 @@ pub mod empty_blocks;
 pub mod maxssa;
 pub mod resolve_aliases;
 pub mod trace;
+pub mod ssa;
