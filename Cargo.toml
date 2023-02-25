@@ -19,3 +19,11 @@ rayon = "1.5"
 lazy_static = "1.4"
 libc = "0.2"
 addr2line = "0.19"
+
+# For fuzzing only. Versions must match those in fuzz/Cargo.toml.
+libfuzzer-sys = { version = "0.4", optional = true }
+wasm-smith = { version = "0.8", optional = true }
+
+[features]
+default = []
+fuzzing = ["libfuzzer-sys", "wasm-smith"]

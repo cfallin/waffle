@@ -22,3 +22,6 @@ pub use ops::{Ieee32, Ieee64, Operator};
 
 mod interp;
 pub use interp::*;
+
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;

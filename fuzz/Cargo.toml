@@ -19,6 +19,7 @@ wasmtime = "3.0"
 
 [dependencies.waffle]
 path = ".."
+features = ["fuzzing"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -45,5 +46,11 @@ doc = false
 [[bin]]
 name = "differential"
 path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "opt_diff"
+path = "fuzz_targets/opt_diff.rs"
 test = false
 doc = false

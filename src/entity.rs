@@ -171,3 +171,10 @@ impl<Idx: EntityRef, T: Clone + Debug + Default> IndexMut<Idx> for PerEntity<Idx
         &mut self.0[idx.index()]
     }
 }
+
+impl<Idx: EntityRef, T: Clone + Debug + Default + PartialEq> PartialEq for PerEntity<Idx, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl<Idx: EntityRef, T: Clone + Debug + Default + PartialEq + Eq> Eq for PerEntity<Idx, T> {}

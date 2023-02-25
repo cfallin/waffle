@@ -11,9 +11,10 @@ mod wasi;
 
 #[derive(Debug, Clone)]
 pub struct InterpContext {
-    memories: PerEntity<Memory, InterpMemory>,
-    tables: PerEntity<Table, InterpTable>,
-    globals: PerEntity<Global, ConstVal>,
+    pub memories: PerEntity<Memory, InterpMemory>,
+    pub tables: PerEntity<Table, InterpTable>,
+    pub globals: PerEntity<Global, ConstVal>,
+    pub fuel: u64,
 }
 
 type MultiVal = SmallVec<[ConstVal; 2]>;
@@ -23,6 +24,7 @@ pub enum InterpResult {
     Ok(MultiVal),
     Exit,
     Trap,
+    OutOfFuel,
 }
 
 impl InterpResult {
@@ -72,6 +74,7 @@ impl InterpContext {
             memories,
             tables,
             globals,
+            fuel: u64::MAX,
         }
     }
 
@@ -105,6 +108,11 @@ impl InterpContext {
         }
 
         loop {
+            self.fuel -= 1;
+            if self.fuel == 0 {
+                return InterpResult::OutOfFuel;
+            }
+
             log::trace!("Interpreting block {}", frame.cur_block);
             for &inst in &body.blocks[frame.cur_block].insts {
                 log::trace!("Evaluating inst {}", inst);
@@ -290,15 +298,15 @@ impl InterpStackFrame {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InterpMemory {
-    data: Vec<u8>,
-    max_pages: usize,
+    pub data: Vec<u8>,
+    pub max_pages: usize,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InterpTable {
-    elements: Vec<Func>,
+    pub elements: Vec<Func>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
