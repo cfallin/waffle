@@ -23,13 +23,24 @@ fuzz_target!(
 
         let start = parsed_module.start_func.unwrap();
 
-        let mut orig_ctx = InterpContext::new(&parsed_module);
+        let mut orig_ctx = match InterpContext::new(&parsed_module) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                log::trace!("Rejecting due to instantiation error: {:?}", e);
+                return;
+            }
+        };
         orig_ctx.fuel = 10000;
 
         match orig_ctx.call(&parsed_module, start, &[]) {
             InterpResult::OutOfFuel => {
                 // Silently reject.
                 log::trace!("Rejecting due to timeout in orig");
+                return;
+            }
+            InterpResult::Trap => {
+                // Silently reject.
+                log::trace!("Rejecting due to trap in orig");
                 return;
             }
             InterpResult::Ok(_) => {}
@@ -39,7 +50,7 @@ fuzz_target!(
         let mut opt_module = parsed_module.clone();
         opt_module.per_func_body(|body| body.optimize());
 
-        let mut opt_ctx = InterpContext::new(&opt_module);
+        let mut opt_ctx = InterpContext::new(&opt_module).unwrap();
         // Allow a little leeway for opts to not actually optimize.
         opt_ctx.fuel = 20000;
         opt_ctx.call(&opt_module, start, &[]).ok().unwrap();

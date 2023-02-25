@@ -37,7 +37,7 @@ impl InterpResult {
 }
 
 impl InterpContext {
-    pub fn new(module: &Module<'_>) -> Self {
+    pub fn new(module: &Module<'_>) -> anyhow::Result<Self> {
         let mut memories = PerEntity::default();
         for (memory, data) in module.memories.entries() {
             let mut interp_mem = InterpMemory {
@@ -45,8 +45,14 @@ impl InterpContext {
                 max_pages: data.maximum_pages.unwrap_or(0x1_0000),
             };
             for segment in &data.segments {
-                interp_mem.data[segment.offset..(segment.offset + segment.data.len())]
-                    .copy_from_slice(&segment.data[..]);
+                let end = match segment.offset.checked_add(segment.data.len()) {
+                    Some(end) => end,
+                    None => anyhow::bail!("Data segment offset + length overflows"),
+                };
+                if end > interp_mem.data.len() {
+                    anyhow::bail!("Data segment out of bounds");
+                }
+                interp_mem.data[segment.offset..end].copy_from_slice(&segment.data[..]);
             }
             memories[memory] = interp_mem;
         }
@@ -70,12 +76,12 @@ impl InterpContext {
             };
         }
 
-        InterpContext {
+        Ok(InterpContext {
             memories,
             tables,
             globals,
             fuel: u64::MAX,
-        }
+        })
     }
 
     pub fn call(&mut self, module: &Module<'_>, func: Func, args: &[ConstVal]) -> InterpResult {
@@ -939,125 +945,217 @@ pub fn const_eval(
         (Operator::Nop, []) => Some(ConstVal::None),
         (Operator::Unreachable, []) => None,
 
-        (Operator::I32Load { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I32Load { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I32(read_u32(&global.memories[memory.memory], addr))
+            if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I32(read_u32(
+                &global.memories[memory.memory],
+                addr,
+            )))
         }),
-        (Operator::I64Load { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u64(&global.memories[memory.memory], addr))
+            if addr.checked_add(8)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(read_u64(
+                &global.memories[memory.memory],
+                addr,
+            )))
         }),
-        (Operator::F32Load { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::F32Load { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::F32(read_u32(&global.memories[memory.memory], addr))
+            if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::F32(read_u32(
+                &global.memories[memory.memory],
+                addr,
+            )))
         }),
-        (Operator::F64Load { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::F64Load { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::F64(read_u64(&global.memories[memory.memory], addr))
+            if addr.checked_add(8)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::F64(read_u64(
+                &global.memories[memory.memory],
+                addr,
+            )))
         }),
-        (Operator::I32Load8S { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I32Load8S { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I32(read_u8(&global.memories[memory.memory], addr) as i8 as i32 as u32)
+            if addr.checked_add(1)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I32(
+                read_u8(&global.memories[memory.memory], addr) as i8 as i32 as u32,
+            ))
         }),
-        (Operator::I32Load8U { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I32Load8U { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I32(read_u8(&global.memories[memory.memory], addr) as u32)
+            if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I32(
+                read_u8(&global.memories[memory.memory], addr) as u32,
+            ))
         }),
-        (Operator::I32Load16S { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I32Load16S { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I32(read_u16(&global.memories[memory.memory], addr) as i16 as i32 as u32)
+            if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I32(
+                read_u16(&global.memories[memory.memory], addr) as i16 as i32 as u32,
+            ))
         }),
-        (Operator::I32Load16U { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I32Load16U { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I32(read_u16(&global.memories[memory.memory], addr) as u32)
+            if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I32(
+                read_u16(&global.memories[memory.memory], addr) as u32,
+            ))
         }),
-        (Operator::I64Load8S { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load8S { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u8(&global.memories[memory.memory], addr) as i8 as i64 as u64)
+            if addr.checked_add(1)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u8(&global.memories[memory.memory], addr) as i8 as i64 as u64,
+            ))
         }),
-        (Operator::I64Load8U { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load8U { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u8(&global.memories[memory.memory], addr) as u64)
+            if addr.checked_add(1)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u8(&global.memories[memory.memory], addr) as u64,
+            ))
         }),
-        (Operator::I64Load16S { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load16S { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u16(&global.memories[memory.memory], addr) as i16 as i64 as u64)
+            if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u16(&global.memories[memory.memory], addr) as i16 as i64 as u64,
+            ))
         }),
-        (Operator::I64Load16U { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load16U { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u16(&global.memories[memory.memory], addr) as u64)
+            if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u16(&global.memories[memory.memory], addr) as u64,
+            ))
         }),
-        (Operator::I64Load32S { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load32S { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u32(&global.memories[memory.memory], addr) as i32 as i64 as u64)
+            if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u32(&global.memories[memory.memory], addr) as i32 as i64 as u64,
+            ))
         }),
-        (Operator::I64Load32U { memory }, [ConstVal::I32(addr)]) => ctx.map(|global| {
+        (Operator::I64Load32U { memory }, [ConstVal::I32(addr)]) => ctx.and_then(|global| {
             let addr = *addr + memory.offset;
-            ConstVal::I64(read_u32(&global.memories[memory.memory], addr) as u64)
+            if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                return None;
+            }
+            Some(ConstVal::I64(
+                read_u32(&global.memories[memory.memory], addr) as u64,
+            ))
         }),
-        (Operator::I32Store { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => {
-            ctx.map(|global| {
+        (Operator::I32Store { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u32(&mut global.memories[memory.memory], addr, *data);
-                ConstVal::None
-            })
-        }
-        (Operator::I64Store { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I64Store { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(8)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u64(&mut global.memories[memory.memory], addr, *data);
-                ConstVal::None
-            })
-        }
-        (Operator::I32Store8 { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I32Store8 { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(1)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u8(&mut global.memories[memory.memory], addr, *data as u8);
-                ConstVal::None
-            })
-        }
-        (Operator::I32Store16 { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I32Store16 { memory }, [ConstVal::I32(addr), ConstVal::I32(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u16(&mut global.memories[memory.memory], addr, *data as u16);
-                ConstVal::None
-            })
-        }
-        (Operator::I64Store8 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I64Store8 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(1)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u8(&mut global.memories[memory.memory], addr, *data as u8);
-                ConstVal::None
-            })
-        }
-        (Operator::I64Store16 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I64Store16 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(2)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u16(&mut global.memories[memory.memory], addr, *data as u16);
-                ConstVal::None
-            })
-        }
-        (Operator::I64Store32 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::I64Store32 { memory }, [ConstVal::I32(addr), ConstVal::I64(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u32(&mut global.memories[memory.memory], addr, *data as u32);
-                ConstVal::None
-            })
-        }
-        (Operator::F32Store { memory }, [ConstVal::I32(addr), ConstVal::F32(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::F32Store { memory }, [ConstVal::I32(addr), ConstVal::F32(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(4)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u32(&mut global.memories[memory.memory], addr, *data);
-                ConstVal::None
-            })
-        }
-        (Operator::F64Store { memory }, [ConstVal::I32(addr), ConstVal::F64(data)]) => {
-            ctx.map(|global| {
+                Some(ConstVal::None)
+            }),
+        (Operator::F64Store { memory }, [ConstVal::I32(addr), ConstVal::F64(data)]) => ctx
+            .and_then(|global| {
                 let addr = *addr + memory.offset;
+                if addr.checked_add(8)? > global.memories[memory.memory].data.len() as u32 {
+                    return None;
+                }
                 write_u64(&mut global.memories[memory.memory], addr, *data);
-                ConstVal::None
-            })
-        }
+                Some(ConstVal::None)
+            }),
         (_, args) if args.iter().any(|&arg| arg == ConstVal::None) => None,
         (op, args) => unimplemented!(
             "Undefined operator or arg combination: {:?}, {:?}",

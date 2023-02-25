@@ -101,7 +101,7 @@ fn main() -> Result<()> {
             // Ensure all functions are expanded -- this is necessary
             // for interpretation.
             module.expand_all_funcs()?;
-            let mut ctx = InterpContext::new(&module);
+            let mut ctx = InterpContext::new(&module)?;
             debug!("Calling start function");
             if let Some(start) = module.start_func {
                 ctx.call(&module, start, &[]).ok().unwrap();
