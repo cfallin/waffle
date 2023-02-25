@@ -9,6 +9,9 @@ use std::collections::HashMap;
 
 mod wasi;
 
+const WASM_PAGE: usize = 0x1_0000; // 64KiB
+const MAX_PAGES: usize = 2048; // 2048 * 64KiB = 128MiB
+
 #[derive(Debug, Clone)]
 pub struct InterpContext {
     pub memories: PerEntity<Memory, InterpMemory>,
@@ -41,8 +44,8 @@ impl InterpContext {
         let mut memories = PerEntity::default();
         for (memory, data) in module.memories.entries() {
             let mut interp_mem = InterpMemory {
-                data: vec![0; data.initial_pages * 0x1_0000],
-                max_pages: data.maximum_pages.unwrap_or(0x1_0000),
+                data: vec![0; data.initial_pages * WASM_PAGE],
+                max_pages: data.maximum_pages.unwrap_or(MAX_PAGES),
             };
             for segment in &data.segments {
                 let end = match segment.offset.checked_add(segment.data.len()) {
@@ -928,16 +931,16 @@ pub fn const_eval(
         }
 
         (Operator::MemorySize { mem }, []) => {
-            ctx.map(|global| ConstVal::I32((global.memories[*mem].data.len() / 0x1_0000) as u32))
+            ctx.map(|global| ConstVal::I32((global.memories[*mem].data.len() / WASM_PAGE) as u32))
         }
 
         (Operator::MemoryGrow { mem }, [ConstVal::I32(amount)]) => ctx.and_then(|global| {
-            let cur_pages = global.memories[*mem].data.len() / 0x1_0000;
+            let cur_pages = global.memories[*mem].data.len() / WASM_PAGE;
             let new_pages = cur_pages + (*amount as usize);
-            if new_pages > global.memories[*mem].max_pages {
+            if new_pages > global.memories[*mem].max_pages || new_pages > MAX_PAGES {
                 None
             } else {
-                global.memories[*mem].data.resize(new_pages * 0x1_0000, 0);
+                global.memories[*mem].data.resize(new_pages * WASM_PAGE, 0);
                 Some(ConstVal::I32(cur_pages as u32))
             }
         }),
