@@ -49,6 +49,7 @@ fuzz_target!(
 
         let mut opt_module = parsed_module.clone();
         opt_module.per_func_body(|body| body.optimize());
+        opt_module.per_func_body(|body| body.convert_to_max_ssa());
 
         let mut opt_ctx = InterpContext::new(&opt_module).unwrap();
         // Allow a little leeway for opts to not actually optimize.
