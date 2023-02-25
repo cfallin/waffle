@@ -137,7 +137,6 @@ impl<'a> Context<'a> {
         value: Value,
         root: bool,
     ) {
-        let value = self.body.resolve_alias(value);
         log::trace!(
             "localify: point {}: live {:?}: handling inst {} root {}",
             point,
@@ -148,16 +147,17 @@ impl<'a> Context<'a> {
 
         // If this is an instruction...
         if let ValueDef::Operator(_, ref args, _) = &self.body.values[value] {
-            // Handle uses.
-            for &arg in args {
-                log::trace!(" -> arg {}", arg);
-                self.handle_use(live, point, arg);
-            }
             // If root, we need to process the def.
             if root {
                 *point += 1;
                 log::trace!(" -> def {}", value);
                 self.handle_def(live, point, value);
+            }
+            *point += 1;
+            // Handle uses.
+            for &arg in args {
+                log::trace!(" -> arg {}", arg);
+                self.handle_use(live, point, arg);
             }
         }
         // Otherwise, it may be an alias (but resolved above) or
