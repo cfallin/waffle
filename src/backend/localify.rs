@@ -242,6 +242,16 @@ impl<'a> Context<'a> {
         let mut freelist: HashMap<Type, Vec<Local>> = HashMap::new();
 
         for i in 0..self.points {
+            // Process ends. (Ends are exclusive, so we do them
+            // first; another range can grab the local at the same
+            // point index in this same iteration.)
+            if let Some(expiring) = expiring.remove(&i) {
+                for (ty, local) in expiring {
+                    log::trace!(" -> expiring {} of type {} back to freelist", local, ty);
+                    freelist.entry(ty).or_insert_with(|| vec![]).push(local);
+                }
+            }
+
             // Process starts.
             while range_idx < ranges.len() && ranges[range_idx].1.start == i {
                 let (value, range) = ranges[range_idx].clone();
@@ -278,16 +288,6 @@ impl<'a> Context<'a> {
                     expiring.push((ty, local));
                 }
                 self.results.values[value] = allocs;
-            }
-
-            // Process ends. (Ends are exclusive, so we do them
-            // first; another range can grab the local at the same
-            // point index in this same iteration.)
-            if let Some(expiring) = expiring.remove(&i) {
-                for (ty, local) in expiring {
-                    log::trace!(" -> expiring {} of type {} back to freelist", local, ty);
-                    freelist.entry(ty).or_insert_with(|| vec![]).push(local);
-                }
             }
         }
     }
