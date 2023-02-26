@@ -100,12 +100,13 @@ impl<'a, V: Visitor> BlockVisitor<'a, V> {
                 self.visit_use(arg);
             }
         }
-        // Otherwise, it may be an alias (but resolved above) or
-        // PickOutput, which we "see through" in handle_use of
-        // consumers.
     }
     fn visit_use(&mut self, value: Value) {
         let value = self.body.resolve_alias(value);
+        if let ValueDef::PickOutput(value, _, _) = self.body.values[value] {
+            self.visit_use(value);
+            return;
+        }
         if self.trees.owner.contains_key(&value) {
             // If this is a treeified value, then don't process the use,
             // but process the instruction directly here.
@@ -154,6 +155,7 @@ impl<'a> Context<'a> {
         let mut workqueue: Vec<Block> = self.cfg.rpo.values().cloned().collect();
         let mut workqueue_set: HashSet<Block> = workqueue.iter().cloned().collect();
         while let Some(block) = workqueue.pop() {
+            workqueue_set.remove(&block);
             let live = self.block_end_live[block].clone();
             let mut visitor = BlockVisitor::new(self.body, self.trees, LivenessVisitor { live });
             visitor.visit_block(block);
