@@ -56,6 +56,10 @@ struct BlockVisitor<'a, V: Visitor> {
 }
 impl<'a, V: Visitor> BlockVisitor<'a, V> {
     fn new(body: &'a FunctionBody, trees: &'a Trees, visitor: V) -> Self {
+        log::trace!(
+            "localify: running on:\n{}",
+            body.display_verbose("| ", None)
+        );
         Self {
             body,
             trees,
@@ -70,6 +74,9 @@ impl<'a, V: Visitor> BlockVisitor<'a, V> {
         self.visitor.pre_term();
 
         for &inst in self.body.blocks[block].insts.iter().rev() {
+            if self.trees.owner.contains_key(&inst) {
+                continue;
+            }
             self.visitor.post_inst(inst);
             self.visit_inst(inst, /* root = */ true);
             self.visitor.pre_inst(inst);
@@ -223,7 +230,7 @@ impl<'a> Context<'a> {
             }
         }
 
-        self.points = point;
+        self.points = point + 1;
     }
 
     fn allocate(&mut self) {

@@ -204,6 +204,7 @@ impl<'a> WasmFuncBackend<'a> {
         match &self.body.values[value] {
             &ValueDef::Operator(ref op, ref args, ref tys) => {
                 for &arg in &args[..] {
+                    let arg = self.body.resolve_alias(arg);
                     if self.trees.owner.contains_key(&arg) {
                         log::trace!(" -> arg {} is owned", arg);
                         self.lower_inst(arg, /* root = */ false, func);
