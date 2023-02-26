@@ -47,10 +47,6 @@ impl<'a> GVNPass<'a> {
     fn optimize(&mut self, block: Block, body: &mut FunctionBody) {
         let mut i = 0;
         while i < body.blocks[block].insts.len() {
-            if !self.fuel.consume() {
-                return;
-            }
-
             let inst = body.blocks[block].insts[i];
             i += 1;
             if value_is_pure(inst, body) {
@@ -115,6 +111,10 @@ impl<'a> GVNPass<'a> {
                 }
 
                 if let Some(value) = self.map.get(&value) {
+                    if !self.fuel.consume() {
+                        return;
+                    }
+
                     body.set_alias(inst, *value);
                     i -= 1;
                     body.blocks[block].insts.remove(i);

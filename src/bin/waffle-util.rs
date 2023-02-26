@@ -57,7 +57,7 @@ enum Command {
 fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
     module.expand_all_funcs()?;
     if opts.basic_opts {
-        module.per_func_body(|body| body.optimize());
+        module.per_func_body(|body| body.optimize(&mut waffle::passes::Fuel::infinite()));
     }
     if opts.max_ssa {
         module.per_func_body(|body| body.convert_to_max_ssa());

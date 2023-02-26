@@ -14,11 +14,19 @@ pub struct Fuel {
 }
 impl Fuel {
     pub fn consume(&mut self) -> bool {
+        if self.remaining == u64::MAX {
+            return true;
+        }
         if self.remaining == 0 {
             false
         } else {
             self.remaining -= 1;
             true
+        }
+    }
+    pub fn infinite() -> Fuel {
+        Fuel {
+            remaining: u64::MAX,
         }
     }
 }

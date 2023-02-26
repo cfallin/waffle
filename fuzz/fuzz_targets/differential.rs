@@ -38,7 +38,7 @@ fuzz_target!(
         let mut parsed_module =
             Module::from_wasm_bytes(&orig_bytes[..], &FrontendOptions::default()).unwrap();
         parsed_module.expand_all_funcs().unwrap();
-        parsed_module.per_func_body(|body| body.optimize());
+        parsed_module.per_func_body(|body| body.optimize(&mut waffle::passes::Fuel::infinite()));
         let roundtrip_bytes = parsed_module.to_wasm_bytes().unwrap();
 
         if let Ok(filename) = std::env::var("FUZZ_DUMP_WASM") {
