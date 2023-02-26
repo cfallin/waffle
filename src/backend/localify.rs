@@ -210,6 +210,7 @@ impl<'a> Context<'a> {
             // Live-outs to succ blocks: in this block-local
             // handling, model them as uses as the end of the block.
             for &livein in &self.block_end_live[block] {
+                let livein = self.body.resolve_alias(livein);
                 visitor.visitor.visit_use(livein);
             }
             // Visit all insts.

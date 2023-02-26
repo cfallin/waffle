@@ -34,6 +34,14 @@ pub fn reject(bytes: &[u8]) -> bool {
                     }
                 }
             }
+            wasmparser::Payload::MemorySection(mut reader) => {
+                for _ in 0..reader.get_count() {
+                    let m = reader.read().unwrap();
+                    if m.maximum.is_none() || m.maximum.unwrap() > 100 {
+                        return true;
+                    }
+                }
+            }
             _ => {}
         }
     }
