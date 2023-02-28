@@ -134,9 +134,10 @@ impl FunctionBody {
 
     pub fn optimize(&mut self, fuel: &mut Fuel) {
         let cfg = crate::cfg::CFGInfo::new(self);
+        crate::passes::remove_phis::run(self, &cfg, fuel);
         crate::passes::basic_opt::gvn(self, &cfg, fuel);
-        crate::passes::resolve_aliases::run(self);
-        crate::passes::ssa::run(self, &cfg);
+        crate::passes::remove_phis::run(self, &cfg, fuel);
+        crate::passes::empty_blocks::run(self, fuel);
     }
 
     pub fn convert_to_max_ssa(&mut self) {

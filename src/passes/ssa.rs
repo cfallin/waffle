@@ -25,12 +25,33 @@ impl DefBlocks {
 pub fn run(body: &FunctionBody, cfg: &CFGInfo) {
     let def_blocks = DefBlocks::compute(body);
 
-    for (block, data) in body.blocks.entries() {
+    // Visit only reachable blocks.
+    for &block in cfg.rpo.values() {
+        let data = &body.blocks[block];
         let validate = |value| {
             let value = body.resolve_alias(value);
             let def_block = def_blocks.def_block[value];
-            assert!(cfg.dominates(def_block, block));
+            assert!(
+                cfg.dominates(def_block, block),
+                "value {} defined in block {} used in block {}: def does not dominate use",
+                value,
+                def_block,
+                block
+            );
         };
+
+        for (i, &(_, param)) in data.params.iter().enumerate() {
+            match &body.values[param] {
+                &ValueDef::BlockParam(param_block, param_idx, _) => {
+                    assert_eq!(param_block, block);
+                    assert_eq!(param_idx, i);
+                }
+                _ => panic!(
+                    "Bad blockparam value for param {} of {} ({}): {:?}",
+                    i, block, param, body.values[param]
+                ),
+            }
+        }
 
         for &inst in &data.insts {
             match &body.values[inst] {

@@ -51,7 +51,7 @@ impl<'a> GVNPass<'a> {
             i += 1;
             if value_is_pure(inst, body) {
                 let mut value = body.values[inst].clone();
-                value.update_uses(|val| *val = body.resolve_alias(*val));
+                value.update_uses(|val| *val = body.resolve_and_update_alias(*val));
 
                 if let ValueDef::Operator(op, args, ..) = &value {
                     let arg_values = args

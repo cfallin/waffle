@@ -1,47 +1,23 @@
 //! Pass to remove empty blocks.
 
+use super::Fuel;
 use crate::entity::EntityRef;
-use crate::ir::{Block, BlockTarget, FunctionBody, Terminator, Value, ValueDef};
-use std::borrow::Cow;
-use std::collections::HashSet;
+use crate::ir::{Block, BlockTarget, FunctionBody, Terminator};
 
-#[derive(Clone, Debug)]
-struct Forwarding {
-    to: Block,
-    args: Vec<ForwardingArg>,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum ForwardingArg {
-    BlockParam(usize),
-    Value(Value),
-}
-
-impl Forwarding {
-    fn compose(a: &Forwarding, b: &Forwarding) -> Forwarding {
-        // `b` should be the target of `a.to`, but we can't assert
-        // that here. The composed target is thus `b.to`.
-        let to = b.to;
-
-        // For each arg in `b.args`, evaluate, replacing any
-        // `BlockParam` with the corresponding value from `a.args`.
-        let args = b
-            .args
-            .iter()
-            .map(|&arg| match arg {
-                ForwardingArg::BlockParam(idx) => a.args[idx].clone(),
-                ForwardingArg::Value(v) => ForwardingArg::Value(v),
-            })
-            .collect::<Vec<_>>();
-
-        Forwarding { to, args }
-    }
-}
-
-fn block_to_forwarding(body: &FunctionBody, block: Block) -> Option<Forwarding> {
-    // Must be empty except for terminator, and must have an
-    // unconditional-branch terminator.
+/// Determines whether a block (i) has no blockparams, and (ii) is
+/// solely a jump to another block. We can remove these blocks.
+///
+/// Why can't we remove blocks that are solely jumps but *do* have
+/// blockparams? Because They still serve a purpose in SSA: they
+/// define these blockparams as a join of multiple possible other
+/// definitions in preds.
+fn block_is_empty_jump(body: &FunctionBody, block: Block) -> Option<BlockTarget> {
+    // Must be empty except for terminator, and must have no
+    // blockparams, and must have an unconditional-branch terminator.
     if body.blocks[block].insts.len() > 0 {
+        return None;
+    }
+    if body.blocks[block].params.len() > 0 {
         return None;
     }
     let target = match &body.blocks[block].terminator {
@@ -49,64 +25,32 @@ fn block_to_forwarding(body: &FunctionBody, block: Block) -> Option<Forwarding> 
         _ => return None,
     };
 
-    // If conditions met, then gather ForwardingArgs.
-    let args = target
-        .args
-        .iter()
-        .map(|&arg| {
-            let arg = body.resolve_alias(arg);
-            match &body.values[arg] {
-                &ValueDef::BlockParam(param_block, index, _) if param_block == block => {
-                    ForwardingArg::BlockParam(index)
-                }
-                _ => ForwardingArg::Value(arg),
-            }
-        })
-        .collect::<Vec<_>>();
-
-    Some(Forwarding {
-        to: target.block,
-        args,
-    })
+    Some(target.clone())
 }
 
-fn rewrite_target(forwardings: &[Option<Forwarding>], target: &BlockTarget) -> Option<BlockTarget> {
-    if !forwardings[target.block.index()].is_some() {
+fn rewrite_target(
+    forwardings: &[Option<BlockTarget>],
+    target: &BlockTarget,
+) -> Option<BlockTarget> {
+    if target.args.len() > 0 {
         return None;
     }
-
-    let mut forwarding = Cow::Borrowed(forwardings[target.block.index()].as_ref().unwrap());
-    let mut seen = HashSet::new();
-    while forwardings[forwarding.to.index()].is_some() && seen.insert(forwarding.to.index()) {
-        forwarding = Cow::Owned(Forwarding::compose(
-            &forwarding,
-            forwardings[forwarding.to.index()].as_ref().unwrap(),
-        ));
-    }
-
-    let args = forwarding
-        .args
-        .iter()
-        .map(|arg| match arg {
-            &ForwardingArg::Value(v) => v,
-            &ForwardingArg::BlockParam(idx) => target.args[idx],
-        })
-        .collect::<Vec<_>>();
-
-    Some(BlockTarget {
-        block: forwarding.to,
-        args,
-    })
+    forwardings[target.block.index()].clone()
 }
 
-pub fn run(body: &mut FunctionBody) {
+pub fn run(body: &mut FunctionBody, fuel: &mut Fuel) {
+    log::trace!(
+        "empty_blocks: running on func:\n{}\n",
+        body.display_verbose("| ", None)
+    );
+
     // Identify empty blocks, and to where they should forward.
     let forwardings = body
         .blocks
         .iter()
         .map(|block| {
             if block != body.entry {
-                block_to_forwarding(body, block)
+                block_is_empty_jump(body, block)
             } else {
                 None
             }
@@ -118,11 +62,19 @@ pub fn run(body: &mut FunctionBody) {
     for block_data in body.blocks.values_mut() {
         block_data.terminator.update_targets(|target| {
             if let Some(new_target) = rewrite_target(&forwardings[..], target) {
-                *target = new_target;
+                if fuel.consume() {
+                    log::trace!("empty_blocks: replacing {:?} with {:?}", target, new_target);
+                    *target = new_target;
+                }
             }
         });
     }
 
     // Recompute preds/succs.
     body.recompute_edges();
+
+    log::trace!(
+        "empty_blocks: finished:\n{}\n",
+        body.display_verbose("| ", None)
+    );
 }
