@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use waffle::{FrontendError, FrontendOptions, Fuel, Module};
+use waffle::{FrontendError, FrontendOptions, Module};
 
 fuzz_target!(|module: wasm_smith::Module| {
     let _ = env_logger::try_init();
@@ -26,6 +26,6 @@ fuzz_target!(|module: wasm_smith::Module| {
             }
         };
     parsed_module.expand_all_funcs().unwrap();
-    parsed_module.per_func_body(|body| body.optimize(&mut Fuel::infinite()));
+    parsed_module.per_func_body(|body| body.optimize());
     let _ = parsed_module.to_wasm_bytes();
 });

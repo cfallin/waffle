@@ -1,6 +1,5 @@
 //! Remove-useless-phis (blockparams) pass.
 
-use super::Fuel;
 use crate::cfg::CFGInfo;
 use crate::ir::*;
 
@@ -30,7 +29,7 @@ fn delete_indices<T: Copy>(vec: &mut Vec<T>, indices: &[usize]) {
     }
 }
 
-pub fn run(func: &mut FunctionBody, cfg: &CFGInfo, fuel: &mut Fuel) {
+pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
     // For every block, collect the arg-lists of preds. If a given
     // blockparam has all the same values for an arg, replace the
     // blockparam value with an alias to that one value, and then
@@ -73,9 +72,6 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo, fuel: &mut Fuel) {
                     .map(|arglist| func.resolve_alias(arglist[i])),
             );
             if let Some(val) = same {
-                if !fuel.consume() {
-                    continue;
-                }
                 if val != blockparam {
                     log::trace!(
                         "deleting blockparam {} from block {}: now {}",

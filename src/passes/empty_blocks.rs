@@ -1,6 +1,5 @@
 //! Pass to remove empty blocks.
 
-use super::Fuel;
 use crate::entity::EntityRef;
 use crate::ir::{Block, BlockTarget, FunctionBody, Terminator};
 
@@ -38,7 +37,7 @@ fn rewrite_target(
     forwardings[target.block.index()].clone()
 }
 
-pub fn run(body: &mut FunctionBody, fuel: &mut Fuel) {
+pub fn run(body: &mut FunctionBody) {
     log::trace!(
         "empty_blocks: running on func:\n{}\n",
         body.display_verbose("| ", None)
@@ -62,10 +61,8 @@ pub fn run(body: &mut FunctionBody, fuel: &mut Fuel) {
     for block_data in body.blocks.values_mut() {
         block_data.terminator.update_targets(|target| {
             if let Some(new_target) = rewrite_target(&forwardings[..], target) {
-                if fuel.consume() {
-                    log::trace!("empty_blocks: replacing {:?} with {:?}", target, new_target);
-                    *target = new_target;
-                }
+                log::trace!("empty_blocks: replacing {:?} with {:?}", target, new_target);
+                *target = new_target;
             }
         });
     }

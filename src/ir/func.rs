@@ -3,7 +3,6 @@ use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
-use crate::passes::Fuel;
 use anyhow::Result;
 use std::ops::Range;
 
@@ -49,11 +48,11 @@ impl<'a> FuncDecl<'a> {
         }
     }
 
-    pub fn optimize(&mut self, fuel: &mut Fuel) {
+    pub fn optimize(&mut self) {
         self.mark_dirty();
         match self {
             FuncDecl::Body(_, _, body) => {
-                body.optimize(fuel);
+                body.optimize();
             }
             _ => {}
         }
@@ -163,12 +162,12 @@ impl FunctionBody {
         }
     }
 
-    pub fn optimize(&mut self, fuel: &mut Fuel) {
+    pub fn optimize(&mut self) {
         let cfg = crate::cfg::CFGInfo::new(self);
-        crate::passes::remove_phis::run(self, &cfg, fuel);
-        crate::passes::basic_opt::gvn(self, &cfg, fuel);
-        crate::passes::remove_phis::run(self, &cfg, fuel);
-        crate::passes::empty_blocks::run(self, fuel);
+        crate::passes::remove_phis::run(self, &cfg);
+        crate::passes::basic_opt::gvn(self, &cfg);
+        crate::passes::remove_phis::run(self, &cfg);
+        crate::passes::empty_blocks::run(self);
     }
 
     pub fn convert_to_max_ssa(&mut self) {
