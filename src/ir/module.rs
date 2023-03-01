@@ -187,6 +187,21 @@ impl<'a> Module<'a> {
         Ok(&mut self.funcs[id])
     }
 
+    pub fn clone_and_expand_body(&self, id: Func) -> Result<FunctionBody> {
+        let mut body = self.funcs[id].clone();
+        body.parse(self)?;
+        Ok(match body {
+            FuncDecl::Body(_, _, body) => body,
+            _ => unreachable!(),
+        })
+    }
+
+    pub fn replace_body(&mut self, id: Func, body: FunctionBody) {
+        let sig = self.funcs[id].sig();
+        let name = self.funcs[id].name().to_owned();
+        self.funcs[id] = FuncDecl::Body(sig, name, body);
+    }
+
     pub fn expand_all_funcs(&mut self) -> Result<()> {
         for id in 0..self.funcs.len() {
             let id = Func::new(id);

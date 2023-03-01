@@ -587,8 +587,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         match func_decl {
             FuncDecl::Import(_, _) => anyhow::bail!("Import comes after func with body: {}", func),
             FuncDecl::Lazy(sig, _, _)
-            | FuncDecl::Body(sig, _, _)
-            | FuncDecl::Expanded(sig, _, _, _) => {
+            | FuncDecl::Body(sig, _, _) => {
                 funcs.function(sig.index() as u32);
             }
             FuncDecl::None => panic!("FuncDecl::None at compilation time"),
@@ -708,10 +707,6 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             match func_decl {
                 FuncDecl::Lazy(_, _name, reader) => {
                     let data = &module.orig_bytes[reader.range()];
-                    Ok(FuncOrRawBytes::Raw(data))
-                }
-                FuncDecl::Expanded(_, _name, range, _) => {
-                    let data = &module.orig_bytes[range.clone()];
                     Ok(FuncOrRawBytes::Raw(data))
                 }
                 FuncDecl::Body(_, name, body) => {

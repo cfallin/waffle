@@ -230,7 +230,7 @@ impl<'a> Display for ModuleDisplay<'a> {
         }
         for (func, func_decl) in self.0.funcs.entries() {
             match func_decl {
-                FuncDecl::Body(sig, name, body) | FuncDecl::Expanded(sig, name, _, body) => {
+                FuncDecl::Body(sig, name, body) => {
                     writeln!(
                         f,
                         "  {} \"{}\": {} = # {}",

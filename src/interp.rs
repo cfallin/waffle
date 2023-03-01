@@ -95,7 +95,7 @@ impl InterpContext {
                 assert_eq!(import.kind, ImportKind::Func(func));
                 return self.call_import(&import.name[..], args);
             }
-            FuncDecl::Body(_, _, body) | FuncDecl::Expanded(_, _, _, body) => body,
+            FuncDecl::Body(_, _, body) => body,
             FuncDecl::None => panic!("FuncDecl::None in call()"),
         };
 
