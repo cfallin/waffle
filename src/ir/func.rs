@@ -5,12 +5,25 @@ use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
 use crate::passes::Fuel;
 use anyhow::Result;
+use std::ops::Range;
 
-#[derive(Clone, Debug)]
+/// A declaration of a function: there is one `FuncDecl` per `Func`
+/// index.
+#[derive(Clone, Debug, Default)]
 pub enum FuncDecl<'a> {
+    /// An imported function.
     Import(Signature, String),
+    /// An un-expanded body that can be lazily expanded if needed.
     Lazy(Signature, String, wasmparser::FunctionBody<'a>),
+    /// Expanded body, but still "clean" (unchanged); range in
+    /// original Wasm lets us pass it straight through when converting
+    /// back to a Wasm module.
+    Expanded(Signature, String, Range<usize>, FunctionBody),
+    /// A modified or new function body that requires compilation.
     Body(Signature, String, FunctionBody),
+    /// A placeholder.
+    #[default]
+    None,
 }
 
 impl<'a> FuncDecl<'a> {
@@ -18,15 +31,18 @@ impl<'a> FuncDecl<'a> {
         match self {
             FuncDecl::Import(sig, ..) => *sig,
             FuncDecl::Lazy(sig, ..) => *sig,
+            FuncDecl::Expanded(sig, ..) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
+            FuncDecl::None => panic!("No signature for FuncDecl::None"),
         }
     }
 
     pub fn parse(&mut self, module: &Module) -> Result<()> {
         match self {
             FuncDecl::Lazy(sig, name, body) => {
+                let range = body.range();
                 let body = parse_body(module, *sig, body)?;
-                *self = FuncDecl::Body(*sig, name.clone(), body);
+                *self = FuncDecl::Expanded(*sig, name.clone(), range, body);
                 Ok(())
             }
             _ => Ok(()),
@@ -34,6 +50,7 @@ impl<'a> FuncDecl<'a> {
     }
 
     pub fn optimize(&mut self, fuel: &mut Fuel) {
+        self.mark_dirty();
         match self {
             FuncDecl::Body(_, _, body) => {
                 body.optimize(fuel);
@@ -43,6 +60,7 @@ impl<'a> FuncDecl<'a> {
     }
 
     pub fn convert_to_max_ssa(&mut self) {
+        self.mark_dirty();
         match self {
             FuncDecl::Body(_, _, body) => {
                 body.convert_to_max_ssa();
@@ -51,14 +69,23 @@ impl<'a> FuncDecl<'a> {
         }
     }
 
+    pub fn mark_dirty(&mut self) {
+        let new = match std::mem::take(self) {
+            FuncDecl::Expanded(sig, name, _, body) => FuncDecl::Body(sig, name, body),
+            x => x,
+        };
+        *self = new;
+    }
+
     pub fn body(&self) -> Option<&FunctionBody> {
         match self {
-            FuncDecl::Body(_, _, body) => Some(body),
+            FuncDecl::Expanded(_, _, _, body) | FuncDecl::Body(_, _, body) => Some(body),
             _ => None,
         }
     }
 
     pub fn body_mut(&mut self) -> Option<&mut FunctionBody> {
+        self.mark_dirty();
         match self {
             FuncDecl::Body(_, _, body) => Some(body),
             _ => None,
@@ -67,17 +94,21 @@ impl<'a> FuncDecl<'a> {
 
     pub fn name(&self) -> &str {
         match self {
-            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
-                &name[..]
-            }
+            FuncDecl::Body(_, name, _)
+            | FuncDecl::Lazy(_, name, _)
+            | FuncDecl::Expanded(_, name, _, _)
+            | FuncDecl::Import(_, name) => &name[..],
+            FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
 
     pub fn set_name(&mut self, new_name: &str) {
         match self {
-            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
-                *name = new_name.to_owned()
-            }
+            FuncDecl::Body(_, name, _)
+            | FuncDecl::Lazy(_, name, _)
+            | FuncDecl::Expanded(_, name, _, _)
+            | FuncDecl::Import(_, name) => *name = new_name.to_owned(),
+            FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
 }

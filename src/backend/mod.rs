@@ -586,9 +586,12 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
             FuncDecl::Import(_, _) => anyhow::bail!("Import comes after func with body: {}", func),
-            FuncDecl::Lazy(sig, _, _) | FuncDecl::Body(sig, _, _) => {
+            FuncDecl::Lazy(sig, _, _)
+            | FuncDecl::Body(sig, _, _)
+            | FuncDecl::Expanded(sig, _, _, _) => {
                 funcs.function(sig.index() as u32);
             }
+            FuncDecl::None => panic!("FuncDecl::None at compilation time"),
         }
     }
     into_mod.section(&funcs);
@@ -707,6 +710,10 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                     let data = &module.orig_bytes[reader.range()];
                     Ok(FuncOrRawBytes::Raw(data))
                 }
+                FuncDecl::Expanded(_, _name, range, _) => {
+                    let data = &module.orig_bytes[range.clone()];
+                    Ok(FuncOrRawBytes::Raw(data))
+                }
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
                     WasmFuncBackend::new(body)?
@@ -714,6 +721,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                         .map(|f| FuncOrRawBytes::Func(f))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
+                FuncDecl::None => panic!("FuncDecl::None at compilation time"),
             }
         })
         .collect::<Result<Vec<FuncOrRawBytes<'_>>>>()?;
