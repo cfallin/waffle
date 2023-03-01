@@ -75,18 +75,18 @@ impl<'a> FuncDecl<'a> {
 
     pub fn name(&self) -> &str {
         match self {
-            FuncDecl::Body(_, name, _)
-            | FuncDecl::Lazy(_, name, _)
-            | FuncDecl::Import(_, name) => &name[..],
+            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
+                &name[..]
+            }
             FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
 
     pub fn set_name(&mut self, new_name: &str) {
         match self {
-            FuncDecl::Body(_, name, _)
-            | FuncDecl::Lazy(_, name, _)
-            | FuncDecl::Import(_, name) => *name = new_name.to_owned(),
+            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
+                *name = new_name.to_owned()
+            }
             FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }

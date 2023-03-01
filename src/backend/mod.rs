@@ -586,8 +586,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
             FuncDecl::Import(_, _) => anyhow::bail!("Import comes after func with body: {}", func),
-            FuncDecl::Lazy(sig, _, _)
-            | FuncDecl::Body(sig, _, _) => {
+            FuncDecl::Lazy(sig, _, _) | FuncDecl::Body(sig, _, _) => {
                 funcs.function(sig.index() as u32);
             }
             FuncDecl::None => panic!("FuncDecl::None at compilation time"),
