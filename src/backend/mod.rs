@@ -142,7 +142,7 @@ impl<'a> WasmFuncBackend<'a> {
                 for &inst in &self.body.blocks[*block].insts {
                     // If this value is "owned", do nothing: it will be lowered in
                     // the one place it's used.
-                    if self.trees.owner.contains_key(&inst) {
+                    if self.trees.owner.contains_key(&inst) || self.trees.remat.contains(&inst) {
                         continue;
                     }
                     if let &ValueDef::Operator(..) = &self.body.values[inst] {
@@ -180,12 +180,16 @@ impl<'a> WasmFuncBackend<'a> {
     fn lower_value(&self, value: Value, func: &mut wasm_encoder::Function) {
         log::trace!("lower_value: value {}", value);
         let value = self.body.resolve_alias(value);
-        let local = match &self.body.values[value] {
-            &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => self.locals.values[value][0],
-            &ValueDef::PickOutput(orig_value, idx, _) => self.locals.values[orig_value][idx],
-            _ => unreachable!(),
-        };
-        func.instruction(&wasm_encoder::Instruction::LocalGet(local.index() as u32));
+        if self.trees.remat.contains(&value) {
+            self.lower_inst(value, /* root = */ false, func);
+        } else {
+            let local = match &self.body.values[value] {
+                &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => self.locals.values[value][0],
+                &ValueDef::PickOutput(orig_value, idx, _) => self.locals.values[orig_value][idx],
+                _ => unreachable!(),
+            };
+            func.instruction(&wasm_encoder::Instruction::LocalGet(local.index() as u32));
+        }
     }
 
     fn lower_set_value(&self, value: Value, func: &mut wasm_encoder::Function) {
@@ -205,7 +209,7 @@ impl<'a> WasmFuncBackend<'a> {
             &ValueDef::Operator(ref op, ref args, ref tys) => {
                 for &arg in &args[..] {
                     let arg = self.body.resolve_alias(arg);
-                    if self.trees.owner.contains_key(&arg) {
+                    if self.trees.owner.contains_key(&arg) || self.trees.remat.contains(&arg) {
                         log::trace!(" -> arg {} is owned", arg);
                         self.lower_inst(arg, /* root = */ false, func);
                     } else {

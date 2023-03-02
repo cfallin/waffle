@@ -74,7 +74,7 @@ impl<'a, V: Visitor> BlockVisitor<'a, V> {
         self.visitor.pre_term();
 
         for &inst in self.body.blocks[block].insts.iter().rev() {
-            if self.trees.owner.contains_key(&inst) {
+            if self.trees.owner.contains_key(&inst) || self.trees.remat.contains(&inst) {
                 continue;
             }
             self.visitor.post_inst(inst);
