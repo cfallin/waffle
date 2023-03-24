@@ -171,6 +171,49 @@ impl FunctionBody {
         log::trace!("add_edge: from {} to {}", from, to);
     }
 
+    pub fn split_edge(&mut self, from: Block, to: Block, succ_idx: usize) -> Block {
+        assert_eq!(self.blocks[from].succs[succ_idx], to);
+        let pred_idx = self.blocks[from].pos_in_succ_pred[succ_idx];
+        assert_eq!(self.blocks[to].preds[pred_idx], from);
+
+        // Create the block itself.
+        let edge_block = self.add_block();
+
+        // Add blockparams.
+        let mut blockparams = vec![];
+        for i in 0..self.blocks[to].params.len() {
+            let ty = self.blocks[to].params[i].0;
+            blockparams.push(self.add_blockparam(edge_block, ty));
+        }
+
+        // Create an unconditional-branch terminator in the edge block.
+        self.blocks[edge_block].terminator = Terminator::Br {
+            target: BlockTarget {
+                block: to,
+                args: blockparams,
+            },
+        };
+
+        // Update target of from-block.
+        self.blocks[from]
+            .terminator
+            .update_target(succ_idx, |target| target.block = edge_block);
+
+        // Fill in succ/pred links on edge block.
+        self.blocks[edge_block].succs.push(to);
+        self.blocks[edge_block].pos_in_succ_pred.push(pred_idx);
+        self.blocks[edge_block].preds.push(from);
+        self.blocks[edge_block].pos_in_pred_succ.push(succ_idx);
+
+        // Update `succs` in `from`, `preds` in `to`.
+        self.blocks[from].succs[succ_idx] = edge_block;
+        self.blocks[from].pos_in_succ_pred[succ_idx] = 0;
+        self.blocks[to].preds[pred_idx] = edge_block;
+        self.blocks[to].pos_in_pred_succ[pred_idx] = 0;
+
+        edge_block
+    }
+
     pub fn recompute_edges(&mut self) {
         for block in self.blocks.values_mut() {
             block.preds.clear();
