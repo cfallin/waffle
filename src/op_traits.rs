@@ -641,6 +641,20 @@ impl Operator {
     pub fn is_pure(&self) -> bool {
         self.effects().is_empty()
     }
+
+    pub fn is_call(&self) -> bool {
+        match self {
+            Operator::Call { .. } | Operator::CallIndirect { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn accesses_memory(&self) -> bool {
+        self.effects().iter().any(|e| match e {
+            SideEffect::ReadMem | SideEffect::WriteMem => true,
+            _ => false,
+        })
+    }
 }
 
 impl std::fmt::Display for Operator {

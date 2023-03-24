@@ -18,7 +18,7 @@ mod scoped_map;
 
 pub use errors::*;
 pub use ir::*;
-pub use ops::{Ieee32, Ieee64, Operator};
+pub use ops::{Ieee32, Ieee64, MemoryArg, Operator};
 
 mod interp;
 pub use interp::*;
