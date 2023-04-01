@@ -5,7 +5,7 @@ use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use waffle::InterpContext;
-use waffle::{FrontendOptions, Module};
+use waffle::{entity::EntityRef, FrontendOptions, Func, Module};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "waffle-util", about = "WAFFLE utility.")]
@@ -39,6 +39,13 @@ enum Command {
     PrintIR {
         #[structopt(help = "Wasm file to parse")]
         wasm: PathBuf,
+    },
+    #[structopt(name = "print-func", about = "Parse Wasm and print one function body")]
+    PrintFunc {
+        #[structopt(help = "Wasm file to parse")]
+        wasm: PathBuf,
+        #[structopt(help = "Index of Wasm function to print")]
+        func: usize,
     },
     #[structopt(name = "roundtrip", about = "Round-trip Wasm through IR")]
     RoundTrip {
@@ -84,6 +91,19 @@ fn main() -> Result<()> {
             let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
             apply_options(&opts, &mut module)?;
             println!("{}", module.display());
+        }
+        Command::PrintFunc { wasm, func } => {
+            let bytes = std::fs::read(wasm)?;
+            debug!("Loaded {} bytes of Wasm data", bytes.len());
+            let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
+            apply_options(&opts, &mut module)?;
+            println!(
+                "{}",
+                module.funcs[Func::new(*func)]
+                    .body()
+                    .unwrap()
+                    .display_verbose("", Some(&module))
+            );
         }
         Command::RoundTrip { input, output } => {
             let bytes = std::fs::read(input)?;
