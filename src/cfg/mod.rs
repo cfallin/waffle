@@ -6,6 +6,7 @@
 use crate::declare_entity;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::ir::{Block, FunctionBody, Terminator, Value, ValueDef};
+use smallvec::SmallVec;
 
 pub mod domtree;
 pub mod postorder;
@@ -28,6 +29,8 @@ pub struct CFGInfo {
     pub domtree_children: PerEntity<Block, DomtreeChildren>,
     /// Defining block for a given value.
     pub def_block: PerEntity<Value, Block>,
+    /// Preds for a given block.
+    pub preds: PerEntity<Block, SmallVec<[Block; 4]>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -57,10 +60,21 @@ impl<'a> Iterator for DomtreeChildIter<'a> {
 impl CFGInfo {
     pub fn new(f: &FunctionBody) -> CFGInfo {
         let mut return_blocks = vec![];
+        let mut preds: PerEntity<Block, SmallVec<[Block; 4]>> = PerEntity::default();
         for (block_id, block) in f.blocks.entries() {
             if let Terminator::Return { .. } = &block.terminator {
                 return_blocks.push(block_id);
             }
+            block.terminator.visit_targets(|target| {
+                preds[target.block].push(block_id);
+            });
+        }
+
+        // Dedup preds.
+        for block in f.blocks.iter() {
+            let preds = &mut preds[block];
+            preds.sort_unstable();
+            preds.dedup();
         }
 
         let postorder = postorder::calculate(f.entry, |block| &f.blocks[block].succs[..]);
@@ -112,6 +126,7 @@ impl CFGInfo {
             domtree,
             domtree_children,
             def_block,
+            preds,
         }
     }
 
