@@ -67,7 +67,7 @@ fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
         module.per_func_body(|body| body.optimize());
     }
     if opts.max_ssa {
-        module.per_func_body(|body| body.convert_to_max_ssa());
+        module.per_func_body(|body| body.convert_to_max_ssa(None));
     }
     Ok(())
 }

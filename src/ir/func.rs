@@ -4,6 +4,7 @@ use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
 use anyhow::Result;
+use std::collections::HashSet;
 
 /// A declaration of a function: there is one `FuncDecl` per `Func`
 /// index.
@@ -50,10 +51,10 @@ impl<'a> FuncDecl<'a> {
         }
     }
 
-    pub fn convert_to_max_ssa(&mut self) {
+    pub fn convert_to_max_ssa(&mut self, cut_blocks: Option<HashSet<Block>>) {
         match self {
             FuncDecl::Body(_, _, body) => {
-                body.convert_to_max_ssa();
+                body.convert_to_max_ssa(cut_blocks);
             }
             _ => {}
         }
@@ -150,9 +151,9 @@ impl FunctionBody {
         crate::passes::empty_blocks::run(self);
     }
 
-    pub fn convert_to_max_ssa(&mut self) {
+    pub fn convert_to_max_ssa(&mut self, cut_blocks: Option<HashSet<Block>>) {
         let cfg = crate::cfg::CFGInfo::new(self);
-        crate::passes::maxssa::run(self, &cfg);
+        crate::passes::maxssa::run(self, cut_blocks, &cfg);
     }
 
     pub fn add_block(&mut self) -> Block {
