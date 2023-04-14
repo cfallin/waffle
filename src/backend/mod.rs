@@ -48,7 +48,7 @@ impl<'a> WasmFuncBackend<'a> {
         })
     }
 
-    pub fn compile(&self) -> Result<wasm_encoder::Function> {
+    pub fn compile(&self) -> Result<Vec<u8>> {
         let mut func = wasm_encoder::Function::new(
             self.locals
                 .locals
@@ -76,7 +76,12 @@ impl<'a> WasmFuncBackend<'a> {
 
         log::debug!("Compiled to:\n{:?}\n", func);
 
-        Ok(func)
+        let mut bytes = vec![];
+        {
+            use wasm_encoder::Encode;
+            func.encode(&mut bytes);
+        }
+        Ok(bytes)
     }
 
     fn lower_block(&self, block: &WasmBlock<'_>, func: &mut wasm_encoder::Function) {
@@ -590,7 +595,9 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     for (func, func_decl) in module.funcs.entries().skip(num_func_imports) {
         match func_decl {
             FuncDecl::Import(_, _) => anyhow::bail!("Import comes after func with body: {}", func),
-            FuncDecl::Lazy(sig, _, _) | FuncDecl::Body(sig, _, _) => {
+            FuncDecl::Lazy(sig, _, _)
+            | FuncDecl::Body(sig, _, _)
+            | FuncDecl::Compiled(sig, _, _) => {
                 funcs.function(sig.index() as u32);
             }
             FuncDecl::None => panic!("FuncDecl::None at compilation time"),
@@ -695,10 +702,6 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     into_mod.section(&elem);
 
     let mut code = wasm_encoder::CodeSection::new();
-    enum FuncOrRawBytes<'a> {
-        Func(wasm_encoder::Function),
-        Raw(&'a [u8]),
-    }
 
     let bodies = module
         .funcs
@@ -706,33 +709,27 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         .skip(num_func_imports)
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|(func, func_decl)| -> Result<FuncOrRawBytes> {
+        .map(|(func, func_decl)| -> Result<_> {
             match func_decl {
                 FuncDecl::Lazy(_, _name, reader) => {
                     let data = &module.orig_bytes[reader.range()];
-                    Ok(FuncOrRawBytes::Raw(data))
+                    Ok(Cow::Borrowed(data))
                 }
+                FuncDecl::Compiled(_, _name, bytes) => Ok(Cow::Borrowed(&bytes[..])),
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
                     WasmFuncBackend::new(body)?
                         .compile()
-                        .map(|f| FuncOrRawBytes::Func(f))
+                        .map(|bytes| Cow::Owned(bytes))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
                 FuncDecl::None => panic!("FuncDecl::None at compilation time"),
             }
         })
-        .collect::<Result<Vec<FuncOrRawBytes<'_>>>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
     for body in bodies {
-        match body {
-            FuncOrRawBytes::Func(f) => {
-                code.function(&f);
-            }
-            FuncOrRawBytes::Raw(bytes) => {
-                code.raw(bytes);
-            }
-        }
+        code.raw(&body[..]);
     }
     into_mod.section(&code);
 

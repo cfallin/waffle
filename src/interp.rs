@@ -90,6 +90,7 @@ impl InterpContext {
     pub fn call(&mut self, module: &Module<'_>, func: Func, args: &[ConstVal]) -> InterpResult {
         let body = match &module.funcs[func] {
             FuncDecl::Lazy(..) => panic!("Un-expanded function"),
+            FuncDecl::Compiled(..) => panic!("Already-compiled function"),
             FuncDecl::Import(..) => {
                 let import = &module.imports[func.index()];
                 assert_eq!(import.kind, ImportKind::Func(func));
