@@ -1,4 +1,5 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
+use crate::backend::WasmFuncBackend;
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
@@ -16,6 +17,8 @@ pub enum FuncDecl<'a> {
     Lazy(Signature, String, wasmparser::FunctionBody<'a>),
     /// A modified or new function body that requires compilation.
     Body(Signature, String, FunctionBody),
+    /// A compiled function body (was IR, has been collapsed back to bytecode).
+    Compiled(Signature, String, Vec<u8>),
     /// A placeholder.
     #[default]
     None,
@@ -27,6 +30,7 @@ impl<'a> FuncDecl<'a> {
             FuncDecl::Import(sig, ..) => *sig,
             FuncDecl::Lazy(sig, ..) => *sig,
             FuncDecl::Body(sig, ..) => *sig,
+            FuncDecl::Compiled(sig, ..) => *sig,
             FuncDecl::None => panic!("No signature for FuncDecl::None"),
         }
     }
@@ -76,18 +80,20 @@ impl<'a> FuncDecl<'a> {
 
     pub fn name(&self) -> &str {
         match self {
-            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
-                &name[..]
-            }
+            FuncDecl::Body(_, name, _)
+            | FuncDecl::Lazy(_, name, _)
+            | FuncDecl::Import(_, name)
+            | FuncDecl::Compiled(_, name, _) => &name[..],
             FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
 
     pub fn set_name(&mut self, new_name: &str) {
         match self {
-            FuncDecl::Body(_, name, _) | FuncDecl::Lazy(_, name, _) | FuncDecl::Import(_, name) => {
-                *name = new_name.to_owned()
-            }
+            FuncDecl::Body(_, name, _)
+            | FuncDecl::Lazy(_, name, _)
+            | FuncDecl::Import(_, name)
+            | FuncDecl::Compiled(_, name, _) => *name = new_name.to_owned(),
             FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
@@ -428,6 +434,11 @@ impl FunctionBody {
         }
 
         Ok(())
+    }
+
+    pub fn compile(&self) -> Result<Vec<u8>> {
+        let backend = WasmFuncBackend::new(self)?;
+        backend.compile()
     }
 }
 

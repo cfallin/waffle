@@ -252,6 +252,17 @@ impl<'a> Display for ModuleDisplay<'a> {
                     )?;
                     writeln!(f, "  # raw bytes (length {})", reader.range().len())?;
                 }
+                FuncDecl::Compiled(sig, name, bytes) => {
+                    writeln!(
+                        f,
+                        "  {} \"{}\": {} = # {}",
+                        func,
+                        name,
+                        sig,
+                        sig_strs.get(&sig).unwrap()
+                    )?;
+                    writeln!(f, "  # already compiled (length {})", bytes.len())?;
+                }
                 FuncDecl::Import(sig, name) => {
                     writeln!(
                         f,
