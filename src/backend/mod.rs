@@ -48,7 +48,7 @@ impl<'a> WasmFuncBackend<'a> {
         })
     }
 
-    pub fn compile(&self) -> Result<Vec<u8>> {
+    pub fn compile(&self) -> Result<wasm_encoder::Function> {
         let mut func = wasm_encoder::Function::new(
             self.locals
                 .locals
@@ -76,12 +76,7 @@ impl<'a> WasmFuncBackend<'a> {
 
         log::debug!("Compiled to:\n{:?}\n", func);
 
-        let mut bytes = vec![];
-        {
-            use wasm_encoder::Encode;
-            func.encode(&mut bytes);
-        }
-        Ok(bytes)
+        Ok(func)
     }
 
     fn lower_block(&self, block: &WasmBlock<'_>, func: &mut wasm_encoder::Function) {
@@ -703,6 +698,11 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
 
     let mut code = wasm_encoder::CodeSection::new();
 
+    enum FuncOrRawBytes<'a> {
+        Raw(&'a [u8]),
+        Func(Cow<'a, wasm_encoder::Function>),
+    }
+
     let bodies = module
         .funcs
         .entries()
@@ -713,14 +713,16 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             match func_decl {
                 FuncDecl::Lazy(_, _name, reader) => {
                     let data = &module.orig_bytes[reader.range()];
-                    Ok(Cow::Borrowed(data))
+                    Ok(FuncOrRawBytes::Raw(data))
                 }
-                FuncDecl::Compiled(_, _name, bytes) => Ok(Cow::Borrowed(&bytes[..])),
+                FuncDecl::Compiled(_, _name, encoder) => {
+                    Ok(FuncOrRawBytes::Func(Cow::Borrowed(encoder)))
+                }
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
                     WasmFuncBackend::new(body)?
                         .compile()
-                        .map(|bytes| Cow::Owned(bytes))
+                        .map(|func| FuncOrRawBytes::Func(Cow::Owned(func)))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
                 FuncDecl::None => panic!("FuncDecl::None at compilation time"),
@@ -729,7 +731,14 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         .collect::<Result<Vec<_>>>()?;
 
     for body in bodies {
-        code.raw(&body[..]);
+        match body {
+            FuncOrRawBytes::Raw(bytes) => {
+                code.raw(bytes);
+            }
+            FuncOrRawBytes::Func(func) => {
+                code.function(&*func);
+            }
+        }
     }
     into_mod.section(&code);
 
