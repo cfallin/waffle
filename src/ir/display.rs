@@ -151,6 +151,10 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     ValueDef::Alias(val) => {
                         writeln!(f, "{}    {} = {}", self.1, inst, val)?;
                     }
+                    ValueDef::Trace(id, args) => {
+                        let args = args.iter().map(|&v| format!("{}", v)).collect::<Vec<_>>();
+                        writeln!(f, "{}    trace {}, {}", self.1, id, args.join(", "))?;
+                    }
                     _ => unreachable!(),
                 }
             }
