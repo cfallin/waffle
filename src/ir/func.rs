@@ -97,6 +97,16 @@ impl<'a> FuncDecl<'a> {
             FuncDecl::None => panic!("No name for FuncDecl::None"),
         }
     }
+
+    pub fn without_orig_bytes(self) -> FuncDecl<'static> {
+        match self {
+            FuncDecl::Body(sig, name, body) => FuncDecl::Body(sig, name, body),
+            FuncDecl::Import(sig, name) => FuncDecl::Import(sig, name),
+            FuncDecl::Compiled(sig, name, func) => FuncDecl::Compiled(sig, name, func),
+            FuncDecl::None => FuncDecl::None,
+            FuncDecl::Lazy(..) => panic!("Trying to strip lifetime from lazy decl"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

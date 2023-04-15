@@ -145,6 +145,28 @@ impl<'a> Module<'a> {
             debug_map: DebugMap::default(),
         }
     }
+
+    pub fn without_orig_bytes(self) -> Module<'static> {
+        Module {
+            orig_bytes: &[],
+            funcs: EntityVec::from(
+                self.funcs
+                    .into_vec()
+                    .into_iter()
+                    .map(|decl| decl.without_orig_bytes())
+                    .collect::<Vec<_>>(),
+            ),
+            signatures: self.signatures,
+            globals: self.globals,
+            tables: self.tables,
+            imports: self.imports,
+            exports: self.exports,
+            memories: self.memories,
+            start_func: self.start_func,
+            debug: self.debug,
+            debug_map: self.debug_map,
+        }
+    }
 }
 
 impl<'a> Module<'a> {

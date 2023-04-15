@@ -12,12 +12,12 @@ mod wasi;
 const WASM_PAGE: usize = 0x1_0000; // 64KiB
 const MAX_PAGES: usize = 2048; // 2048 * 64KiB = 128MiB
 
-#[derive(Debug, Clone)]
 pub struct InterpContext {
     pub memories: PerEntity<Memory, InterpMemory>,
     pub tables: PerEntity<Table, InterpTable>,
     pub globals: PerEntity<Global, ConstVal>,
     pub fuel: u64,
+    pub trace_handler: Option<Box<dyn Fn(usize, Vec<ConstVal>) -> bool + Send>>,
 }
 
 type MultiVal = SmallVec<[ConstVal; 2]>;
@@ -28,6 +28,7 @@ pub enum InterpResult {
     Exit,
     Trap,
     OutOfFuel,
+    TraceHandlerQuit,
 }
 
 impl InterpResult {
@@ -84,6 +85,7 @@ impl InterpContext {
             tables,
             globals,
             fuel: u64::MAX,
+            trace_handler: None,
         })
     }
 
@@ -195,20 +197,24 @@ impl InterpContext {
                         smallvec![result]
                     }
                     &ValueDef::Trace(id, ref args) => {
-                        let args = args
-                            .iter()
-                            .map(|&arg| {
-                                let arg = body.resolve_alias(arg);
-                                let multivalue = frame
-                                    .values
-                                    .get(&arg)
-                                    .ok_or_else(|| format!("Unset SSA value: {}", arg))
-                                    .unwrap();
-                                assert_eq!(multivalue.len(), 1);
-                                multivalue[0]
-                            })
-                            .collect::<Vec<_>>();
-                        eprintln!("TRACE: {}: {:?}", id, &args[..]);
+                        if let Some(handler) = self.trace_handler.as_ref() {
+                            let args = args
+                                .iter()
+                                .map(|&arg| {
+                                    let arg = body.resolve_alias(arg);
+                                    let multivalue = frame
+                                        .values
+                                        .get(&arg)
+                                        .ok_or_else(|| format!("Unset SSA value: {}", arg))
+                                        .unwrap();
+                                    assert_eq!(multivalue.len(), 1);
+                                    multivalue[0]
+                                })
+                                .collect::<Vec<ConstVal>>();
+                            if !handler(id, args) {
+                                return InterpResult::TraceHandlerQuit;
+                            }
+                        }
                         smallvec![]
                     }
                     &ValueDef::None | &ValueDef::Placeholder(..) | &ValueDef::BlockParam(..) => {
