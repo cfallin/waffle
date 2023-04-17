@@ -26,7 +26,7 @@ type MultiVal = SmallVec<[ConstVal; 2]>;
 pub enum InterpResult {
     Ok(MultiVal),
     Exit,
-    Trap,
+    Trap(Func, Block, u32),
     OutOfFuel,
     TraceHandlerQuit,
 }
@@ -127,7 +127,7 @@ impl InterpContext {
             }
 
             log::trace!("Interpreting block {}", frame.cur_block);
-            for &inst in &body.blocks[frame.cur_block].insts {
+            for (inst_idx, &inst) in body.blocks[frame.cur_block].insts.iter().enumerate() {
                 log::trace!("Evaluating inst {}", inst);
                 let result = match &body.values[inst] {
                     &ValueDef::Alias(_) => smallvec![],
@@ -191,7 +191,11 @@ impl InterpContext {
                             Some(result) => result,
                             None => {
                                 log::trace!("const_eval failed on {:?} args {:?}", op, args);
-                                return InterpResult::Trap;
+                                return InterpResult::Trap(
+                                    frame.func,
+                                    frame.cur_block,
+                                    inst_idx as u32,
+                                );
                             }
                         };
                         smallvec![result]
@@ -227,8 +231,12 @@ impl InterpContext {
             }
 
             match &body.blocks[frame.cur_block].terminator {
-                &Terminator::None => return InterpResult::Trap,
-                &Terminator::Unreachable => return InterpResult::Trap,
+                &Terminator::None => {
+                    return InterpResult::Trap(frame.func, frame.cur_block, u32::MAX)
+                }
+                &Terminator::Unreachable => {
+                    return InterpResult::Trap(frame.func, frame.cur_block, u32::MAX)
+                }
                 &Terminator::Br { ref target } => {
                     frame.apply_target(body, target);
                 }
