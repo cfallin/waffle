@@ -227,7 +227,7 @@ impl InterpContext {
             }
 
             match &body.blocks[frame.cur_block].terminator {
-                &Terminator::None => unreachable!(),
+                &Terminator::None => return InterpResult::Trap,
                 &Terminator::Unreachable => return InterpResult::Trap,
                 &Terminator::Br { ref target } => {
                     frame.apply_target(body, target);
