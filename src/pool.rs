@@ -36,8 +36,27 @@ impl<T: Clone + Debug> ListPool<T> {
     pub fn single(&mut self, value: T) -> ListRef<T> {
         self.from_iter(std::iter::once(value))
     }
+    pub fn double(&mut self, a: T, b: T) -> ListRef<T> {
+        self.from_iter(std::iter::once(a).chain(std::iter::once(b)))
+    }
+    pub fn triple(&mut self, a: T, b: T, c: T) -> ListRef<T> {
+        self.from_iter(
+            std::iter::once(a)
+                .chain(std::iter::once(b))
+                .chain(std::iter::once(c)),
+        )
+    }
     pub fn allocate(&mut self, size: usize, initial: T) -> ListRef<T> {
         self.from_iter(std::iter::repeat(initial).take(size))
+    }
+    pub fn deep_clone(&mut self, list: ListRef<T>) -> ListRef<T> {
+        self.storage.reserve(list.len());
+        let start = u32::try_from(self.storage.len()).unwrap();
+        for i in list.0..list.1 {
+            self.storage.push(self.storage[i as usize].clone());
+        }
+        let end = u32::try_from(self.storage.len()).unwrap();
+        ListRef(start, end, PhantomData)
     }
 }
 
