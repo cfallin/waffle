@@ -48,8 +48,8 @@ impl MaxSSAPass {
         let mut uses = BTreeSet::default();
         for &inst in &body.blocks[block].insts {
             match &body.values[inst] {
-                &ValueDef::Operator(_, ref args, _) => {
-                    for &arg in args {
+                &ValueDef::Operator(_, args, _) | &ValueDef::Trace(_, args) => {
+                    for &arg in &body.arg_pool[args] {
                         let arg = body.resolve_alias(arg);
                         uses.insert(arg);
                     }
@@ -81,7 +81,7 @@ impl MaxSSAPass {
         self.new_args[block].push(value);
 
         // Create a placeholder value.
-        let ty = body.values[value].ty().unwrap();
+        let ty = body.values[value].ty(&body.type_pool).unwrap();
         let blockparam = body.add_blockparam(block, ty);
         self.value_map.insert((block, value), blockparam);
 
@@ -147,9 +147,11 @@ impl MaxSSAPass {
             let inst = body.blocks[block].insts[i];
             let mut def = std::mem::take(&mut body.values[inst]);
             match &mut def {
-                ValueDef::Operator(_, args, _) => {
-                    for arg in args {
-                        *arg = resolve(body, *arg);
+                ValueDef::Operator(_, args, _) | ValueDef::Trace(_, args) => {
+                    for i in 0..args.len() {
+                        let val = body.arg_pool[*args][i];
+                        let val = resolve(body, val);
+                        body.arg_pool[*args][i] = val;
                     }
                 }
                 ValueDef::PickOutput(value, ..) => {

@@ -43,10 +43,10 @@ impl Trees {
 
         for (value, def) in body.values.entries() {
             match def {
-                &ValueDef::Operator(op, ref args, _) => {
+                &ValueDef::Operator(op, args, _) => {
                     // Ignore operators with invalid args: these must
                     // always be unreachable.
-                    if args.iter().any(|arg| arg.is_invalid()) {
+                    if body.arg_pool[args].iter().any(|arg| arg.is_invalid()) {
                         continue;
                     }
                     // If this is an always-rematerialized operator,
@@ -62,7 +62,7 @@ impl Trees {
                     // in the arg slot. Otherwise if owned already
                     // somewhere else, undo that and put in
                     // `multi_use`.
-                    for (i, &arg) in args.iter().enumerate() {
+                    for (i, &arg) in body.arg_pool[args].iter().enumerate() {
                         let arg = body.resolve_alias(arg);
                         if multi_use.contains(&arg) {
                             continue;

@@ -185,7 +185,9 @@ impl<'a> WasmFuncBackend<'a> {
         } else {
             let local = match &self.body.values[value] {
                 &ValueDef::BlockParam(..) | &ValueDef::Operator(..) => self.locals.values[value][0],
-                &ValueDef::PickOutput(orig_value, idx, _) => self.locals.values[orig_value][idx],
+                &ValueDef::PickOutput(orig_value, idx, _) => {
+                    self.locals.values[orig_value][idx as usize]
+                }
                 _ => unreachable!(),
             };
             func.instruction(&wasm_encoder::Instruction::LocalGet(local.index() as u32));
@@ -206,8 +208,8 @@ impl<'a> WasmFuncBackend<'a> {
     fn lower_inst(&self, value: Value, root: bool, func: &mut wasm_encoder::Function) {
         log::trace!("lower_inst: value {} root {}", value, root);
         match &self.body.values[value] {
-            &ValueDef::Operator(ref op, ref args, ref tys) => {
-                for &arg in &args[..] {
+            &ValueDef::Operator(ref op, args, tys) => {
+                for &arg in &self.body.arg_pool[args] {
                     let arg = self.body.resolve_alias(arg);
                     if self.trees.owner.contains_key(&arg) || self.trees.remat.contains(&arg) {
                         log::trace!(" -> arg {} is owned", arg);

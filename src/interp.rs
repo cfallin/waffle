@@ -133,10 +133,10 @@ impl InterpContext {
                     &ValueDef::Alias(_) => smallvec![],
                     &ValueDef::PickOutput(val, idx, _) => {
                         let val = body.resolve_alias(val);
-                        smallvec![frame.values.get(&val).unwrap()[idx]]
+                        smallvec![frame.values.get(&val).unwrap()[idx as usize]]
                     }
-                    &ValueDef::Operator(Operator::Call { function_index }, ref args, _) => {
-                        let args = args
+                    &ValueDef::Operator(Operator::Call { function_index }, args, _) => {
+                        let args = body.arg_pool[args]
                             .iter()
                             .map(|&arg| {
                                 let arg = body.resolve_alias(arg);
@@ -151,12 +151,8 @@ impl InterpContext {
                             _ => return result,
                         }
                     }
-                    &ValueDef::Operator(
-                        Operator::CallIndirect { table_index, .. },
-                        ref args,
-                        _,
-                    ) => {
-                        let args = args
+                    &ValueDef::Operator(Operator::CallIndirect { table_index, .. }, args, _) => {
+                        let args = body.arg_pool[args]
                             .iter()
                             .map(|&arg| {
                                 let arg = body.resolve_alias(arg);
@@ -173,8 +169,8 @@ impl InterpContext {
                             _ => return result,
                         }
                     }
-                    &ValueDef::Operator(ref op, ref args, _) => {
-                        let args = args
+                    &ValueDef::Operator(ref op, args, _) => {
+                        let args = body.arg_pool[args]
                             .iter()
                             .map(|&arg| {
                                 let arg = body.resolve_alias(arg);
@@ -200,9 +196,9 @@ impl InterpContext {
                         };
                         smallvec![result]
                     }
-                    &ValueDef::Trace(id, ref args) => {
+                    &ValueDef::Trace(id, args) => {
                         if let Some(handler) = self.trace_handler.as_ref() {
-                            let args = args
+                            let args = body.arg_pool[args]
                                 .iter()
                                 .map(|&arg| {
                                     let arg = body.resolve_alias(arg);

@@ -4,7 +4,9 @@ use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
+use crate::pool::{ListPool, ListRef};
 use anyhow::Result;
+use fxhash::FxHashMap;
 use std::collections::HashSet;
 
 /// A declaration of a function: there is one `FuncDecl` per `Func`
@@ -124,6 +126,12 @@ pub struct FunctionBody {
     pub blocks: EntityVec<Block, BlockDef>,
     /// Value definitions, indexed by `Value`.
     pub values: EntityVec<Value, ValueDef>,
+    /// Pool of types for ValueDefs' result type lists.
+    pub type_pool: ListPool<Type>,
+    /// Deduplication for type-lists of single types.
+    pub single_type_dedup: FxHashMap<Type, ListRef<Type>>,
+    /// Pool of values for ValueDefs' arg lists.
+    pub arg_pool: ListPool<Value>,
     /// Blocks in which values are computed. Each may be `Block::invalid()` if not placed.
     pub value_blocks: PerEntity<Value, Block>,
     /// Wasm locals that values correspond to, if any.
@@ -142,7 +150,7 @@ impl FunctionBody {
         let mut values = EntityVec::default();
         let mut value_blocks = PerEntity::default();
         for (i, &arg_ty) in locals.values().enumerate() {
-            let value = values.push(ValueDef::BlockParam(entry, i, arg_ty));
+            let value = values.push(ValueDef::BlockParam(entry, i as u32, arg_ty));
             blocks[entry].params.push((arg_ty, value));
             value_blocks[value] = entry;
         }
@@ -153,6 +161,9 @@ impl FunctionBody {
             entry,
             blocks,
             values,
+            type_pool: ListPool::default(),
+            arg_pool: ListPool::default(),
+            single_type_dedup: FxHashMap::default(),
             value_blocks,
             value_locals: PerEntity::default(),
             source_locs: PerEntity::default(),
@@ -176,6 +187,14 @@ impl FunctionBody {
         let id = self.blocks.push(BlockDef::default());
         log::trace!("add_block: block {}", id);
         id
+    }
+
+    pub fn single_type_list(&mut self, ty: Type) -> ListRef<Type> {
+        let type_pool = &mut self.type_pool;
+        *self
+            .single_type_dedup
+            .entry(ty)
+            .or_insert_with(|| type_pool.single(ty))
     }
 
     pub fn add_edge(&mut self, from: Block, to: Block) {
@@ -284,7 +303,7 @@ impl FunctionBody {
 
     pub fn add_blockparam(&mut self, block: Block, ty: Type) -> Value {
         let index = self.blocks[block].params.len();
-        let value = self.add_value(ValueDef::BlockParam(block, index, ty));
+        let value = self.add_value(ValueDef::BlockParam(block, index as u32, ty));
         self.blocks[block].params.push((ty, value));
         self.value_blocks[value] = block;
         value
@@ -301,7 +320,7 @@ impl FunctionBody {
             _ => unreachable!(),
         };
         self.blocks[block].params.push((ty, value));
-        self.values[value] = ValueDef::BlockParam(block, index, ty);
+        self.values[value] = ValueDef::BlockParam(block, index as u32, ty);
     }
 
     pub fn mark_value_as_local(&mut self, value: Value, local: Local) {
@@ -342,7 +361,12 @@ impl FunctionBody {
         indent: &'a str,
         module: Option<&'a Module>,
     ) -> FunctionBodyDisplay<'a> {
-        FunctionBodyDisplay(self, indent, /* verbose = */ false, module)
+        FunctionBodyDisplay {
+            body: self,
+            indent,
+            verbose: false,
+            module,
+        }
     }
 
     pub fn display_verbose<'a>(
@@ -350,7 +374,12 @@ impl FunctionBody {
         indent: &'a str,
         module: Option<&'a Module>,
     ) -> FunctionBodyDisplay<'a> {
-        FunctionBodyDisplay(self, indent, /* verbose = */ true, module)
+        FunctionBodyDisplay {
+            body: self,
+            indent,
+            verbose: true,
+            module,
+        }
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -419,8 +448,8 @@ impl FunctionBody {
 
             for (i, &inst) in block_def.insts.iter().enumerate() {
                 match &self.values[inst] {
-                    &ValueDef::Operator(_, ref args, _) => {
-                        for &arg in args {
+                    &ValueDef::Operator(_, args, _) => {
+                        for &arg in &self.arg_pool[args] {
                             visit_use(arg, Some(i), Some(inst));
                         }
                     }

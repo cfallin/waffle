@@ -99,8 +99,8 @@ pub fn run(func: &mut FunctionBody, cfg: &CFGInfo) {
 
             // Renumber blockparam values.
             for (i, &(_, param)) in func.blocks[block].params.iter().enumerate() {
-                let ty = func.values[param].ty().unwrap();
-                func.values[param] = ValueDef::BlockParam(block, i, ty);
+                let ty = func.values[param].ty(&func.type_pool).unwrap();
+                func.values[param] = ValueDef::BlockParam(block, i as u32, ty);
             }
         }
     }

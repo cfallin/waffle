@@ -5,24 +5,24 @@ use crate::entity::EntityRef;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-pub struct FunctionBodyDisplay<'a>(
-    pub(crate) &'a FunctionBody,
-    pub(crate) &'a str,
-    pub(crate) bool,
-    pub(crate) Option<&'a Module<'a>>,
-);
+pub struct FunctionBodyDisplay<'a> {
+    pub(crate) body: &'a FunctionBody,
+    pub(crate) indent: &'a str,
+    pub(crate) verbose: bool,
+    pub(crate) module: Option<&'a Module<'a>>,
+}
 
 impl<'a> Display for FunctionBodyDisplay<'a> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         let arg_tys = self
-            .0
+            .body
             .locals
             .values()
-            .take(self.0.n_params)
+            .take(self.body.n_params)
             .map(|&ty| format!("{}", ty))
             .collect::<Vec<_>>();
         let ret_tys = self
-            .0
+            .body
             .rets
             .iter()
             .map(|&ty| format!("{}", ty))
@@ -30,51 +30,63 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
         writeln!(
             f,
             "{}function({}) -> {} {{",
-            self.1,
+            self.indent,
             arg_tys.join(", "),
             ret_tys.join(", ")
         )?;
 
-        let verbose = self.2;
-        for (value, value_def) in self.0.values.entries() {
+        for (value, value_def) in self.body.values.entries() {
             match value_def {
-                ValueDef::Operator(op, args, tys) if verbose => writeln!(
+                ValueDef::Operator(op, args, tys) if self.verbose => writeln!(
                     f,
                     "{}    {} = {} {} # {}",
-                    self.1,
+                    self.indent,
                     value,
                     op,
-                    args.iter()
+                    self.body.arg_pool[*args]
+                        .iter()
                         .map(|arg| format!("{}", arg))
                         .collect::<Vec<_>>()
                         .join(", "),
-                    tys.iter()
+                    self.body.type_pool[*tys]
+                        .iter()
                         .map(|arg| format!("{}", arg))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )?,
-                ValueDef::BlockParam(block, idx, ty) if verbose => writeln!(
+                ValueDef::BlockParam(block, idx, ty) if self.verbose => writeln!(
                     f,
                     "{}    {} = blockparam {}, {} # {}",
-                    self.1, value, block, idx, ty
+                    self.indent, value, block, idx, ty
                 )?,
                 ValueDef::Alias(alias_target) => {
-                    if verbose {
-                        writeln!(f, "{}    {} = {}", self.1, value, alias_target)?
+                    if self.verbose {
+                        writeln!(f, "{}    {} = {}", self.indent, value, alias_target)?
                     }
                 }
                 ValueDef::PickOutput(val, idx, ty) => {
-                    writeln!(f, "{}    {} = {}.{} # {}", self.1, value, val, idx, ty)?
+                    writeln!(f, "{}    {} = {}.{} # {}", self.indent, value, val, idx, ty)?
                 }
                 ValueDef::Placeholder(ty) => {
-                    writeln!(f, "{}    {} = placeholder # {}", self.1, value, ty)?
+                    writeln!(f, "{}    {} = placeholder # {}", self.indent, value, ty)?
                 }
+                ValueDef::Trace(id, args) => writeln!(
+                    f,
+                    "{}    trace {}, {}",
+                    self.indent,
+                    id,
+                    self.body.arg_pool[*args]
+                        .iter()
+                        .map(|arg| format!("{}", arg))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?,
                 ValueDef::None => panic!(),
                 _ => {}
             }
         }
 
-        for (block_id, block) in self.0.blocks.entries() {
+        for (block_id, block) in self.body.blocks.entries() {
             let block_params = block
                 .params
                 .iter()
@@ -83,7 +95,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
             writeln!(
                 f,
                 "{}  {}({}): # {}",
-                self.1,
+                self.indent,
                 block_id,
                 block_params.join(", "),
                 block.desc
@@ -91,43 +103,49 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
             writeln!(
                 f,
                 "{}    # preds: {}",
-                self.1,
+                self.indent,
                 block
                     .preds
                     .iter()
-                    .map(|pred| format!("{} ({})", pred, self.0.blocks[*pred].desc))
+                    .map(|pred| format!("{} ({})", pred, self.body.blocks[*pred].desc))
                     .collect::<Vec<_>>()
                     .join(", ")
             )?;
             writeln!(
                 f,
                 "{}    # succs: {}",
-                self.1,
+                self.indent,
                 block
                     .succs
                     .iter()
-                    .map(|succ| format!("{} ({})", succ, self.0.blocks[*succ].desc))
+                    .map(|succ| format!("{} ({})", succ, self.body.blocks[*succ].desc))
                     .collect::<Vec<_>>()
                     .join(", ")
             )?;
             for (_, param) in &block.params {
-                if let Some(local) = self.0.value_locals[*param] {
-                    writeln!(f, "{}    # {}: {}", self.1, param, local)?;
+                if let Some(local) = self.body.value_locals[*param] {
+                    writeln!(f, "{}    # {}: {}", self.indent, param, local)?;
                 }
             }
             for &inst in &block.insts {
-                if let Some(local) = self.0.value_locals[inst] {
-                    writeln!(f, "{}    # {}: {}", self.1, inst, local)?;
+                if let Some(local) = self.body.value_locals[inst] {
+                    writeln!(f, "{}    # {}: {}", self.indent, inst, local)?;
                 }
-                match &self.0.values[inst] {
+                match &self.body.values[inst] {
                     ValueDef::Operator(op, args, tys) => {
-                        let args = args.iter().map(|&v| format!("{}", v)).collect::<Vec<_>>();
-                        let tys = tys.iter().map(|&ty| format!("{}", ty)).collect::<Vec<_>>();
-                        let loc = if self.0.source_locs[inst] != SourceLoc::invalid()
-                            && self.3.is_some()
+                        let args = self.body.arg_pool[*args]
+                            .iter()
+                            .map(|&v| format!("{}", v))
+                            .collect::<Vec<_>>();
+                        let tys = self.body.type_pool[*tys]
+                            .iter()
+                            .map(|&ty| format!("{}", ty))
+                            .collect::<Vec<_>>();
+                        let loc = if self.body.source_locs[inst] != SourceLoc::invalid()
+                            && self.module.is_some()
                         {
-                            let module = self.3.as_ref().unwrap();
-                            let loc = self.0.source_locs[inst];
+                            let module = self.module.as_ref().unwrap();
+                            let loc = self.body.source_locs[inst];
                             let data = &module.debug.source_locs[loc];
                             let filename = &module.debug.source_files[data.file];
                             format!("@{} {}:{}:{}", loc, filename, data.line, data.col)
@@ -137,7 +155,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                         writeln!(
                             f,
                             "{}    {} = {} {} # {} {}",
-                            self.1,
+                            self.indent,
                             inst,
                             op,
                             args.join(", "),
@@ -146,37 +164,42 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                         )?;
                     }
                     ValueDef::PickOutput(val, idx, ty) => {
-                        writeln!(f, "{}    {} = {}.{} # {}", self.1, inst, val, idx, ty)?;
+                        writeln!(f, "{}    {} = {}.{} # {}", self.indent, inst, val, idx, ty)?;
                     }
                     ValueDef::Alias(val) => {
-                        writeln!(f, "{}    {} = {}", self.1, inst, val)?;
+                        writeln!(f, "{}    {} = {}", self.indent, inst, val)?;
                     }
                     ValueDef::Trace(id, args) => {
-                        let args = args.iter().map(|&v| format!("{}", v)).collect::<Vec<_>>();
-                        writeln!(f, "{}    trace {}, {}", self.1, id, args.join(", "))?;
+                        let args = self.body.arg_pool[*args]
+                            .iter()
+                            .map(|&v| format!("{}", v))
+                            .collect::<Vec<_>>();
+                        writeln!(f, "{}    trace {}, {}", self.indent, id, args.join(", "))?;
                     }
                     _ => unreachable!(),
                 }
             }
-            writeln!(f, "{}    {}", self.1, block.terminator)?;
+            writeln!(f, "{}    {}", self.indent, block.terminator)?;
         }
 
-        writeln!(f, "{}}}", self.1)?;
+        writeln!(f, "{}}}", self.indent)?;
 
         Ok(())
     }
 }
 
-pub struct ModuleDisplay<'a>(pub(crate) &'a Module<'a>);
+pub struct ModuleDisplay<'a> {
+    pub(crate) module: &'a Module<'a>,
+}
 
 impl<'a> Display for ModuleDisplay<'a> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         writeln!(f, "module {{")?;
-        if let Some(func) = self.0.start_func {
+        if let Some(func) = self.module.start_func {
             writeln!(f, "    start = {}", func)?;
         }
         let mut sig_strs = HashMap::new();
-        for (sig, sig_data) in self.0.signatures.entries() {
+        for (sig, sig_data) in self.module.signatures.entries() {
             let arg_tys = sig_data
                 .params
                 .iter()
@@ -191,14 +214,14 @@ impl<'a> Display for ModuleDisplay<'a> {
             sig_strs.insert(sig, sig_str.clone());
             writeln!(f, "  {}: {}", sig, sig_str)?;
         }
-        for (global, global_data) in self.0.globals.entries() {
+        for (global, global_data) in self.module.globals.entries() {
             writeln!(
                 f,
                 "  {}: {:?} # {}",
                 global, global_data.value, global_data.ty
             )?;
         }
-        for (table, table_data) in self.0.tables.entries() {
+        for (table, table_data) in self.module.tables.entries() {
             writeln!(f, "  {}: {}", table, table_data.ty)?;
             if let Some(funcs) = &table_data.func_elements {
                 for (i, &func) in funcs.iter().enumerate() {
@@ -206,7 +229,7 @@ impl<'a> Display for ModuleDisplay<'a> {
                 }
             }
         }
-        for (memory, memory_data) in self.0.memories.entries() {
+        for (memory, memory_data) in self.module.memories.entries() {
             writeln!(
                 f,
                 "  {}: initial {} max {:?}",
@@ -222,17 +245,17 @@ impl<'a> Display for ModuleDisplay<'a> {
                 )?;
             }
         }
-        for import in &self.0.imports {
+        for import in &self.module.imports {
             writeln!(
                 f,
                 "  import \"{}\".\"{}\": {}",
                 import.module, import.name, import.kind
             )?;
         }
-        for export in &self.0.exports {
+        for export in &self.module.exports {
             writeln!(f, "  export \"{}\": {}", export.name, export.kind)?;
         }
-        for (func, func_decl) in self.0.funcs.entries() {
+        for (func, func_decl) in self.module.funcs.entries() {
             match func_decl {
                 FuncDecl::Body(sig, name, body) => {
                     writeln!(
@@ -243,7 +266,7 @@ impl<'a> Display for ModuleDisplay<'a> {
                         sig,
                         sig_strs.get(&sig).unwrap()
                     )?;
-                    writeln!(f, "{}", body.display("    ", Some(self.0)))?;
+                    writeln!(f, "{}", body.display("    ", Some(self.module)))?;
                 }
                 FuncDecl::Lazy(sig, name, reader) => {
                     writeln!(
@@ -282,14 +305,14 @@ impl<'a> Display for ModuleDisplay<'a> {
                 }
             }
         }
-        for (loc, loc_data) in self.0.debug.source_locs.entries() {
+        for (loc, loc_data) in self.module.debug.source_locs.entries() {
             writeln!(
                 f,
                 "  {} = {} line {} column {}",
                 loc, loc_data.file, loc_data.line, loc_data.col
             )?;
         }
-        for (file, file_name) in self.0.debug.source_files.entries() {
+        for (file, file_name) in self.module.debug.source_files.entries() {
             writeln!(f, "  {} = \"{}\"", file, file_name)?;
         }
         writeln!(f, "}}")?;

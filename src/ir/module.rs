@@ -236,6 +236,6 @@ impl<'a> Module<'a> {
     where
         'b: 'a,
     {
-        ModuleDisplay(self)
+        ModuleDisplay { module: self }
     }
 }

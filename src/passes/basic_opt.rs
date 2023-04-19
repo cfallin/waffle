@@ -4,6 +4,7 @@ use crate::cfg::CFGInfo;
 use crate::interp::{const_eval, ConstVal};
 use crate::ir::*;
 use crate::passes::dom_pass::{dom_pass, DomtreePass};
+use crate::pool::ListRef;
 use crate::scoped_map::ScopedMap;
 use crate::Operator;
 
@@ -48,10 +49,24 @@ impl GVNPass {
             i += 1;
             if value_is_pure(inst, body) {
                 let mut value = body.values[inst].clone();
-                value.update_uses(|val| *val = body.resolve_and_update_alias(*val));
+
+                match &mut value {
+                    &mut ValueDef::Operator(_, args, _) | &mut ValueDef::Trace(_, args) => {
+                        for i in 0..args.len() {
+                            let val = body.arg_pool[args][i];
+                            let val = body.resolve_and_update_alias(val);
+                            body.arg_pool[args][i] = val;
+                        }
+                    }
+                    &mut ValueDef::PickOutput(ref mut val, ..) => {
+                        let updated = body.resolve_and_update_alias(*val);
+                        *val = updated;
+                    }
+                    _ => {}
+                }
 
                 if let ValueDef::Operator(op, args, ..) = &value {
-                    let arg_values = args
+                    let arg_values = body.arg_pool[*args]
                         .iter()
                         .map(|&arg| match body.values[arg] {
                             ValueDef::Operator(Operator::I32Const { value }, _, _) => {
@@ -74,32 +89,32 @@ impl GVNPass {
                         Some(ConstVal::I32(val)) => {
                             value = ValueDef::Operator(
                                 Operator::I32Const { value: val },
-                                vec![],
-                                vec![Type::I32],
+                                ListRef::default(),
+                                body.single_type_list(Type::I32),
                             );
                             body.values[inst] = value.clone();
                         }
                         Some(ConstVal::I64(val)) => {
                             value = ValueDef::Operator(
                                 Operator::I64Const { value: val },
-                                vec![],
-                                vec![Type::I64],
+                                ListRef::default(),
+                                body.single_type_list(Type::I64),
                             );
                             body.values[inst] = value.clone();
                         }
                         Some(ConstVal::F32(val)) => {
                             value = ValueDef::Operator(
                                 Operator::F32Const { value: val },
-                                vec![],
-                                vec![Type::F32],
+                                ListRef::default(),
+                                body.single_type_list(Type::F32),
                             );
                             body.values[inst] = value.clone();
                         }
                         Some(ConstVal::F64(val)) => {
                             value = ValueDef::Operator(
                                 Operator::F64Const { value: val },
-                                vec![],
-                                vec![Type::F64],
+                                ListRef::default(),
+                                body.single_type_list(Type::F64),
                             );
                             body.values[inst] = value.clone();
                         }

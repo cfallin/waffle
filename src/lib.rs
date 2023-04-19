@@ -14,6 +14,7 @@ mod ir;
 mod op_traits;
 mod ops;
 pub mod passes;
+pub mod pool;
 mod scoped_map;
 
 pub use errors::*;

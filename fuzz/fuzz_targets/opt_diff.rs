@@ -38,7 +38,7 @@ fuzz_target!(
                 log::trace!("Rejecting due to timeout in orig");
                 return;
             }
-            InterpResult::Trap => {
+            InterpResult::Trap(..) => {
                 // Silently reject.
                 log::trace!("Rejecting due to trap in orig");
                 return;

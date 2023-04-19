@@ -7,6 +7,7 @@ use crate::errors::FrontendError;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
+use crate::pool::ListRef;
 use addr2line::gimli;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
@@ -656,26 +657,27 @@ impl LocalTracker {
         ty: Type,
         at_block: Block,
     ) -> Value {
+        let types = body.single_type_list(ty);
         let val = match ty {
             Type::I32 => body.add_value(ValueDef::Operator(
                 Operator::I32Const { value: 0 },
-                vec![],
-                vec![ty],
+                ListRef::default(),
+                types,
             )),
             Type::I64 => body.add_value(ValueDef::Operator(
                 Operator::I64Const { value: 0 },
-                vec![],
-                vec![ty],
+                ListRef::default(),
+                types,
             )),
             Type::F32 => body.add_value(ValueDef::Operator(
                 Operator::F32Const { value: 0 },
-                vec![],
-                vec![ty],
+                ListRef::default(),
+                types,
             )),
             Type::F64 => body.add_value(ValueDef::Operator(
                 Operator::F64Const { value: 0 },
-                vec![],
-                vec![ty],
+                ListRef::default(),
+                types,
             )),
             _ => todo!("unsupported type: {:?}", ty),
         };
@@ -1684,19 +1686,25 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
 
         let n_outputs = outputs.len();
 
-        let mut input_operands = vec![];
-        for &input in inputs.into_iter().rev() {
+        let input_operands = self.body.arg_pool.allocate(inputs.len(), Value::invalid());
+        let args = &mut self.body.arg_pool[input_operands];
+        for (i, &input) in inputs.into_iter().enumerate().rev() {
             let (stack_top_ty, stack_top) = self.op_stack.pop().unwrap();
             assert_eq!(stack_top_ty, input);
-            input_operands.push(stack_top);
+            args[i] = stack_top;
         }
-        input_operands.reverse();
         log::trace!(" -> operands: {:?}", input_operands);
         log::trace!(" -> ty {:?}", outputs);
 
+        let outputs_list = if n_outputs == 1 {
+            self.body.single_type_list(outputs[0])
+        } else {
+            self.body.type_pool.from_iter(outputs.iter().cloned())
+        };
+
         let value = self
             .body
-            .add_value(ValueDef::Operator(op, input_operands, outputs.to_vec()));
+            .add_value(ValueDef::Operator(op, input_operands, outputs_list));
         log::trace!(" -> value: {:?}", value);
 
         if self.reachable {
@@ -1711,7 +1719,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             for (i, &output_ty) in outputs.into_iter().enumerate() {
                 let pick = self
                     .body
-                    .add_value(ValueDef::PickOutput(value, i, output_ty));
+                    .add_value(ValueDef::PickOutput(value, i as u32, output_ty));
                 if self.reachable {
                     self.body.append_to_block(self.cur_block, pick);
                 }

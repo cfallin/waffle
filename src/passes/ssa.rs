@@ -44,7 +44,7 @@ pub fn run(body: &FunctionBody, cfg: &CFGInfo) {
             match &body.values[param] {
                 &ValueDef::BlockParam(param_block, param_idx, _) => {
                     assert_eq!(param_block, block);
-                    assert_eq!(param_idx, i);
+                    assert_eq!(param_idx, i as u32);
                 }
                 _ => panic!(
                     "Bad blockparam value for param {} of {} ({}): {:?}",
@@ -55,18 +55,13 @@ pub fn run(body: &FunctionBody, cfg: &CFGInfo) {
 
         for &inst in &data.insts {
             match &body.values[inst] {
-                &ValueDef::Operator(_, ref args, _) => {
-                    for &arg in args {
+                &ValueDef::Operator(_, args, _) | &ValueDef::Trace(_, args) => {
+                    for &arg in &body.arg_pool[args] {
                         validate(arg);
                     }
                 }
                 &ValueDef::PickOutput(val, _, _) => {
                     validate(val);
-                }
-                &ValueDef::Trace(_, ref args) => {
-                    for &arg in args {
-                        validate(arg);
-                    }
                 }
                 &ValueDef::Alias(..) => {}
                 &ValueDef::None | &ValueDef::Placeholder(_) | &ValueDef::BlockParam(..) => {}

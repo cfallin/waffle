@@ -90,13 +90,13 @@ impl<'a, V: Visitor> BlockVisitor<'a, V> {
     }
     fn visit_inst(&mut self, value: Value, root: bool) {
         // If this is an instruction...
-        if let ValueDef::Operator(_, ref args, _) = &self.body.values[value] {
+        if let ValueDef::Operator(_, args, _) = &self.body.values[value] {
             // If root, we need to process the def.
             if root {
                 self.visitor.visit_def(value);
             }
             // Handle uses.
-            for &arg in args {
+            for &arg in &self.body.arg_pool[*args] {
                 self.visit_use(arg);
             }
         }
@@ -284,7 +284,7 @@ impl<'a> Context<'a> {
                 // allocate a new one.
                 let mut allocs = smallvec![];
                 let expiring = expiring.entry(range.end).or_insert_with(|| smallvec![]);
-                for &ty in self.body.values[value].tys() {
+                for &ty in self.body.values[value].tys(&self.body.type_pool) {
                     let local = freelist
                         .get_mut(&ty)
                         .and_then(|v| v.pop())
