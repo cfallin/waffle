@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 pub fn op_inputs(
     module: &Module,
-    op_stack: &[(Type, Value)],
+    op_stack: Option<&[(Type, Value)]>,
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
     match op {
@@ -24,6 +24,9 @@ pub fn op_inputs(
         }
 
         &Operator::Select => {
+            let Some(op_stack) = op_stack else{
+                anyhow::bail!("selects cannot be typed with no stack");
+            };
             let val_ty = op_stack[op_stack.len() - 2].0;
             Ok(vec![val_ty, val_ty, Type::I32].into())
         }
@@ -226,7 +229,7 @@ pub fn op_inputs(
 
 pub fn op_outputs(
     module: &Module,
-    op_stack: &[(Type, Value)],
+    op_stack: Option<&[(Type, Value)]>,
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
     match op {
@@ -241,6 +244,9 @@ pub fn op_outputs(
         }
 
         &Operator::Select => {
+            let Some(op_stack) = op_stack else{
+                anyhow::bail!("selects cannot be typed with no stack");
+            };
             let val_ty = op_stack[op_stack.len() - 2].0;
             Ok(vec![val_ty].into())
         }
