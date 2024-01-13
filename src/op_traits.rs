@@ -224,6 +224,8 @@ pub fn op_inputs(
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::MemoryCopy { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
+        Operator::MemoryFill { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
     }
 }
 
@@ -431,6 +433,8 @@ pub fn op_outputs(
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::MemoryCopy { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::MemoryFill { .. } => Ok(Cow::Borrowed(&[])),
     }
 }
 
@@ -641,6 +645,8 @@ impl Operator {
             Operator::TableSize { .. } => &[ReadTable],
             Operator::MemorySize { .. } => &[ReadMem],
             Operator::MemoryGrow { .. } => &[WriteMem, Trap],
+            Operator::MemoryCopy { .. } => &[Trap, ReadMem, WriteMem],
+            Operator::MemoryFill { .. } => &[Trap, WriteMem],
         }
     }
 
@@ -859,6 +865,10 @@ impl std::fmt::Display for Operator {
             Operator::TableSize { table_index, .. } => write!(f, "table_size<{}>", table_index)?,
             Operator::MemorySize { mem } => write!(f, "memory_size<{}>", mem)?,
             Operator::MemoryGrow { mem } => write!(f, "memory_grow<{}>", mem)?,
+            Operator::MemoryCopy { dst_mem, src_mem } => {
+                write!(f, "memory_copy<{}, {}>", dst_mem, src_mem)?
+            }
+            Operator::MemoryFill { mem } => write!(f, "memory_fill<{}>", mem)?,
         }
 
         Ok(())
