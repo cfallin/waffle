@@ -1,4 +1,5 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
+use crate::{Func, Table};
 use crate::backend::WasmFuncBackend;
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
@@ -536,6 +537,15 @@ pub enum Terminator {
     Return {
         values: Vec<Value>,
     },
+    ReturnCall {
+        func: Func,
+       args: Vec<Value>,
+    },
+    ReturnCallIndirect {
+        sig: Signature,
+        table: Table,
+        args: Vec<Value>,
+    },
     Unreachable,
     None,
 }
@@ -581,6 +591,26 @@ impl std::fmt::Display for Terminator {
                     .join(", ")
             )?,
             Terminator::Unreachable => write!(f, "unreachable")?,
+            Terminator::ReturnCall { func, args } => write!(
+                f,
+                "return_call {}({})",
+                func,
+                args
+                    .iter()
+                    .map(|val| format!("{}", val))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?,
+            Terminator::ReturnCallIndirect { sig, table, args } => write!(
+                f,
+                "return_call_indirect ({};{})({})",
+                sig,table,
+                args
+                    .iter()
+                    .map(|val| format!("{}", val))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?,
         }
         Ok(())
     }
@@ -611,6 +641,8 @@ impl Terminator {
             }
             Terminator::None => {}
             Terminator::Unreachable => {}
+            Terminator::ReturnCall { func, args } =>{},
+            Terminator::ReturnCallIndirect { sig, table, args } => {},
         }
     }
 
@@ -638,6 +670,8 @@ impl Terminator {
             }
             Terminator::None => {}
             Terminator::Unreachable => {}
+            Terminator::ReturnCall { func, args } =>{},
+            Terminator::ReturnCallIndirect { sig, table, args } => {},
         }
     }
 
@@ -717,6 +751,16 @@ impl Terminator {
                     f(value);
                 }
             }
+            &Terminator::ReturnCall { func, ref args } => {
+                for value in args{
+                    f(*value);
+                }
+            }
+            &Terminator::ReturnCallIndirect { sig, table, ref args } => {
+                for value in args{
+                    f(*value);
+                }
+            },
             _ => {}
         }
     }
@@ -735,6 +779,16 @@ impl Terminator {
                     f(value);
                 }
             }
+            &mut Terminator::ReturnCall { func, ref mut args } => {
+                for value in args{
+                    f(value);
+                }
+            }
+            &mut Terminator::ReturnCallIndirect { sig, table, ref mut args } => {
+                for value in args{
+                    f(value);
+                }
+            },
             _ => {}
         }
     }

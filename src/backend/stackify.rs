@@ -9,6 +9,7 @@
 //!
 //! for more details on how this algorithm works.
 
+use crate::{Func, Signature, Table};
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
 use crate::ir::{Block, BlockTarget, FunctionBody, Terminator, Type, Value};
@@ -52,6 +53,8 @@ pub enum WasmBlock<'a> {
     },
     /// A function return instruction.
     Return { values: &'a [Value] },
+    ReturnCall { func: Func,values: &'a [Value] },
+    ReturnCallIndirect { sig: Signature,table: Table,values: &'a [Value] },
     /// An unreachable instruction.
     Unreachable,
 }
@@ -440,6 +443,12 @@ impl<'a, 'b> Context<'a, 'b> {
                 }
                 &Terminator::Unreachable | &Terminator::None => {
                     into.push(WasmBlock::Unreachable);
+                }
+                &Terminator::ReturnCall { func, ref args } => {
+                    into.push(WasmBlock::ReturnCall { func: func, values: args });
+                }
+                &Terminator::ReturnCallIndirect { sig, table, ref args } => {
+                    into.push(WasmBlock::ReturnCallIndirect { sig, table, values: args })
                 }
             }
         }

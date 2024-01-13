@@ -1230,6 +1230,18 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 self.emit_ret(&retvals[..]);
                 self.reachable = false;
             }
+            wasmparser::Operator::ReturnCall { function_index } => {
+                let sig = self.module.funcs[Func::new(*function_index as usize)].sig();
+                let retvals = self.pop_n(self.module.signatures[sig].params.len());
+                self.emit_term(Terminator::ReturnCall { func: Func::new(*function_index as usize), args: retvals });
+                self.reachable = false;
+            }
+            wasmparser::Operator::ReturnCallIndirect { type_index, table_index } => {
+                // let sig = self.module.funcs[Func::new(*function_index as usize)].sig();
+                let retvals = self.pop_n(self.module.signatures[Signature::new(*type_index as usize)].params.len());
+                self.emit_term(Terminator::ReturnCallIndirect { sig: Signature::new(*type_index as usize), table: Table::new(*table_index as usize),args: retvals });
+                self.reachable = false;
+            }
 
             _ => bail!(FrontendError::UnsupportedFeature(format!(
                 "Unsupported operator: {:?}",
@@ -1643,6 +1655,21 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             let values = values.to_vec();
             self.body
                 .set_terminator(self.cur_block, Terminator::Return { values });
+            self.reachable = false;
+        }
+    }
+
+    fn emit_term(&mut self, t: Terminator){
+        log::trace!(
+            "emit_term: cur_block {} reachable {} terminator {:?}",
+            self.cur_block,
+            self.reachable,
+            t
+        );
+        if self.reachable {
+            // let values = values.to_vec();
+            self.body
+                .set_terminator(self.cur_block,t);
             self.reachable = false;
         }
     }

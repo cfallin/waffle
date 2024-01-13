@@ -171,6 +171,18 @@ impl<'a> WasmFuncBackend<'a> {
                 }
                 func.instruction(&wasm_encoder::Instruction::Return);
             }
+            WasmBlock::ReturnCall { func: f,values } => {
+                for &value in &values[..] {
+                    self.lower_value(value, func);
+                }
+                func.instruction(&wasm_encoder::Instruction::ReturnCall(f.index() as u32));
+            }
+            WasmBlock::ReturnCallIndirect { sig, table, values } => {
+                for &value in &values[..] {
+                    self.lower_value(value, func);
+                }
+                func.instruction(&wasm_encoder::Instruction::ReturnCallIndirect { ty: sig.index() as u32, table: table.index() as u32 });
+            }
             WasmBlock::Unreachable => {
                 func.instruction(&wasm_encoder::Instruction::Unreachable);
             }

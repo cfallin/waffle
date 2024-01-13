@@ -8,3 +8,4 @@ pub mod remove_phis;
 pub mod resolve_aliases;
 pub mod ssa;
 pub mod trace;
+pub mod reorder_funs;
