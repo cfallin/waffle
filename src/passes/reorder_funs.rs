@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::{ExportKind, Func, FuncDecl, FunctionBody, ImportKind, Module, Operator, ValueDef, entity::EntityRef, Terminator};
+use crate::{
+    entity::EntityRef, ExportKind, Func, FuncDecl, FunctionBody, ImportKind, Module, Operator,
+    Terminator, ValueDef,
+};
 
 pub fn reorder_funcs_in_body(b: &mut FunctionBody, f: &BTreeMap<Func, Func>) {
     for v in b.values.values_mut() {
@@ -10,8 +13,8 @@ pub fn reorder_funcs_in_body(b: &mut FunctionBody, f: &BTreeMap<Func, Func>) {
             }
         }
     }
-    for k in b.blocks.values_mut(){
-        if let Terminator::ReturnCall { func, args } = &mut k.terminator{
+    for k in b.blocks.values_mut() {
+        if let Terminator::ReturnCall { func, args } = &mut k.terminator {
             *func = *f.get(&*func).unwrap();
         }
     }
@@ -56,11 +59,11 @@ pub fn fixup_orders(m: &mut Module) {
         }
     }
     let mut i = 0;
-    for v in a{
+    for v in a {
         fs.insert(v, Func::new(i));
         i += 1;
     }
-    for v in b{
+    for v in b {
         fs.insert(v, Func::new(i));
         i += 1;
     }

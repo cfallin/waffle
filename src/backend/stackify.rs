@@ -9,10 +9,10 @@
 //!
 //! for more details on how this algorithm works.
 
-use crate::{Func, Signature, Table};
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
 use crate::ir::{Block, BlockTarget, FunctionBody, Terminator, Type, Value};
+use crate::{Func, Signature, Table};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
@@ -31,9 +31,13 @@ pub enum WasmBlock<'a> {
         header: Block,
     },
     /// A leaf node: one CFG block.
-    Leaf { block: Block },
+    Leaf {
+        block: Block,
+    },
     /// A translated unconditional branch.
-    Br { target: WasmLabel },
+    Br {
+        target: WasmLabel,
+    },
     /// A translated conditional.
     If {
         cond: Value,
@@ -52,9 +56,18 @@ pub enum WasmBlock<'a> {
         to: &'a [(Type, Value)],
     },
     /// A function return instruction.
-    Return { values: &'a [Value] },
-    ReturnCall { func: Func,values: &'a [Value] },
-    ReturnCallIndirect { sig: Signature,table: Table,values: &'a [Value] },
+    Return {
+        values: &'a [Value],
+    },
+    ReturnCall {
+        func: Func,
+        values: &'a [Value],
+    },
+    ReturnCallIndirect {
+        sig: Signature,
+        table: Table,
+        values: &'a [Value],
+    },
     /// An unreachable instruction.
     Unreachable,
 }
@@ -445,11 +458,20 @@ impl<'a, 'b> Context<'a, 'b> {
                     into.push(WasmBlock::Unreachable);
                 }
                 &Terminator::ReturnCall { func, ref args } => {
-                    into.push(WasmBlock::ReturnCall { func: func, values: args });
+                    into.push(WasmBlock::ReturnCall {
+                        func: func,
+                        values: args,
+                    });
                 }
-                &Terminator::ReturnCallIndirect { sig, table, ref args } => {
-                    into.push(WasmBlock::ReturnCallIndirect { sig, table, values: args })
-                }
+                &Terminator::ReturnCallIndirect {
+                    sig,
+                    table,
+                    ref args,
+                } => into.push(WasmBlock::ReturnCallIndirect {
+                    sig,
+                    table,
+                    values: args,
+                }),
             }
         }
     }

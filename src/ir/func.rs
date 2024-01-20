@@ -1,11 +1,11 @@
 use super::{Block, FunctionBodyDisplay, Local, Module, Signature, Type, Value, ValueDef};
-use crate::{Func, Table};
 use crate::backend::WasmFuncBackend;
 use crate::cfg::CFGInfo;
 use crate::entity::{EntityRef, EntityVec, PerEntity};
 use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
 use crate::pool::{ListPool, ListRef};
+use crate::{Func, Table};
 use anyhow::Result;
 use fxhash::FxHashMap;
 use std::collections::HashSet;
@@ -539,7 +539,7 @@ pub enum Terminator {
     },
     ReturnCall {
         func: Func,
-       args: Vec<Value>,
+        args: Vec<Value>,
     },
     ReturnCallIndirect {
         sig: Signature,
@@ -595,8 +595,7 @@ impl std::fmt::Display for Terminator {
                 f,
                 "return_call {}({})",
                 func,
-                args
-                    .iter()
+                args.iter()
                     .map(|val| format!("{}", val))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -604,9 +603,9 @@ impl std::fmt::Display for Terminator {
             Terminator::ReturnCallIndirect { sig, table, args } => write!(
                 f,
                 "return_call_indirect ({};{})({})",
-                sig,table,
-                args
-                    .iter()
+                sig,
+                table,
+                args.iter()
                     .map(|val| format!("{}", val))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -641,8 +640,8 @@ impl Terminator {
             }
             Terminator::None => {}
             Terminator::Unreachable => {}
-            Terminator::ReturnCall { func, args } =>{},
-            Terminator::ReturnCallIndirect { sig, table, args } => {},
+            Terminator::ReturnCall { func, args } => {}
+            Terminator::ReturnCallIndirect { sig, table, args } => {}
         }
     }
 
@@ -670,8 +669,8 @@ impl Terminator {
             }
             Terminator::None => {}
             Terminator::Unreachable => {}
-            Terminator::ReturnCall { func, args } =>{},
-            Terminator::ReturnCallIndirect { sig, table, args } => {},
+            Terminator::ReturnCall { func, args } => {}
+            Terminator::ReturnCallIndirect { sig, table, args } => {}
         }
     }
 
@@ -752,15 +751,19 @@ impl Terminator {
                 }
             }
             &Terminator::ReturnCall { func, ref args } => {
-                for value in args{
+                for value in args {
                     f(*value);
                 }
             }
-            &Terminator::ReturnCallIndirect { sig, table, ref args } => {
-                for value in args{
+            &Terminator::ReturnCallIndirect {
+                sig,
+                table,
+                ref args,
+            } => {
+                for value in args {
                     f(*value);
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -780,15 +783,19 @@ impl Terminator {
                 }
             }
             &mut Terminator::ReturnCall { func, ref mut args } => {
-                for value in args{
+                for value in args {
                     f(value);
                 }
             }
-            &mut Terminator::ReturnCallIndirect { sig, table, ref mut args } => {
-                for value in args{
+            &mut Terminator::ReturnCallIndirect {
+                sig,
+                table,
+                ref mut args,
+            } => {
+                for value in args {
                     f(value);
                 }
-            },
+            }
             _ => {}
         }
     }

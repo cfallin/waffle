@@ -24,7 +24,7 @@ pub fn op_inputs(
         }
 
         &Operator::Select => {
-            let Some(op_stack) = op_stack else{
+            let Some(op_stack) = op_stack else {
                 anyhow::bail!("selects cannot be typed with no stack");
             };
             let val_ty = op_stack[op_stack.len() - 2].0;
@@ -246,7 +246,7 @@ pub fn op_outputs(
         }
 
         &Operator::Select => {
-            let Some(op_stack) = op_stack else{
+            let Some(op_stack) = op_stack else {
                 anyhow::bail!("selects cannot be typed with no stack");
             };
             let val_ty = op_stack[op_stack.len() - 2].0;
