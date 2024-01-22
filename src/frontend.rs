@@ -1151,7 +1151,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableGet { .. }
             | wasmparser::Operator::TableSet { .. }
             | wasmparser::Operator::TableGrow { .. }
-            | wasmparser::Operator::TableSize { .. } => {
+            | wasmparser::Operator::TableSize { .. } 
+            | wasmparser::Operator::MemoryCopy { .. }
+            | wasmparser::Operator::MemoryFill { .. }=> {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 
