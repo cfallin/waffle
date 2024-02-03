@@ -297,7 +297,11 @@ fn handle_payload<'a>(
             extra_sections.debug_rnglists =
                 gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
         }
-        Payload::CustomSection(_) => {}
+        Payload::CustomSection(reader) => {
+            module
+                .custom_sections
+                .insert(reader.name().to_owned(), reader.data().to_owned());
+        }
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
             for element in reader {
@@ -1151,9 +1155,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableGet { .. }
             | wasmparser::Operator::TableSet { .. }
             | wasmparser::Operator::TableGrow { .. }
-            | wasmparser::Operator::TableSize { .. } 
+            | wasmparser::Operator::TableSize { .. }
             | wasmparser::Operator::MemoryCopy { .. }
-            | wasmparser::Operator::MemoryFill { .. }=> {
+            | wasmparser::Operator::MemoryFill { .. } => {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 

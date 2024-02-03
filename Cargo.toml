@@ -23,6 +23,7 @@ addr2line = "0.19"
 # For fuzzing only. Versions must match those in fuzz/Cargo.toml.
 libfuzzer-sys = { version = "0.4", optional = true }
 wasm-smith = { version = "0.8", optional = true }
+indexmap = "2.2.2"
 
 [features]
 default = []

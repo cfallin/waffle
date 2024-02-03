@@ -7,6 +7,7 @@ use crate::Operator;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use wasm_encoder::CustomSection;
 
 pub mod stackify;
 use stackify::{Context as StackifyContext, WasmBlock};
@@ -787,6 +788,9 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     }
     names.functions(&func_names);
     into_mod.section(&names);
+    for (k, v) in module.custom_sections.iter() {
+        into_mod.section(&CustomSection { name: &k, data: &v });
+    }
 
     Ok(into_mod.finish())
 }
