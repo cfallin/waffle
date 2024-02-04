@@ -72,6 +72,7 @@ pub fn fixup_orders(m: &mut Module) {
         i += 1;
     }
     assert_eq!(fs.len(),m.funcs.len());
+    fs.insert(Func::invalid(),Func::invalid());
     reorder_funcs(m, &fs);
     return;
 }
