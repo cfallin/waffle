@@ -32,7 +32,11 @@ pub fn reorder_funcs(m: &mut Module, fs: &BTreeMap<Func, Func>) {
     for t in m.tables.values_mut() {
         if let Some(e) = t.func_elements.as_mut() {
             for e in e.iter_mut() {
-                *e = *fs.get(&*e).unwrap();
+                let Some(f) = fs.get(&*e) else{
+                    let f = *e;
+                    panic!("invalid func: {f}; {}",m.funcs[f].name())
+                };
+                *e = *f;
             }
         }
     }
