@@ -11,7 +11,7 @@ pub mod entity;
 mod errors;
 mod frontend;
 mod ir;
-mod op_traits;
+pub mod op_traits;
 mod ops;
 pub mod passes;
 pub mod pool;

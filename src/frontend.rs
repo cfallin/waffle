@@ -297,7 +297,11 @@ fn handle_payload<'a>(
             extra_sections.debug_rnglists =
                 gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
         }
-        Payload::CustomSection(_) => {}
+        Payload::CustomSection(reader) => {
+            module
+                .custom_sections
+                .insert(reader.name().to_owned(), reader.data().to_owned());
+        }
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
             for element in reader {
@@ -1151,7 +1155,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableGet { .. }
             | wasmparser::Operator::TableSet { .. }
             | wasmparser::Operator::TableGrow { .. }
-            | wasmparser::Operator::TableSize { .. } => {
+            | wasmparser::Operator::TableSize { .. }
+            | wasmparser::Operator::MemoryCopy { .. }
+            | wasmparser::Operator::MemoryFill { .. } => {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 
@@ -1228,6 +1234,31 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             wasmparser::Operator::Return => {
                 let retvals = self.pop_n(self.module.signatures[self.my_sig].returns.len());
                 self.emit_ret(&retvals[..]);
+                self.reachable = false;
+            }
+            wasmparser::Operator::ReturnCall { function_index } => {
+                let sig = self.module.funcs[Func::new(*function_index as usize)].sig();
+                let retvals = self.pop_n(self.module.signatures[sig].params.len());
+                self.emit_term(Terminator::ReturnCall {
+                    func: Func::new(*function_index as usize),
+                    args: retvals,
+                });
+                self.reachable = false;
+            }
+            wasmparser::Operator::ReturnCallIndirect {
+                type_index,
+                table_index,
+            } => {
+                let retvals = self.pop_n(
+                    self.module.signatures[Signature::new(*type_index as usize)]
+                        .params
+                        .len(),
+                );
+                self.emit_term(Terminator::ReturnCallIndirect {
+                    sig: Signature::new(*type_index as usize),
+                    table: Table::new(*table_index as usize),
+                    args: retvals,
+                });
                 self.reachable = false;
             }
 
@@ -1647,6 +1678,19 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
         }
     }
 
+    fn emit_term(&mut self, t: Terminator) {
+        log::trace!(
+            "emit_term: cur_block {} reachable {} terminator {:?}",
+            self.cur_block,
+            self.reachable,
+            t
+        );
+        if self.reachable {
+            self.body.set_terminator(self.cur_block, t);
+            self.reachable = false;
+        }
+    }
+
     fn emit_unreachable(&mut self) {
         log::trace!(
             "emit_unreachable: cur_block {} reachable {}",
@@ -1674,8 +1718,8 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
     }
 
     fn emit(&mut self, op: Operator, loc: SourceLoc) -> Result<()> {
-        let inputs = op_inputs(self.module, &self.op_stack[..], &op)?;
-        let outputs = op_outputs(self.module, &self.op_stack[..], &op)?;
+        let inputs = op_inputs(self.module, Some(&self.op_stack[..]), &op)?;
+        let outputs = op_outputs(self.module, Some(&self.op_stack[..]), &op)?;
 
         log::trace!(
             "emit into block {:?}: op {:?} inputs {:?}",

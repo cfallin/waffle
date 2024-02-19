@@ -227,6 +227,38 @@ impl InterpContext {
             }
 
             match &body.blocks[frame.cur_block].terminator {
+                &Terminator::ReturnCallIndirect {
+                    sig,
+                    table,
+                    ref args,
+                } => {
+                    let args = args
+                        .iter()
+                        .map(|&arg| {
+                            let arg = body.resolve_alias(arg);
+                            let multivalue = frame.values.get(&arg).unwrap();
+                            assert_eq!(multivalue.len(), 1);
+                            multivalue[0]
+                        })
+                        .collect::<Vec<_>>();
+                    let idx = args.last().unwrap().as_u32().unwrap() as usize;
+                    let func = self.tables[table].elements[idx];
+                    let result = self.call(module, func, &args[..args.len() - 1]);
+                    return result;
+                }
+                &Terminator::ReturnCall { func, ref args } => {
+                    let args = args
+                        .iter()
+                        .map(|&arg| {
+                            let arg = body.resolve_alias(arg);
+                            let multivalue = frame.values.get(&arg).unwrap();
+                            assert_eq!(multivalue.len(), 1);
+                            multivalue[0]
+                        })
+                        .collect::<Vec<_>>();
+                    let result = self.call(module, func, &args[..]);
+                    return result;
+                }
                 &Terminator::None => {
                     return InterpResult::Trap(frame.func, frame.cur_block, u32::MAX)
                 }
