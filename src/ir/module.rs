@@ -192,6 +192,9 @@ impl<'a> Module<'a> {
     }
 
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
+        backend::compile(self).map(|a|a.finish())
+    }
+    pub fn to_encoded_module(&self) -> Result<wasm_encoder::Module>{
         backend::compile(self)
     }
 

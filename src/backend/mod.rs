@@ -16,6 +16,8 @@ use treeify::Trees;
 pub mod localify;
 use localify::Localifier;
 
+
+
 pub struct WasmFuncBackend<'a> {
     body: &'a FunctionBody,
     trees: Trees,
@@ -547,7 +549,7 @@ impl<'a> WasmFuncBackend<'a> {
     }
 }
 
-pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
+pub fn compile(module: &Module<'_>) -> anyhow::Result<wasm_encoder::Module> {
     let mut into_mod = wasm_encoder::Module::new();
 
     let mut types = wasm_encoder::TypeSection::new();
@@ -788,11 +790,8 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     }
     names.functions(&func_names);
     into_mod.section(&names);
-    for (k, v) in module.custom_sections.iter() {
-        into_mod.section(&CustomSection { name: &k, data: &v });
-    }
 
-    Ok(into_mod.finish())
+    Ok(into_mod)
 }
 
 fn const_init(ty: Type, value: Option<u64>) -> wasm_encoder::ConstExpr {
