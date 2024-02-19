@@ -20,7 +20,7 @@ pub struct Module<'a> {
     pub start_func: Option<Func>,
     pub debug: Debug,
     pub debug_map: DebugMap,
-    pub custom_sections: IndexMap<String,Vec<u8>>
+    pub custom_sections: IndexMap<String, Vec<u8>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

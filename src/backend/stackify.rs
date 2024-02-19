@@ -31,13 +31,9 @@ pub enum WasmBlock<'a> {
         header: Block,
     },
     /// A leaf node: one CFG block.
-    Leaf {
-        block: Block,
-    },
+    Leaf { block: Block },
     /// A translated unconditional branch.
-    Br {
-        target: WasmLabel,
-    },
+    Br { target: WasmLabel },
     /// A translated conditional.
     If {
         cond: Value,
@@ -56,13 +52,10 @@ pub enum WasmBlock<'a> {
         to: &'a [(Type, Value)],
     },
     /// A function return instruction.
-    Return {
-        values: &'a [Value],
-    },
-    ReturnCall {
-        func: Func,
-        values: &'a [Value],
-    },
+    Return { values: &'a [Value] },
+    /// A function tail call instruction
+    ReturnCall { func: Func, values: &'a [Value] },
+    /// A function indirect tail call instruction
     ReturnCallIndirect {
         sig: Signature,
         table: Table,

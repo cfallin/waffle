@@ -1249,7 +1249,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
                 type_index,
                 table_index,
             } => {
-                // let sig = self.module.funcs[Func::new(*function_index as usize)].sig();
                 let retvals = self.pop_n(
                     self.module.signatures[Signature::new(*type_index as usize)]
                         .params
@@ -1687,7 +1686,6 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             t
         );
         if self.reachable {
-            // let values = values.to_vec();
             self.body.set_terminator(self.cur_block, t);
             self.reachable = false;
         }
