@@ -634,7 +634,7 @@ pub enum Operator {
 
 #[test]
 fn op_size() {
-    assert_eq!(std::mem::size_of::<Operator>(), 16);
+    assert_eq!(std::mem::size_of::<Operator>(), 32);
 }
 
 impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
