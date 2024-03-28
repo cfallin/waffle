@@ -96,10 +96,17 @@ fn handle_payload<'a>(
     trace!("Wasm parser item: {:?}", payload);
     match payload {
         Payload::TypeSection(reader) => {
-            for ty in reader {
-                let ty = ty?;
-                let wasmparser::Type::Func(fty) = ty;
-                module.signatures.push(fty.into());
+            for rec_group in reader {
+                for ty in rec_group?.into_types() {
+                    match &ty.composite_type {
+                        wasmparser::CompositeType::Func(fty) => {
+                            module.signatures.push(fty.into());
+                        }
+                        _ => bail!(FrontendError::UnsupportedFeature(
+                            "non-function type in type section".into()
+                        )),
+                    }
+                }
             }
         }
         Payload::ImportSection(reader) => {
@@ -167,7 +174,7 @@ fn handle_payload<'a>(
         Payload::TableSection(reader) => {
             for table in reader {
                 let table = table?;
-                module.frontend_add_table(table.element_type.into(), table.maximum);
+                module.frontend_add_table(table.ty.element_type.into(), table.ty.maximum);
             }
         }
         Payload::FunctionSection(reader) => {
@@ -237,7 +244,7 @@ fn handle_payload<'a>(
             }
         }
         Payload::CustomSection(reader) if reader.name() == "name" => {
-            let name_reader = NameSectionReader::new(reader.data(), reader.data_offset())?;
+            let name_reader = NameSectionReader::new(reader.data(), reader.data_offset());
             for subsection in name_reader {
                 let subsection = subsection?;
                 match subsection {
@@ -302,12 +309,6 @@ fn handle_payload<'a>(
         Payload::ElementSection(reader) => {
             for element in reader {
                 let element = element?;
-                if element.ty != wasmparser::ValType::FuncRef {
-                    bail!(FrontendError::UnsupportedFeature(format!(
-                        "Unsupported table type: {:?}",
-                        element.ty
-                    )));
-                }
                 match &element.kind {
                     wasmparser::ElementKind::Passive => {}
                     wasmparser::ElementKind::Declared => {}
@@ -315,44 +316,45 @@ fn handle_payload<'a>(
                         table_index,
                         offset_expr,
                     } => {
-                        let table = Table::from(*table_index);
+                        let table = Table::from(table_index.unwrap_or(0));
                         let offset = parse_init_expr(&offset_expr)?.unwrap_or(0) as usize;
-                        let items = element
-                            .items
-                            .get_items_reader()?
-                            .into_iter()
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let mut funcs = vec![];
-                        for item in items {
-                            let func = match item {
-                                wasmparser::ElementItem::Func(func_idx) => Func::from(func_idx),
-                                _ => bail!(FrontendError::UnsupportedFeature(format!(
-                                    "Unsupported element item: {:?}",
-                                    item
-                                ))),
-                            };
-                            funcs.push(func);
-                        }
+                        match element.items {
+                            wasmparser::ElementItems::Functions(items) => {
+                                let mut funcs = vec![];
+                                for item in items {
+                                    let item = item?;
+                                    let func = Func::from(item);
+                                    funcs.push(func);
+                                }
 
-                        let table_items = module.tables[table].func_elements.as_mut().unwrap();
-                        let new_size = offset.checked_add(funcs.len()).ok_or_else(|| {
-                            FrontendError::TooLarge(format!(
-                                "Overflowing element offset + length: {} + {}",
-                                offset,
-                                funcs.len()
-                            ))
-                        })?;
-                        if new_size > table_items.len() {
-                            static MAX_TABLE: usize = 100_000;
-                            if new_size > MAX_TABLE {
-                                bail!(FrontendError::TooLarge(format!(
-                                    "Too many table elements: {:?}",
-                                    new_size
-                                )));
+                                let table_items =
+                                    module.tables[table].func_elements.as_mut().unwrap();
+                                let new_size =
+                                    offset.checked_add(funcs.len()).ok_or_else(|| {
+                                        FrontendError::TooLarge(format!(
+                                            "Overflowing element offset + length: {} + {}",
+                                            offset,
+                                            funcs.len()
+                                        ))
+                                    })?;
+                                if new_size > table_items.len() {
+                                    static MAX_TABLE: usize = 100_000;
+                                    if new_size > MAX_TABLE {
+                                        bail!(FrontendError::TooLarge(format!(
+                                            "Too many table elements: {:?}",
+                                            new_size
+                                        )));
+                                    }
+                                    table_items.resize(new_size, Func::invalid());
+                                }
+                                table_items[offset..new_size].copy_from_slice(&funcs[..]);
                             }
-                            table_items.resize(new_size, Func::invalid());
+                            wasmparser::ElementItems::Expressions(..) => {
+                                bail!(FrontendError::UnsupportedFeature(
+                                    "Expression element items".into()
+                                ))
+                            }
                         }
-                        table_items[offset..new_size].copy_from_slice(&funcs[..]);
                     }
                 }
             }

@@ -950,7 +950,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                 num_table_imports += 1;
                 let table = &module.tables[table];
                 wasm_encoder::EntityType::Table(wasm_encoder::TableType {
-                    element_type: wasm_encoder::ValType::from(table.ty),
+                    element_type: wasm_encoder::RefType::from(table.ty),
                     minimum: table
                         .func_elements
                         .as_ref()
@@ -1000,7 +1000,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     let mut tables = wasm_encoder::TableSection::new();
     for table_data in module.tables.values().skip(num_table_imports) {
         tables.table(wasm_encoder::TableType {
-            element_type: wasm_encoder::ValType::from(table_data.ty),
+            element_type: wasm_encoder::RefType::from(table_data.ty),
             minimum: table_data
                 .func_elements
                 .as_ref()
@@ -1084,7 +1084,6 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                     elem.active(
                         Some(table.index() as u32),
                         &wasm_encoder::ConstExpr::i32_const(i as i32),
-                        wasm_encoder::ValType::FuncRef,
                         wasm_encoder::Elements::Functions(&[elt.index() as u32]),
                     );
                 }
