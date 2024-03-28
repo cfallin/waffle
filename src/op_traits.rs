@@ -1,5 +1,6 @@
 //! Metadata on operators.
 
+use crate::entity::EntityRef;
 use crate::ir::{Module, Type, Value};
 use crate::Operator;
 use anyhow::Result;
@@ -475,6 +476,13 @@ pub fn op_inputs(
         Operator::F64x2ConvertLowI32x4U => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::F32x4DemoteF64x2Zero => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::F64x2PromoteLowF32x4 => Ok(Cow::Borrowed(&[Type::V128])),
+
+        Operator::CallRef { sig_index } => {
+            let mut params = module.signatures[*sig_index].params.to_vec();
+            params.push(Type::TypedFuncRef(true, sig_index.index() as u32));
+            Ok(params.into())
+        }
+        Operator::RefFunc { .. } => Ok(Cow::Borrowed(&[])),
     }
 }
 
@@ -933,6 +941,14 @@ pub fn op_outputs(
         Operator::F64x2ConvertLowI32x4U => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::F32x4DemoteF64x2Zero => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::F64x2PromoteLowF32x4 => Ok(Cow::Borrowed(&[Type::V128])),
+
+        Operator::CallRef { sig_index } => {
+            Ok(Vec::from(module.signatures[*sig_index].returns.clone()).into())
+        }
+        Operator::RefFunc { func_index } => {
+            let ty = module.funcs[*func_index].sig();
+            Ok(vec![Type::TypedFuncRef(true, ty.index() as u32)].into())
+        }
     }
 }
 
@@ -1397,6 +1413,9 @@ impl Operator {
             Operator::F64x2ConvertLowI32x4U => &[],
             Operator::F32x4DemoteF64x2Zero => &[],
             Operator::F64x2PromoteLowF32x4 => &[],
+
+            Operator::CallRef { .. } => &[All],
+            Operator::RefFunc { .. } => &[],
         }
     }
 
@@ -1885,6 +1904,9 @@ impl std::fmt::Display for Operator {
             Operator::F64x2ConvertLowI32x4U => write!(f, "f64x2convertlowi32x4u")?,
             Operator::F32x4DemoteF64x2Zero => write!(f, "f32x4demotef64x2zero")?,
             Operator::F64x2PromoteLowF32x4 => write!(f, "f64x2promotelowf32x4")?,
+
+            Operator::CallRef { sig_index } => write!(f, "call_ref<{}>", sig_index)?,
+            Operator::RefFunc { func_index } => write!(f, "ref_func<{}>", func_index)?,
         }
 
         Ok(())

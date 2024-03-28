@@ -26,7 +26,6 @@ impl From<wasmparser::ValType> for Type {
 }
 impl From<wasmparser::RefType> for Type {
     fn from(ty: wasmparser::RefType) -> Self {
-        assert!(ty.is_func_ref(), "only funcrefs are supported right now");
         match ty.type_index() {
             Some(idx) => {
                 let nullable = ty.is_nullable();
