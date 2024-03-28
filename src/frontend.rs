@@ -679,6 +679,11 @@ impl LocalTracker {
                 ListRef::default(),
                 types,
             )),
+            Type::V128 => body.add_value(ValueDef::Operator(
+                Operator::V128Const { value: 0 },
+                ListRef::default(),
+                types,
+            )),
             _ => todo!("unsupported type: {:?}", ty),
         };
         body.append_to_block(at_block, val);
