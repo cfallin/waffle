@@ -1172,11 +1172,7 @@ pub fn const_eval(
                 Some(ConstVal::None)
             }),
         (_, args) if args.iter().any(|&arg| arg == ConstVal::None) => None,
-        (op, args) => unimplemented!(
-            "Undefined operator or arg combination: {:?}, {:?}",
-            op,
-            args
-        ),
+        _ => None,
     }
 }
 
