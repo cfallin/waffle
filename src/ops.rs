@@ -630,6 +630,13 @@ pub enum Operator {
     F64x2ConvertLowI32x4U,
     F32x4DemoteF64x2Zero,
     F64x2PromoteLowF32x4,
+
+    CallRef {
+        sig_index: Signature,
+    },
+    RefFunc {
+        func_index: Func,
+    },
 }
 
 #[test]
@@ -1258,6 +1265,13 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
             &wasmparser::Operator::F64x2ConvertLowI32x4U => Ok(Operator::F64x2ConvertLowI32x4U),
             &wasmparser::Operator::F32x4DemoteF64x2Zero => Ok(Operator::F32x4DemoteF64x2Zero),
             &wasmparser::Operator::F64x2PromoteLowF32x4 => Ok(Operator::F64x2PromoteLowF32x4),
+
+            &wasmparser::Operator::CallRef { type_index } => Ok(Operator::CallRef {
+                sig_index: Signature::from(type_index),
+            }),
+            &wasmparser::Operator::RefFunc { function_index } => Ok(Operator::RefFunc {
+                func_index: Func::from(function_index),
+            }),
 
             _ => Err(()),
         }

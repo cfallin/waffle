@@ -133,7 +133,11 @@ fn handle_payload<'a>(
                         ImportKind::Global(global)
                     }
                     TypeRef::Table(ty) => {
-                        let table = module.frontend_add_table(ty.element_type.into(), None);
+                        let table = module.frontend_add_table(
+                            ty.element_type.into(),
+                            ty.initial,
+                            ty.maximum,
+                        );
                         ImportKind::Table(table)
                     }
                     TypeRef::Memory(mem) => {
@@ -174,7 +178,11 @@ fn handle_payload<'a>(
         Payload::TableSection(reader) => {
             for table in reader {
                 let table = table?;
-                module.frontend_add_table(table.ty.element_type.into(), table.ty.maximum);
+                module.frontend_add_table(
+                    table.ty.element_type.into(),
+                    table.ty.initial,
+                    table.ty.maximum,
+                );
             }
         }
         Payload::FunctionSection(reader) => {
@@ -318,7 +326,7 @@ fn handle_payload<'a>(
                     } => {
                         let table = Table::from(table_index.unwrap_or(0));
                         let offset = parse_init_expr(&offset_expr)?.unwrap_or(0) as usize;
-                        match element.items {
+                        let funcs = match element.items {
                             wasmparser::ElementItems::Functions(items) => {
                                 let mut funcs = vec![];
                                 for item in items {
@@ -326,35 +334,51 @@ fn handle_payload<'a>(
                                     let func = Func::from(item);
                                     funcs.push(func);
                                 }
-
-                                let table_items =
-                                    module.tables[table].func_elements.as_mut().unwrap();
-                                let new_size =
-                                    offset.checked_add(funcs.len()).ok_or_else(|| {
-                                        FrontendError::TooLarge(format!(
-                                            "Overflowing element offset + length: {} + {}",
-                                            offset,
-                                            funcs.len()
-                                        ))
-                                    })?;
-                                if new_size > table_items.len() {
-                                    static MAX_TABLE: usize = 100_000;
-                                    if new_size > MAX_TABLE {
-                                        bail!(FrontendError::TooLarge(format!(
-                                            "Too many table elements: {:?}",
-                                            new_size
-                                        )));
+                                funcs
+                            }
+                            wasmparser::ElementItems::Expressions(_, const_exprs) => {
+                                let mut funcs = vec![];
+                                for const_expr in const_exprs {
+                                    let const_expr = const_expr?;
+                                    let mut func = None;
+                                    for op in const_expr.get_operators_reader() {
+                                        let op = op?;
+                                        match op {
+                                            wasmparser::Operator::End => {}
+                                            wasmparser::Operator::RefFunc { function_index } => {
+                                                func = Some(Func::from(function_index));
+                                            }
+                                            wasmparser::Operator::RefNull { .. } => {
+                                                func = Some(Func::invalid());
+                                            }
+                                            _ => panic!("Unsupported table-init op: {:?}", op),
+                                        }
                                     }
-                                    table_items.resize(new_size, Func::invalid());
+                                    funcs.push(func.unwrap_or(Func::invalid()));
                                 }
-                                table_items[offset..new_size].copy_from_slice(&funcs[..]);
+                                funcs
                             }
-                            wasmparser::ElementItems::Expressions(..) => {
-                                bail!(FrontendError::UnsupportedFeature(
-                                    "Expression element items".into()
-                                ))
+                        };
+
+                        let table_items = module.tables[table].func_elements.as_mut().unwrap();
+                        let new_size = offset.checked_add(funcs.len()).ok_or_else(|| {
+                            FrontendError::TooLarge(format!(
+                                "Overflowing element offset + length: {} + {}",
+                                offset,
+                                funcs.len()
+                            ))
+                        })?;
+                        if new_size > table_items.len() {
+                            static MAX_TABLE: usize = 100_000;
+                            if new_size > MAX_TABLE {
+                                bail!(FrontendError::TooLarge(format!(
+                                    "Too many table elements: {:?}",
+                                    new_size
+                                )));
                             }
+                            table_items.resize(new_size, Func::invalid());
                         }
+                        table_items[offset..new_size].copy_from_slice(&funcs[..]);
                     }
                 }
             }
@@ -1394,7 +1418,9 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::F64x2ConvertLowI32x4S
             | wasmparser::Operator::F64x2ConvertLowI32x4U
             | wasmparser::Operator::F32x4DemoteF64x2Zero
-            | wasmparser::Operator::F64x2PromoteLowF32x4 => {
+            | wasmparser::Operator::F64x2PromoteLowF32x4
+            | wasmparser::Operator::CallRef { .. }
+            | wasmparser::Operator::RefFunc { .. } => {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 

@@ -909,6 +909,13 @@ impl<'a> WasmFuncBackend<'a> {
             }
             Operator::F32x4DemoteF64x2Zero => Some(wasm_encoder::Instruction::F32x4DemoteF64x2Zero),
             Operator::F64x2PromoteLowF32x4 => Some(wasm_encoder::Instruction::F64x2PromoteLowF32x4),
+
+            Operator::CallRef { sig_index } => {
+                Some(wasm_encoder::Instruction::CallRef(sig_index.index() as u32))
+            }
+            Operator::RefFunc { func_index } => {
+                Some(wasm_encoder::Instruction::RefFunc(func_index.index() as u32))
+            }
         };
 
         if let Some(inst) = inst {
@@ -955,7 +962,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                         .func_elements
                         .as_ref()
                         .map(|elts| elts.len() as u32)
-                        .unwrap_or(0),
+                        .unwrap_or(table.initial),
                     maximum: table.max,
                 })
             }
@@ -1081,11 +1088,26 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         if let Some(elts) = &table_data.func_elements {
             for (i, &elt) in elts.iter().enumerate() {
                 if elt.is_valid() {
-                    elem.active(
-                        Some(table.index() as u32),
-                        &wasm_encoder::ConstExpr::i32_const(i as i32),
-                        wasm_encoder::Elements::Functions(&[elt.index() as u32]),
-                    );
+                    match table_data.ty {
+                        Type::FuncRef => {
+                            elem.active(
+                                Some(table.index() as u32),
+                                &wasm_encoder::ConstExpr::i32_const(i as i32),
+                                wasm_encoder::Elements::Functions(&[elt.index() as u32]),
+                            );
+                        }
+                        Type::TypedFuncRef(..) => {
+                            elem.active(
+                                Some(table.index() as u32),
+                                &wasm_encoder::ConstExpr::i32_const(i as i32),
+                                wasm_encoder::Elements::Expressions(
+                                    table_data.ty.into(),
+                                    &[wasm_encoder::ConstExpr::ref_func(elt.index() as u32)],
+                                ),
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
                 }
             }
         }
