@@ -45,6 +45,7 @@ pub struct MemorySegment {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TableData {
     pub ty: Type,
+    pub initial: u32,
     pub max: Option<u32>,
     pub func_elements: Option<Vec<Func>>,
 }
@@ -174,15 +175,12 @@ impl<'a> Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub(crate) fn frontend_add_table(&mut self, ty: Type, max: Option<u32>) -> Table {
-        let func_elements = if ty == Type::FuncRef {
-            Some(vec![])
-        } else {
-            None
-        };
+    pub(crate) fn frontend_add_table(&mut self, ty: Type, initial: u32, max: Option<u32>) -> Table {
+        let func_elements = Some(vec![]);
         self.tables.push(TableData {
             ty,
             func_elements,
+            initial,
             max,
         })
     }

@@ -1,7 +1,6 @@
 //! Pooled list data structure.
 
 use std::convert::TryFrom;
-use std::default::Default;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};

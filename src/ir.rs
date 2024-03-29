@@ -10,6 +10,7 @@ pub enum Type {
     F64,
     V128,
     FuncRef,
+    TypedFuncRef(bool, u32),
 }
 impl From<wasmparser::ValType> for Type {
     fn from(ty: wasmparser::ValType) -> Self {
@@ -19,23 +20,38 @@ impl From<wasmparser::ValType> for Type {
             wasmparser::ValType::F32 => Type::F32,
             wasmparser::ValType::F64 => Type::F64,
             wasmparser::ValType::V128 => Type::V128,
-            wasmparser::ValType::FuncRef => Type::FuncRef,
-            _ => panic!("Unsupported type: {:?}", ty),
+            wasmparser::ValType::Ref(r) => r.into(),
+        }
+    }
+}
+impl From<wasmparser::RefType> for Type {
+    fn from(ty: wasmparser::RefType) -> Self {
+        match ty.type_index() {
+            Some(idx) => {
+                let nullable = ty.is_nullable();
+                Type::TypedFuncRef(nullable, idx.as_module_index().unwrap())
+            }
+            None => Type::FuncRef,
         }
     }
 }
 
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let s = match self {
-            Type::I32 => "i32",
-            Type::I64 => "i64",
-            Type::F32 => "f32",
-            Type::F64 => "f64",
-            Type::V128 => "v128",
-            Type::FuncRef => "funcref",
-        };
-        write!(f, "{}", s)
+        match self {
+            Type::I32 => write!(f, "i32"),
+            Type::I64 => write!(f, "i64"),
+            Type::F32 => write!(f, "f32"),
+            Type::F64 => write!(f, "f64"),
+            Type::V128 => write!(f, "v128"),
+            Type::FuncRef => write!(f, "funcref"),
+            Type::TypedFuncRef(nullable, idx) => write!(
+                f,
+                "funcref({}, {})",
+                if *nullable { "null" } else { "not_null" },
+                idx
+            ),
+        }
     }
 }
 
@@ -47,7 +63,20 @@ impl From<Type> for wasm_encoder::ValType {
             Type::F32 => wasm_encoder::ValType::F32,
             Type::F64 => wasm_encoder::ValType::F64,
             Type::V128 => wasm_encoder::ValType::V128,
-            Type::FuncRef => wasm_encoder::ValType::FuncRef,
+            Type::FuncRef | Type::TypedFuncRef(..) => wasm_encoder::ValType::Ref(ty.into()),
+        }
+    }
+}
+
+impl From<Type> for wasm_encoder::RefType {
+    fn from(ty: Type) -> wasm_encoder::RefType {
+        match ty {
+            Type::FuncRef => wasm_encoder::RefType::FUNCREF,
+            Type::TypedFuncRef(nullable, idx) => wasm_encoder::RefType {
+                nullable,
+                heap_type: wasm_encoder::HeapType::Concrete(idx),
+            },
+            _ => panic!("Cannot convert {:?} into reftype", ty),
         }
     }
 }

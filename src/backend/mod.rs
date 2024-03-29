@@ -541,6 +541,408 @@ impl<'a> WasmFuncBackend<'a> {
             Operator::MemoryFill { mem } => {
                 Some(wasm_encoder::Instruction::MemoryFill(mem.index() as u32))
             }
+
+            Operator::V128Load { memory } => Some(wasm_encoder::Instruction::V128Load(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load8x8S { memory } => Some(wasm_encoder::Instruction::V128Load8x8S(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load8x8U { memory } => Some(wasm_encoder::Instruction::V128Load8x8U(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load16x4S { memory } => Some(wasm_encoder::Instruction::V128Load16x4S(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load16x4U { memory } => Some(wasm_encoder::Instruction::V128Load16x4U(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load32x2S { memory } => Some(wasm_encoder::Instruction::V128Load32x2S(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load32x2U { memory } => Some(wasm_encoder::Instruction::V128Load32x2U(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load8Splat { memory } => Some(wasm_encoder::Instruction::V128Load8Splat(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load16Splat { memory } => Some(
+                wasm_encoder::Instruction::V128Load16Splat(wasm_encoder::MemArg::from(*memory)),
+            ),
+            Operator::V128Load32Splat { memory } => Some(
+                wasm_encoder::Instruction::V128Load32Splat(wasm_encoder::MemArg::from(*memory)),
+            ),
+            Operator::V128Load64Splat { memory } => Some(
+                wasm_encoder::Instruction::V128Load64Splat(wasm_encoder::MemArg::from(*memory)),
+            ),
+            Operator::V128Load32Zero { memory } => Some(wasm_encoder::Instruction::V128Load32Zero(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load64Zero { memory } => Some(wasm_encoder::Instruction::V128Load64Zero(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Store { memory } => Some(wasm_encoder::Instruction::V128Store(
+                wasm_encoder::MemArg::from(*memory),
+            )),
+            Operator::V128Load8Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Load8Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Load16Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Load16Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Load32Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Load32Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Load64Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Load64Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Store8Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Store8Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Store16Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Store16Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Store32Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Store32Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Store64Lane { memory, lane } => {
+                Some(wasm_encoder::Instruction::V128Store64Lane {
+                    memarg: wasm_encoder::MemArg::from(*memory),
+                    lane: *lane,
+                })
+            }
+            Operator::V128Const { value } => {
+                Some(wasm_encoder::Instruction::V128Const(*value as i128))
+            }
+
+            Operator::I8x16Shuffle { lanes } => {
+                Some(wasm_encoder::Instruction::I8x16Shuffle(lanes.clone()))
+            }
+
+            Operator::I8x16ExtractLaneS { lane } => {
+                Some(wasm_encoder::Instruction::I8x16ExtractLaneS(*lane))
+            }
+            Operator::I8x16ExtractLaneU { lane } => {
+                Some(wasm_encoder::Instruction::I8x16ExtractLaneU(*lane))
+            }
+            Operator::I8x16ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::I8x16ReplaceLane(*lane))
+            }
+            Operator::I16x8ExtractLaneS { lane } => {
+                Some(wasm_encoder::Instruction::I16x8ExtractLaneS(*lane))
+            }
+            Operator::I16x8ExtractLaneU { lane } => {
+                Some(wasm_encoder::Instruction::I16x8ExtractLaneU(*lane))
+            }
+            Operator::I16x8ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::I16x8ReplaceLane(*lane))
+            }
+            Operator::I32x4ExtractLane { lane } => {
+                Some(wasm_encoder::Instruction::I32x4ExtractLane(*lane))
+            }
+            Operator::I32x4ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::I32x4ReplaceLane(*lane))
+            }
+            Operator::I64x2ExtractLane { lane } => {
+                Some(wasm_encoder::Instruction::I64x2ExtractLane(*lane))
+            }
+            Operator::I64x2ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::I64x2ReplaceLane(*lane))
+            }
+            Operator::F32x4ExtractLane { lane } => {
+                Some(wasm_encoder::Instruction::F32x4ExtractLane(*lane))
+            }
+            Operator::F32x4ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::F32x4ReplaceLane(*lane))
+            }
+            Operator::F64x2ExtractLane { lane } => {
+                Some(wasm_encoder::Instruction::F64x2ExtractLane(*lane))
+            }
+            Operator::F64x2ReplaceLane { lane } => {
+                Some(wasm_encoder::Instruction::F64x2ReplaceLane(*lane))
+            }
+
+            Operator::I8x16Swizzle => Some(wasm_encoder::Instruction::I8x16Swizzle),
+            Operator::I8x16Splat => Some(wasm_encoder::Instruction::I8x16Splat),
+            Operator::I16x8Splat => Some(wasm_encoder::Instruction::I16x8Splat),
+            Operator::I32x4Splat => Some(wasm_encoder::Instruction::I32x4Splat),
+            Operator::I64x2Splat => Some(wasm_encoder::Instruction::I64x2Splat),
+            Operator::F32x4Splat => Some(wasm_encoder::Instruction::F32x4Splat),
+            Operator::F64x2Splat => Some(wasm_encoder::Instruction::F64x2Splat),
+
+            Operator::I8x16Eq => Some(wasm_encoder::Instruction::I8x16Eq),
+            Operator::I8x16Ne => Some(wasm_encoder::Instruction::I8x16Ne),
+            Operator::I8x16LtS => Some(wasm_encoder::Instruction::I8x16LtS),
+            Operator::I8x16LtU => Some(wasm_encoder::Instruction::I8x16LtU),
+            Operator::I8x16GtS => Some(wasm_encoder::Instruction::I8x16GtS),
+            Operator::I8x16GtU => Some(wasm_encoder::Instruction::I8x16GtU),
+            Operator::I8x16LeS => Some(wasm_encoder::Instruction::I8x16LeS),
+            Operator::I8x16LeU => Some(wasm_encoder::Instruction::I8x16LeU),
+            Operator::I8x16GeS => Some(wasm_encoder::Instruction::I8x16GeS),
+            Operator::I8x16GeU => Some(wasm_encoder::Instruction::I8x16GeU),
+
+            Operator::I16x8Eq => Some(wasm_encoder::Instruction::I16x8Eq),
+            Operator::I16x8Ne => Some(wasm_encoder::Instruction::I16x8Ne),
+            Operator::I16x8LtS => Some(wasm_encoder::Instruction::I16x8LtS),
+            Operator::I16x8LtU => Some(wasm_encoder::Instruction::I16x8LtU),
+            Operator::I16x8GtS => Some(wasm_encoder::Instruction::I16x8GtS),
+            Operator::I16x8GtU => Some(wasm_encoder::Instruction::I16x8GtU),
+            Operator::I16x8LeS => Some(wasm_encoder::Instruction::I16x8LeS),
+            Operator::I16x8LeU => Some(wasm_encoder::Instruction::I16x8LeU),
+            Operator::I16x8GeS => Some(wasm_encoder::Instruction::I16x8GeS),
+            Operator::I16x8GeU => Some(wasm_encoder::Instruction::I16x8GeU),
+
+            Operator::I32x4Eq => Some(wasm_encoder::Instruction::I32x4Eq),
+            Operator::I32x4Ne => Some(wasm_encoder::Instruction::I32x4Ne),
+            Operator::I32x4LtS => Some(wasm_encoder::Instruction::I32x4LtS),
+            Operator::I32x4LtU => Some(wasm_encoder::Instruction::I32x4LtU),
+            Operator::I32x4GtS => Some(wasm_encoder::Instruction::I32x4GtS),
+            Operator::I32x4GtU => Some(wasm_encoder::Instruction::I32x4GtU),
+            Operator::I32x4LeS => Some(wasm_encoder::Instruction::I32x4LeS),
+            Operator::I32x4LeU => Some(wasm_encoder::Instruction::I32x4LeU),
+            Operator::I32x4GeS => Some(wasm_encoder::Instruction::I32x4GeS),
+            Operator::I32x4GeU => Some(wasm_encoder::Instruction::I32x4GeU),
+
+            Operator::I64x2Eq => Some(wasm_encoder::Instruction::I64x2Eq),
+            Operator::I64x2Ne => Some(wasm_encoder::Instruction::I64x2Ne),
+            Operator::I64x2LtS => Some(wasm_encoder::Instruction::I64x2LtS),
+            Operator::I64x2GtS => Some(wasm_encoder::Instruction::I64x2GtS),
+            Operator::I64x2LeS => Some(wasm_encoder::Instruction::I64x2LeS),
+            Operator::I64x2GeS => Some(wasm_encoder::Instruction::I64x2GeS),
+
+            Operator::F32x4Eq => Some(wasm_encoder::Instruction::F32x4Eq),
+            Operator::F32x4Ne => Some(wasm_encoder::Instruction::F32x4Ne),
+            Operator::F32x4Lt => Some(wasm_encoder::Instruction::F32x4Lt),
+            Operator::F32x4Gt => Some(wasm_encoder::Instruction::F32x4Gt),
+            Operator::F32x4Le => Some(wasm_encoder::Instruction::F32x4Le),
+            Operator::F32x4Ge => Some(wasm_encoder::Instruction::F32x4Ge),
+
+            Operator::F64x2Eq => Some(wasm_encoder::Instruction::F64x2Eq),
+            Operator::F64x2Ne => Some(wasm_encoder::Instruction::F64x2Ne),
+            Operator::F64x2Lt => Some(wasm_encoder::Instruction::F64x2Lt),
+            Operator::F64x2Gt => Some(wasm_encoder::Instruction::F64x2Gt),
+            Operator::F64x2Le => Some(wasm_encoder::Instruction::F64x2Le),
+            Operator::F64x2Ge => Some(wasm_encoder::Instruction::F64x2Ge),
+
+            Operator::V128Not => Some(wasm_encoder::Instruction::V128Not),
+            Operator::V128And => Some(wasm_encoder::Instruction::V128And),
+            Operator::V128AndNot => Some(wasm_encoder::Instruction::V128AndNot),
+            Operator::V128Or => Some(wasm_encoder::Instruction::V128Or),
+            Operator::V128Xor => Some(wasm_encoder::Instruction::V128Xor),
+            Operator::V128Bitselect => Some(wasm_encoder::Instruction::V128Bitselect),
+            Operator::V128AnyTrue => Some(wasm_encoder::Instruction::V128AnyTrue),
+
+            Operator::I8x16Abs => Some(wasm_encoder::Instruction::I8x16Abs),
+            Operator::I8x16Neg => Some(wasm_encoder::Instruction::I8x16Neg),
+            Operator::I8x16Popcnt => Some(wasm_encoder::Instruction::I8x16Popcnt),
+            Operator::I8x16AllTrue => Some(wasm_encoder::Instruction::I8x16AllTrue),
+            Operator::I8x16Bitmask => Some(wasm_encoder::Instruction::I8x16Bitmask),
+            Operator::I8x16NarrowI16x8S => Some(wasm_encoder::Instruction::I8x16NarrowI16x8S),
+            Operator::I8x16NarrowI16x8U => Some(wasm_encoder::Instruction::I8x16NarrowI16x8U),
+            Operator::I8x16Shl => Some(wasm_encoder::Instruction::I8x16Shl),
+            Operator::I8x16ShrS => Some(wasm_encoder::Instruction::I8x16ShrS),
+            Operator::I8x16ShrU => Some(wasm_encoder::Instruction::I8x16ShrU),
+            Operator::I8x16Add => Some(wasm_encoder::Instruction::I8x16Add),
+            Operator::I8x16AddSatS => Some(wasm_encoder::Instruction::I8x16AddSatS),
+            Operator::I8x16AddSatU => Some(wasm_encoder::Instruction::I8x16AddSatU),
+            Operator::I8x16Sub => Some(wasm_encoder::Instruction::I8x16Sub),
+            Operator::I8x16SubSatS => Some(wasm_encoder::Instruction::I8x16SubSatS),
+            Operator::I8x16SubSatU => Some(wasm_encoder::Instruction::I8x16SubSatU),
+            Operator::I8x16MinS => Some(wasm_encoder::Instruction::I8x16MinS),
+            Operator::I8x16MinU => Some(wasm_encoder::Instruction::I8x16MinU),
+            Operator::I8x16MaxS => Some(wasm_encoder::Instruction::I8x16MaxS),
+            Operator::I8x16MaxU => Some(wasm_encoder::Instruction::I8x16MaxU),
+            Operator::I8x16AvgrU => Some(wasm_encoder::Instruction::I8x16AvgrU),
+
+            Operator::I16x8ExtAddPairwiseI8x16S => {
+                Some(wasm_encoder::Instruction::I16x8ExtAddPairwiseI8x16S)
+            }
+            Operator::I16x8ExtAddPairwiseI8x16U => {
+                Some(wasm_encoder::Instruction::I16x8ExtAddPairwiseI8x16U)
+            }
+            Operator::I16x8Abs => Some(wasm_encoder::Instruction::I16x8Abs),
+            Operator::I16x8Neg => Some(wasm_encoder::Instruction::I16x8Neg),
+            Operator::I16x8Q15MulrSatS => Some(wasm_encoder::Instruction::I16x8Q15MulrSatS),
+            Operator::I16x8AllTrue => Some(wasm_encoder::Instruction::I16x8AllTrue),
+            Operator::I16x8Bitmask => Some(wasm_encoder::Instruction::I16x8Bitmask),
+            Operator::I16x8NarrowI32x4S => Some(wasm_encoder::Instruction::I16x8NarrowI32x4S),
+            Operator::I16x8NarrowI32x4U => Some(wasm_encoder::Instruction::I16x8NarrowI32x4U),
+            Operator::I16x8ExtendLowI8x16S => Some(wasm_encoder::Instruction::I16x8ExtendLowI8x16S),
+            Operator::I16x8ExtendHighI8x16S => {
+                Some(wasm_encoder::Instruction::I16x8ExtendHighI8x16S)
+            }
+            Operator::I16x8ExtendLowI8x16U => Some(wasm_encoder::Instruction::I16x8ExtendLowI8x16U),
+            Operator::I16x8ExtendHighI8x16U => {
+                Some(wasm_encoder::Instruction::I16x8ExtendHighI8x16U)
+            }
+            Operator::I16x8Shl => Some(wasm_encoder::Instruction::I16x8Shl),
+            Operator::I16x8ShrS => Some(wasm_encoder::Instruction::I16x8ShrS),
+            Operator::I16x8ShrU => Some(wasm_encoder::Instruction::I16x8ShrU),
+            Operator::I16x8Add => Some(wasm_encoder::Instruction::I16x8Add),
+            Operator::I16x8AddSatS => Some(wasm_encoder::Instruction::I16x8AddSatS),
+            Operator::I16x8AddSatU => Some(wasm_encoder::Instruction::I16x8AddSatU),
+            Operator::I16x8Sub => Some(wasm_encoder::Instruction::I16x8Sub),
+            Operator::I16x8SubSatS => Some(wasm_encoder::Instruction::I16x8SubSatS),
+            Operator::I16x8SubSatU => Some(wasm_encoder::Instruction::I16x8SubSatU),
+            Operator::I16x8Mul => Some(wasm_encoder::Instruction::I16x8Mul),
+            Operator::I16x8MinS => Some(wasm_encoder::Instruction::I16x8MinS),
+            Operator::I16x8MinU => Some(wasm_encoder::Instruction::I16x8MinU),
+            Operator::I16x8MaxS => Some(wasm_encoder::Instruction::I16x8MaxS),
+            Operator::I16x8MaxU => Some(wasm_encoder::Instruction::I16x8MaxU),
+            Operator::I16x8AvgrU => Some(wasm_encoder::Instruction::I16x8AvgrU),
+            Operator::I16x8ExtMulLowI8x16S => Some(wasm_encoder::Instruction::I16x8ExtMulLowI8x16S),
+            Operator::I16x8ExtMulHighI8x16S => {
+                Some(wasm_encoder::Instruction::I16x8ExtMulHighI8x16S)
+            }
+            Operator::I16x8ExtMulLowI8x16U => Some(wasm_encoder::Instruction::I16x8ExtMulLowI8x16U),
+            Operator::I16x8ExtMulHighI8x16U => {
+                Some(wasm_encoder::Instruction::I16x8ExtMulHighI8x16U)
+            }
+
+            Operator::I32x4ExtAddPairwiseI16x8S => {
+                Some(wasm_encoder::Instruction::I32x4ExtAddPairwiseI16x8S)
+            }
+            Operator::I32x4ExtAddPairwiseI16x8U => {
+                Some(wasm_encoder::Instruction::I32x4ExtAddPairwiseI16x8U)
+            }
+            Operator::I32x4Abs => Some(wasm_encoder::Instruction::I32x4Abs),
+            Operator::I32x4Neg => Some(wasm_encoder::Instruction::I32x4Neg),
+            Operator::I32x4AllTrue => Some(wasm_encoder::Instruction::I32x4AllTrue),
+            Operator::I32x4Bitmask => Some(wasm_encoder::Instruction::I32x4Bitmask),
+            Operator::I32x4ExtendLowI16x8S => Some(wasm_encoder::Instruction::I32x4ExtendLowI16x8S),
+            Operator::I32x4ExtendHighI16x8S => {
+                Some(wasm_encoder::Instruction::I32x4ExtendHighI16x8S)
+            }
+            Operator::I32x4ExtendLowI16x8U => Some(wasm_encoder::Instruction::I32x4ExtendLowI16x8U),
+            Operator::I32x4ExtendHighI16x8U => {
+                Some(wasm_encoder::Instruction::I32x4ExtendHighI16x8U)
+            }
+            Operator::I32x4Shl => Some(wasm_encoder::Instruction::I32x4Shl),
+            Operator::I32x4ShrS => Some(wasm_encoder::Instruction::I32x4ShrS),
+            Operator::I32x4ShrU => Some(wasm_encoder::Instruction::I32x4ShrU),
+            Operator::I32x4Add => Some(wasm_encoder::Instruction::I32x4Add),
+            Operator::I32x4Sub => Some(wasm_encoder::Instruction::I32x4Sub),
+            Operator::I32x4Mul => Some(wasm_encoder::Instruction::I32x4Mul),
+            Operator::I32x4MinS => Some(wasm_encoder::Instruction::I32x4MinS),
+            Operator::I32x4MinU => Some(wasm_encoder::Instruction::I32x4MinU),
+            Operator::I32x4MaxS => Some(wasm_encoder::Instruction::I32x4MaxS),
+            Operator::I32x4MaxU => Some(wasm_encoder::Instruction::I32x4MaxU),
+            Operator::I32x4DotI16x8S => Some(wasm_encoder::Instruction::I32x4DotI16x8S),
+            Operator::I32x4ExtMulLowI16x8S => Some(wasm_encoder::Instruction::I32x4ExtMulLowI16x8S),
+            Operator::I32x4ExtMulHighI16x8S => {
+                Some(wasm_encoder::Instruction::I32x4ExtMulHighI16x8S)
+            }
+            Operator::I32x4ExtMulLowI16x8U => Some(wasm_encoder::Instruction::I32x4ExtMulLowI16x8U),
+            Operator::I32x4ExtMulHighI16x8U => {
+                Some(wasm_encoder::Instruction::I32x4ExtMulHighI16x8U)
+            }
+
+            Operator::I64x2Abs => Some(wasm_encoder::Instruction::I64x2Abs),
+            Operator::I64x2Neg => Some(wasm_encoder::Instruction::I64x2Neg),
+            Operator::I64x2AllTrue => Some(wasm_encoder::Instruction::I64x2AllTrue),
+            Operator::I64x2Bitmask => Some(wasm_encoder::Instruction::I64x2Bitmask),
+            Operator::I64x2ExtendLowI32x4S => Some(wasm_encoder::Instruction::I64x2ExtendLowI32x4S),
+            Operator::I64x2ExtendHighI32x4S => {
+                Some(wasm_encoder::Instruction::I64x2ExtendHighI32x4S)
+            }
+            Operator::I64x2ExtendLowI32x4U => Some(wasm_encoder::Instruction::I64x2ExtendLowI32x4U),
+            Operator::I64x2ExtendHighI32x4U => {
+                Some(wasm_encoder::Instruction::I64x2ExtendHighI32x4U)
+            }
+            Operator::I64x2Shl => Some(wasm_encoder::Instruction::I64x2Shl),
+            Operator::I64x2ShrS => Some(wasm_encoder::Instruction::I64x2ShrS),
+            Operator::I64x2ShrU => Some(wasm_encoder::Instruction::I64x2ShrU),
+            Operator::I64x2Add => Some(wasm_encoder::Instruction::I64x2Add),
+            Operator::I64x2Sub => Some(wasm_encoder::Instruction::I64x2Sub),
+            Operator::I64x2Mul => Some(wasm_encoder::Instruction::I64x2Mul),
+            Operator::I64x2ExtMulLowI32x4S => Some(wasm_encoder::Instruction::I64x2ExtMulLowI32x4S),
+            Operator::I64x2ExtMulHighI32x4S => {
+                Some(wasm_encoder::Instruction::I64x2ExtMulHighI32x4S)
+            }
+            Operator::I64x2ExtMulLowI32x4U => Some(wasm_encoder::Instruction::I64x2ExtMulLowI32x4U),
+            Operator::I64x2ExtMulHighI32x4U => {
+                Some(wasm_encoder::Instruction::I64x2ExtMulHighI32x4U)
+            }
+
+            Operator::F32x4Ceil => Some(wasm_encoder::Instruction::F32x4Ceil),
+            Operator::F32x4Floor => Some(wasm_encoder::Instruction::F32x4Floor),
+            Operator::F32x4Trunc => Some(wasm_encoder::Instruction::F32x4Trunc),
+            Operator::F32x4Nearest => Some(wasm_encoder::Instruction::F32x4Nearest),
+            Operator::F32x4Abs => Some(wasm_encoder::Instruction::F32x4Abs),
+            Operator::F32x4Neg => Some(wasm_encoder::Instruction::F32x4Neg),
+            Operator::F32x4Sqrt => Some(wasm_encoder::Instruction::F32x4Sqrt),
+            Operator::F32x4Add => Some(wasm_encoder::Instruction::F32x4Add),
+            Operator::F32x4Sub => Some(wasm_encoder::Instruction::F32x4Sub),
+            Operator::F32x4Mul => Some(wasm_encoder::Instruction::F32x4Mul),
+            Operator::F32x4Div => Some(wasm_encoder::Instruction::F32x4Div),
+            Operator::F32x4Min => Some(wasm_encoder::Instruction::F32x4Min),
+            Operator::F32x4Max => Some(wasm_encoder::Instruction::F32x4Max),
+            Operator::F32x4PMin => Some(wasm_encoder::Instruction::F32x4PMin),
+            Operator::F32x4PMax => Some(wasm_encoder::Instruction::F32x4PMax),
+
+            Operator::F64x2Ceil => Some(wasm_encoder::Instruction::F64x2Ceil),
+            Operator::F64x2Floor => Some(wasm_encoder::Instruction::F64x2Floor),
+            Operator::F64x2Trunc => Some(wasm_encoder::Instruction::F64x2Trunc),
+            Operator::F64x2Nearest => Some(wasm_encoder::Instruction::F64x2Nearest),
+            Operator::F64x2Abs => Some(wasm_encoder::Instruction::F64x2Abs),
+            Operator::F64x2Neg => Some(wasm_encoder::Instruction::F64x2Neg),
+            Operator::F64x2Sqrt => Some(wasm_encoder::Instruction::F64x2Sqrt),
+            Operator::F64x2Add => Some(wasm_encoder::Instruction::F64x2Add),
+            Operator::F64x2Sub => Some(wasm_encoder::Instruction::F64x2Sub),
+            Operator::F64x2Mul => Some(wasm_encoder::Instruction::F64x2Mul),
+            Operator::F64x2Div => Some(wasm_encoder::Instruction::F64x2Div),
+            Operator::F64x2Min => Some(wasm_encoder::Instruction::F64x2Min),
+            Operator::F64x2Max => Some(wasm_encoder::Instruction::F64x2Max),
+            Operator::F64x2PMin => Some(wasm_encoder::Instruction::F64x2PMin),
+            Operator::F64x2PMax => Some(wasm_encoder::Instruction::F64x2PMax),
+
+            Operator::I32x4TruncSatF32x4S => Some(wasm_encoder::Instruction::I32x4TruncSatF32x4S),
+            Operator::I32x4TruncSatF32x4U => Some(wasm_encoder::Instruction::I32x4TruncSatF32x4U),
+
+            Operator::F32x4ConvertI32x4S => Some(wasm_encoder::Instruction::F32x4ConvertI32x4S),
+            Operator::F32x4ConvertI32x4U => Some(wasm_encoder::Instruction::F32x4ConvertI32x4U),
+            Operator::I32x4TruncSatF64x2SZero => {
+                Some(wasm_encoder::Instruction::I32x4TruncSatF64x2SZero)
+            }
+            Operator::I32x4TruncSatF64x2UZero => {
+                Some(wasm_encoder::Instruction::I32x4TruncSatF64x2UZero)
+            }
+            Operator::F64x2ConvertLowI32x4S => {
+                Some(wasm_encoder::Instruction::F64x2ConvertLowI32x4S)
+            }
+            Operator::F64x2ConvertLowI32x4U => {
+                Some(wasm_encoder::Instruction::F64x2ConvertLowI32x4U)
+            }
+            Operator::F32x4DemoteF64x2Zero => Some(wasm_encoder::Instruction::F32x4DemoteF64x2Zero),
+            Operator::F64x2PromoteLowF32x4 => Some(wasm_encoder::Instruction::F64x2PromoteLowF32x4),
+
+            Operator::CallRef { sig_index } => {
+                Some(wasm_encoder::Instruction::CallRef(sig_index.index() as u32))
+            }
+            Operator::RefFunc { func_index } => {
+                Some(wasm_encoder::Instruction::RefFunc(func_index.index() as u32))
+            }
         };
 
         if let Some(inst) = inst {
@@ -582,12 +984,12 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<wasm_encoder::Module> {
                 num_table_imports += 1;
                 let table = &module.tables[table];
                 wasm_encoder::EntityType::Table(wasm_encoder::TableType {
-                    element_type: wasm_encoder::ValType::from(table.ty),
+                    element_type: wasm_encoder::RefType::from(table.ty),
                     minimum: table
                         .func_elements
                         .as_ref()
                         .map(|elts| elts.len() as u32)
-                        .unwrap_or(0),
+                        .unwrap_or(table.initial),
                     maximum: table.max,
                 })
             }
@@ -632,7 +1034,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<wasm_encoder::Module> {
     let mut tables = wasm_encoder::TableSection::new();
     for table_data in module.tables.values().skip(num_table_imports) {
         tables.table(wasm_encoder::TableType {
-            element_type: wasm_encoder::ValType::from(table_data.ty),
+            element_type: wasm_encoder::RefType::from(table_data.ty),
             minimum: table_data
                 .func_elements
                 .as_ref()
@@ -713,12 +1115,26 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<wasm_encoder::Module> {
         if let Some(elts) = &table_data.func_elements {
             for (i, &elt) in elts.iter().enumerate() {
                 if elt.is_valid() {
-                    elem.active(
-                        Some(table.index() as u32),
-                        &wasm_encoder::ConstExpr::i32_const(i as i32),
-                        wasm_encoder::ValType::FuncRef,
-                        wasm_encoder::Elements::Functions(&[elt.index() as u32]),
-                    );
+                    match table_data.ty {
+                        Type::FuncRef => {
+                            elem.active(
+                                Some(table.index() as u32),
+                                &wasm_encoder::ConstExpr::i32_const(i as i32),
+                                wasm_encoder::Elements::Functions(&[elt.index() as u32]),
+                            );
+                        }
+                        Type::TypedFuncRef(..) => {
+                            elem.active(
+                                Some(table.index() as u32),
+                                &wasm_encoder::ConstExpr::i32_const(i as i32),
+                                wasm_encoder::Elements::Expressions(
+                                    table_data.ty.into(),
+                                    &[wasm_encoder::ConstExpr::ref_func(elt.index() as u32)],
+                                ),
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
                 }
             }
         }

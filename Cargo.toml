@@ -1,29 +1,29 @@
 [package]
 name = "waffle"
-version = "0.0.22"
+version = "0.0.25"
 description = "Wasm Analysis Framework For Lightweight Experiments"
 authors = ["Chris Fallin <chris@cfallin.org>"]
 license = "Apache-2.0 WITH LLVM-exception"
 edition = "2018"
 
 [dependencies]
-wasmparser = "0.95"
-wasm-encoder = "0.20"
+wasmparser = "0.202"
+wasm-encoder = "0.202"
 anyhow = "1.0"
 structopt = "0.3"
 log = "0.4"
-env_logger = "0.9"
+env_logger = "0.11"
 fxhash = "0.2"
-smallvec = "1.7"
-rayon = "1.5"
+smallvec = "1.13"
+rayon = "1.10"
 lazy_static = "1.4"
 libc = "0.2"
-addr2line = "0.19"
+addr2line = "0.21"
 
 # For fuzzing only. Versions must match those in fuzz/Cargo.toml.
 libfuzzer-sys = { version = "0.4", optional = true }
-wasm-smith = { version = "0.8", optional = true }
 indexmap = "2.2.2"
+wasm-smith = { version = "0.202", optional = true }
 
 [features]
 default = []

@@ -96,10 +96,17 @@ fn handle_payload<'a>(
     trace!("Wasm parser item: {:?}", payload);
     match payload {
         Payload::TypeSection(reader) => {
-            for ty in reader {
-                let ty = ty?;
-                let wasmparser::Type::Func(fty) = ty;
-                module.signatures.push(fty.into());
+            for rec_group in reader {
+                for ty in rec_group?.into_types() {
+                    match &ty.composite_type {
+                        wasmparser::CompositeType::Func(fty) => {
+                            module.signatures.push(fty.into());
+                        }
+                        _ => bail!(FrontendError::UnsupportedFeature(
+                            "non-function type in type section".into()
+                        )),
+                    }
+                }
             }
         }
         Payload::ImportSection(reader) => {
@@ -126,7 +133,11 @@ fn handle_payload<'a>(
                         ImportKind::Global(global)
                     }
                     TypeRef::Table(ty) => {
-                        let table = module.frontend_add_table(ty.element_type.into(), None);
+                        let table = module.frontend_add_table(
+                            ty.element_type.into(),
+                            ty.initial,
+                            ty.maximum,
+                        );
                         ImportKind::Table(table)
                     }
                     TypeRef::Memory(mem) => {
@@ -167,7 +178,11 @@ fn handle_payload<'a>(
         Payload::TableSection(reader) => {
             for table in reader {
                 let table = table?;
-                module.frontend_add_table(table.element_type.into(), table.maximum);
+                module.frontend_add_table(
+                    table.ty.element_type.into(),
+                    table.ty.initial,
+                    table.ty.maximum,
+                );
             }
         }
         Payload::FunctionSection(reader) => {
@@ -237,7 +252,7 @@ fn handle_payload<'a>(
             }
         }
         Payload::CustomSection(reader) if reader.name() == "name" => {
-            let name_reader = NameSectionReader::new(reader.data(), reader.data_offset())?;
+            let name_reader = NameSectionReader::new(reader.data(), reader.data_offset());
             for subsection in name_reader {
                 let subsection = subsection?;
                 match subsection {
@@ -306,12 +321,6 @@ fn handle_payload<'a>(
         Payload::ElementSection(reader) => {
             for element in reader {
                 let element = element?;
-                if element.ty != wasmparser::ValType::FuncRef {
-                    bail!(FrontendError::UnsupportedFeature(format!(
-                        "Unsupported table type: {:?}",
-                        element.ty
-                    )));
-                }
                 match &element.kind {
                     wasmparser::ElementKind::Passive => {}
                     wasmparser::ElementKind::Declared => {}
@@ -319,24 +328,41 @@ fn handle_payload<'a>(
                         table_index,
                         offset_expr,
                     } => {
-                        let table = Table::from(*table_index);
+                        let table = Table::from(table_index.unwrap_or(0));
                         let offset = parse_init_expr(&offset_expr)?.unwrap_or(0) as usize;
-                        let items = element
-                            .items
-                            .get_items_reader()?
-                            .into_iter()
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let mut funcs = vec![];
-                        for item in items {
-                            let func = match item {
-                                wasmparser::ElementItem::Func(func_idx) => Func::from(func_idx),
-                                _ => bail!(FrontendError::UnsupportedFeature(format!(
-                                    "Unsupported element item: {:?}",
-                                    item
-                                ))),
-                            };
-                            funcs.push(func);
-                        }
+                        let funcs = match element.items {
+                            wasmparser::ElementItems::Functions(items) => {
+                                let mut funcs = vec![];
+                                for item in items {
+                                    let item = item?;
+                                    let func = Func::from(item);
+                                    funcs.push(func);
+                                }
+                                funcs
+                            }
+                            wasmparser::ElementItems::Expressions(_, const_exprs) => {
+                                let mut funcs = vec![];
+                                for const_expr in const_exprs {
+                                    let const_expr = const_expr?;
+                                    let mut func = None;
+                                    for op in const_expr.get_operators_reader() {
+                                        let op = op?;
+                                        match op {
+                                            wasmparser::Operator::End => {}
+                                            wasmparser::Operator::RefFunc { function_index } => {
+                                                func = Some(Func::from(function_index));
+                                            }
+                                            wasmparser::Operator::RefNull { .. } => {
+                                                func = Some(Func::invalid());
+                                            }
+                                            _ => panic!("Unsupported table-init op: {:?}", op),
+                                        }
+                                    }
+                                    funcs.push(func.unwrap_or(Func::invalid()));
+                                }
+                                funcs
+                            }
+                        };
 
                         let table_items = module.tables[table].func_elements.as_mut().unwrap();
                         let new_size = offset.checked_add(funcs.len()).ok_or_else(|| {
@@ -680,6 +706,11 @@ impl LocalTracker {
             )),
             Type::F64 => body.add_value(ValueDef::Operator(
                 Operator::F64Const { value: 0 },
+                ListRef::default(),
+                types,
+            )),
+            Type::V128 => body.add_value(ValueDef::Operator(
+                Operator::V128Const { value: 0 },
                 ListRef::default(),
                 types,
             )),
@@ -1157,7 +1188,245 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::TableGrow { .. }
             | wasmparser::Operator::TableSize { .. }
             | wasmparser::Operator::MemoryCopy { .. }
-            | wasmparser::Operator::MemoryFill { .. } => {
+            | wasmparser::Operator::MemoryFill { .. }
+            | wasmparser::Operator::V128Load { .. }
+            | wasmparser::Operator::V128Load8x8S { .. }
+            | wasmparser::Operator::V128Load8x8U { .. }
+            | wasmparser::Operator::V128Load16x4S { .. }
+            | wasmparser::Operator::V128Load16x4U { .. }
+            | wasmparser::Operator::V128Load32x2S { .. }
+            | wasmparser::Operator::V128Load32x2U { .. }
+            | wasmparser::Operator::V128Load8Splat { .. }
+            | wasmparser::Operator::V128Load16Splat { .. }
+            | wasmparser::Operator::V128Load32Splat { .. }
+            | wasmparser::Operator::V128Load64Splat { .. }
+            | wasmparser::Operator::V128Load32Zero { .. }
+            | wasmparser::Operator::V128Load64Zero { .. }
+            | wasmparser::Operator::V128Store { .. }
+            | wasmparser::Operator::V128Load8Lane { .. }
+            | wasmparser::Operator::V128Load16Lane { .. }
+            | wasmparser::Operator::V128Load32Lane { .. }
+            | wasmparser::Operator::V128Load64Lane { .. }
+            | wasmparser::Operator::V128Store8Lane { .. }
+            | wasmparser::Operator::V128Store16Lane { .. }
+            | wasmparser::Operator::V128Store32Lane { .. }
+            | wasmparser::Operator::V128Store64Lane { .. }
+            | wasmparser::Operator::V128Const { .. }
+            | wasmparser::Operator::I8x16Shuffle { .. }
+            | wasmparser::Operator::I8x16ExtractLaneS { .. }
+            | wasmparser::Operator::I8x16ExtractLaneU { .. }
+            | wasmparser::Operator::I8x16ReplaceLane { .. }
+            | wasmparser::Operator::I16x8ExtractLaneS { .. }
+            | wasmparser::Operator::I16x8ExtractLaneU { .. }
+            | wasmparser::Operator::I16x8ReplaceLane { .. }
+            | wasmparser::Operator::I32x4ExtractLane { .. }
+            | wasmparser::Operator::I32x4ReplaceLane { .. }
+            | wasmparser::Operator::I64x2ExtractLane { .. }
+            | wasmparser::Operator::I64x2ReplaceLane { .. }
+            | wasmparser::Operator::F32x4ExtractLane { .. }
+            | wasmparser::Operator::F32x4ReplaceLane { .. }
+            | wasmparser::Operator::F64x2ExtractLane { .. }
+            | wasmparser::Operator::F64x2ReplaceLane { .. }
+            | wasmparser::Operator::I8x16Swizzle
+            | wasmparser::Operator::I8x16Splat
+            | wasmparser::Operator::I16x8Splat
+            | wasmparser::Operator::I32x4Splat
+            | wasmparser::Operator::I64x2Splat
+            | wasmparser::Operator::F32x4Splat
+            | wasmparser::Operator::F64x2Splat
+            | wasmparser::Operator::I8x16Eq
+            | wasmparser::Operator::I8x16Ne
+            | wasmparser::Operator::I8x16LtS
+            | wasmparser::Operator::I8x16LtU
+            | wasmparser::Operator::I8x16GtS
+            | wasmparser::Operator::I8x16GtU
+            | wasmparser::Operator::I8x16LeS
+            | wasmparser::Operator::I8x16LeU
+            | wasmparser::Operator::I8x16GeS
+            | wasmparser::Operator::I8x16GeU
+            | wasmparser::Operator::I16x8Eq
+            | wasmparser::Operator::I16x8Ne
+            | wasmparser::Operator::I16x8LtS
+            | wasmparser::Operator::I16x8LtU
+            | wasmparser::Operator::I16x8GtS
+            | wasmparser::Operator::I16x8GtU
+            | wasmparser::Operator::I16x8LeS
+            | wasmparser::Operator::I16x8LeU
+            | wasmparser::Operator::I16x8GeS
+            | wasmparser::Operator::I16x8GeU
+            | wasmparser::Operator::I32x4Eq
+            | wasmparser::Operator::I32x4Ne
+            | wasmparser::Operator::I32x4LtS
+            | wasmparser::Operator::I32x4LtU
+            | wasmparser::Operator::I32x4GtS
+            | wasmparser::Operator::I32x4GtU
+            | wasmparser::Operator::I32x4LeS
+            | wasmparser::Operator::I32x4LeU
+            | wasmparser::Operator::I32x4GeS
+            | wasmparser::Operator::I32x4GeU
+            | wasmparser::Operator::I64x2Eq
+            | wasmparser::Operator::I64x2Ne
+            | wasmparser::Operator::I64x2LtS
+            | wasmparser::Operator::I64x2GtS
+            | wasmparser::Operator::I64x2LeS
+            | wasmparser::Operator::I64x2GeS
+            | wasmparser::Operator::F32x4Eq
+            | wasmparser::Operator::F32x4Ne
+            | wasmparser::Operator::F32x4Lt
+            | wasmparser::Operator::F32x4Gt
+            | wasmparser::Operator::F32x4Le
+            | wasmparser::Operator::F32x4Ge
+            | wasmparser::Operator::F64x2Eq
+            | wasmparser::Operator::F64x2Ne
+            | wasmparser::Operator::F64x2Lt
+            | wasmparser::Operator::F64x2Gt
+            | wasmparser::Operator::F64x2Le
+            | wasmparser::Operator::F64x2Ge
+            | wasmparser::Operator::V128Not
+            | wasmparser::Operator::V128And
+            | wasmparser::Operator::V128AndNot
+            | wasmparser::Operator::V128Or
+            | wasmparser::Operator::V128Xor
+            | wasmparser::Operator::V128Bitselect
+            | wasmparser::Operator::V128AnyTrue
+            | wasmparser::Operator::I8x16Abs
+            | wasmparser::Operator::I8x16Neg
+            | wasmparser::Operator::I8x16Popcnt
+            | wasmparser::Operator::I8x16AllTrue
+            | wasmparser::Operator::I8x16Bitmask
+            | wasmparser::Operator::I8x16NarrowI16x8S
+            | wasmparser::Operator::I8x16NarrowI16x8U
+            | wasmparser::Operator::I8x16Shl
+            | wasmparser::Operator::I8x16ShrS
+            | wasmparser::Operator::I8x16ShrU
+            | wasmparser::Operator::I8x16Add
+            | wasmparser::Operator::I8x16AddSatS
+            | wasmparser::Operator::I8x16AddSatU
+            | wasmparser::Operator::I8x16Sub
+            | wasmparser::Operator::I8x16SubSatS
+            | wasmparser::Operator::I8x16SubSatU
+            | wasmparser::Operator::I8x16MinS
+            | wasmparser::Operator::I8x16MinU
+            | wasmparser::Operator::I8x16MaxS
+            | wasmparser::Operator::I8x16MaxU
+            | wasmparser::Operator::I8x16AvgrU
+            | wasmparser::Operator::I16x8ExtAddPairwiseI8x16S
+            | wasmparser::Operator::I16x8ExtAddPairwiseI8x16U
+            | wasmparser::Operator::I16x8Abs
+            | wasmparser::Operator::I16x8Neg
+            | wasmparser::Operator::I16x8Q15MulrSatS
+            | wasmparser::Operator::I16x8AllTrue
+            | wasmparser::Operator::I16x8Bitmask
+            | wasmparser::Operator::I16x8NarrowI32x4S
+            | wasmparser::Operator::I16x8NarrowI32x4U
+            | wasmparser::Operator::I16x8ExtendLowI8x16S
+            | wasmparser::Operator::I16x8ExtendHighI8x16S
+            | wasmparser::Operator::I16x8ExtendLowI8x16U
+            | wasmparser::Operator::I16x8ExtendHighI8x16U
+            | wasmparser::Operator::I16x8Shl
+            | wasmparser::Operator::I16x8ShrS
+            | wasmparser::Operator::I16x8ShrU
+            | wasmparser::Operator::I16x8Add
+            | wasmparser::Operator::I16x8AddSatS
+            | wasmparser::Operator::I16x8AddSatU
+            | wasmparser::Operator::I16x8Sub
+            | wasmparser::Operator::I16x8SubSatS
+            | wasmparser::Operator::I16x8SubSatU
+            | wasmparser::Operator::I16x8Mul
+            | wasmparser::Operator::I16x8MinS
+            | wasmparser::Operator::I16x8MinU
+            | wasmparser::Operator::I16x8MaxS
+            | wasmparser::Operator::I16x8MaxU
+            | wasmparser::Operator::I16x8AvgrU
+            | wasmparser::Operator::I16x8ExtMulLowI8x16S
+            | wasmparser::Operator::I16x8ExtMulHighI8x16S
+            | wasmparser::Operator::I16x8ExtMulLowI8x16U
+            | wasmparser::Operator::I16x8ExtMulHighI8x16U
+            | wasmparser::Operator::I32x4ExtAddPairwiseI16x8S
+            | wasmparser::Operator::I32x4ExtAddPairwiseI16x8U
+            | wasmparser::Operator::I32x4Abs
+            | wasmparser::Operator::I32x4Neg
+            | wasmparser::Operator::I32x4AllTrue
+            | wasmparser::Operator::I32x4Bitmask
+            | wasmparser::Operator::I32x4ExtendLowI16x8S
+            | wasmparser::Operator::I32x4ExtendHighI16x8S
+            | wasmparser::Operator::I32x4ExtendLowI16x8U
+            | wasmparser::Operator::I32x4ExtendHighI16x8U
+            | wasmparser::Operator::I32x4Shl
+            | wasmparser::Operator::I32x4ShrS
+            | wasmparser::Operator::I32x4ShrU
+            | wasmparser::Operator::I32x4Add
+            | wasmparser::Operator::I32x4Sub
+            | wasmparser::Operator::I32x4Mul
+            | wasmparser::Operator::I32x4MinS
+            | wasmparser::Operator::I32x4MinU
+            | wasmparser::Operator::I32x4MaxS
+            | wasmparser::Operator::I32x4MaxU
+            | wasmparser::Operator::I32x4DotI16x8S
+            | wasmparser::Operator::I32x4ExtMulLowI16x8S
+            | wasmparser::Operator::I32x4ExtMulHighI16x8S
+            | wasmparser::Operator::I32x4ExtMulLowI16x8U
+            | wasmparser::Operator::I32x4ExtMulHighI16x8U
+            | wasmparser::Operator::I64x2Abs
+            | wasmparser::Operator::I64x2Neg
+            | wasmparser::Operator::I64x2AllTrue
+            | wasmparser::Operator::I64x2Bitmask
+            | wasmparser::Operator::I64x2ExtendLowI32x4S
+            | wasmparser::Operator::I64x2ExtendHighI32x4S
+            | wasmparser::Operator::I64x2ExtendLowI32x4U
+            | wasmparser::Operator::I64x2ExtendHighI32x4U
+            | wasmparser::Operator::I64x2Shl
+            | wasmparser::Operator::I64x2ShrS
+            | wasmparser::Operator::I64x2ShrU
+            | wasmparser::Operator::I64x2Add
+            | wasmparser::Operator::I64x2Sub
+            | wasmparser::Operator::I64x2Mul
+            | wasmparser::Operator::I64x2ExtMulLowI32x4S
+            | wasmparser::Operator::I64x2ExtMulHighI32x4S
+            | wasmparser::Operator::I64x2ExtMulLowI32x4U
+            | wasmparser::Operator::I64x2ExtMulHighI32x4U
+            | wasmparser::Operator::F32x4Ceil
+            | wasmparser::Operator::F32x4Floor
+            | wasmparser::Operator::F32x4Trunc
+            | wasmparser::Operator::F32x4Nearest
+            | wasmparser::Operator::F32x4Abs
+            | wasmparser::Operator::F32x4Neg
+            | wasmparser::Operator::F32x4Sqrt
+            | wasmparser::Operator::F32x4Add
+            | wasmparser::Operator::F32x4Sub
+            | wasmparser::Operator::F32x4Mul
+            | wasmparser::Operator::F32x4Div
+            | wasmparser::Operator::F32x4Min
+            | wasmparser::Operator::F32x4Max
+            | wasmparser::Operator::F32x4PMin
+            | wasmparser::Operator::F32x4PMax
+            | wasmparser::Operator::F64x2Ceil
+            | wasmparser::Operator::F64x2Floor
+            | wasmparser::Operator::F64x2Trunc
+            | wasmparser::Operator::F64x2Nearest
+            | wasmparser::Operator::F64x2Abs
+            | wasmparser::Operator::F64x2Neg
+            | wasmparser::Operator::F64x2Sqrt
+            | wasmparser::Operator::F64x2Add
+            | wasmparser::Operator::F64x2Sub
+            | wasmparser::Operator::F64x2Mul
+            | wasmparser::Operator::F64x2Div
+            | wasmparser::Operator::F64x2Min
+            | wasmparser::Operator::F64x2Max
+            | wasmparser::Operator::F64x2PMin
+            | wasmparser::Operator::F64x2PMax
+            | wasmparser::Operator::I32x4TruncSatF32x4S
+            | wasmparser::Operator::I32x4TruncSatF32x4U
+            | wasmparser::Operator::F32x4ConvertI32x4S
+            | wasmparser::Operator::F32x4ConvertI32x4U
+            | wasmparser::Operator::I32x4TruncSatF64x2SZero
+            | wasmparser::Operator::I32x4TruncSatF64x2UZero
+            | wasmparser::Operator::F64x2ConvertLowI32x4S
+            | wasmparser::Operator::F64x2ConvertLowI32x4U
+            | wasmparser::Operator::F32x4DemoteF64x2Zero
+            | wasmparser::Operator::F64x2PromoteLowF32x4
+            | wasmparser::Operator::CallRef { .. }
+            | wasmparser::Operator::RefFunc { .. } => {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }
 
