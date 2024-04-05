@@ -638,6 +638,13 @@ pub enum Operator {
     RefFunc {
         func_index: Func,
     },
+    MemoryCopy {
+        dst_mem: Memory,
+        src_mem: Memory,
+    },
+    MemoryFill {
+        mem: Memory,
+    },
 }
 
 #[test]
@@ -1275,6 +1282,13 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
                 func_index: Func::from(function_index),
             }),
 
+            &wasmparser::Operator::MemoryCopy { dst_mem, src_mem } => Ok(Operator::MemoryCopy {
+                dst_mem: Memory::from(dst_mem),
+                src_mem: Memory::from(src_mem),
+            }),
+            &wasmparser::Operator::MemoryFill { mem } => Ok(Operator::MemoryFill {
+                mem: Memory::from(mem),
+            }),
             _ => Err(()),
         }
     }

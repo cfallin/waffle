@@ -7,6 +7,7 @@ use crate::Operator;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use wasm_encoder::CustomSection;
 
 pub mod stackify;
 use stackify::{Context as StackifyContext, WasmBlock};
@@ -14,6 +15,8 @@ pub mod treeify;
 use treeify::Trees;
 pub mod localify;
 use localify::Localifier;
+
+
 
 pub struct WasmFuncBackend<'a> {
     body: &'a FunctionBody,
@@ -170,6 +173,21 @@ impl<'a> WasmFuncBackend<'a> {
                     self.lower_value(value, func);
                 }
                 func.instruction(&wasm_encoder::Instruction::Return);
+            }
+            WasmBlock::ReturnCall { func: f, values } => {
+                for &value in &values[..] {
+                    self.lower_value(value, func);
+                }
+                func.instruction(&wasm_encoder::Instruction::ReturnCall(f.index() as u32));
+            }
+            WasmBlock::ReturnCallIndirect { sig, table, values } => {
+                for &value in &values[..] {
+                    self.lower_value(value, func);
+                }
+                func.instruction(&wasm_encoder::Instruction::ReturnCallIndirect {
+                    ty: sig.index() as u32,
+                    table: table.index() as u32,
+                });
             }
             WasmBlock::Unreachable => {
                 func.instruction(&wasm_encoder::Instruction::Unreachable);
@@ -513,6 +531,15 @@ impl<'a> WasmFuncBackend<'a> {
             }
             Operator::MemoryGrow { mem } => {
                 Some(wasm_encoder::Instruction::MemoryGrow(mem.index() as u32))
+            }
+            Operator::MemoryCopy { dst_mem, src_mem } => {
+                Some(wasm_encoder::Instruction::MemoryCopy {
+                    src_mem: src_mem.index() as u32,
+                    dst_mem: dst_mem.index() as u32,
+                })
+            }
+            Operator::MemoryFill { mem } => {
+                Some(wasm_encoder::Instruction::MemoryFill(mem.index() as u32))
             }
 
             Operator::V128Load { memory } => Some(wasm_encoder::Instruction::V128Load(
@@ -925,7 +952,7 @@ impl<'a> WasmFuncBackend<'a> {
     }
 }
 
-pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
+pub fn compile(module: &Module<'_>) -> anyhow::Result<wasm_encoder::Module> {
     let mut into_mod = wasm_encoder::Module::new();
 
     let mut types = wasm_encoder::TypeSection::new();
@@ -1181,7 +1208,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     names.functions(&func_names);
     into_mod.section(&names);
 
-    Ok(into_mod.finish())
+    Ok(into_mod)
 }
 
 fn const_init(ty: Type, value: Option<u64>) -> wasm_encoder::ConstExpr {

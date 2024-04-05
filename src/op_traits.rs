@@ -3,12 +3,12 @@
 use crate::entity::EntityRef;
 use crate::ir::{Module, Type, Value};
 use crate::Operator;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::borrow::Cow;
 
 pub fn op_inputs(
     module: &Module,
-    op_stack: &[(Type, Value)],
+    op_stack: Option<&[(Type, Value)]>,
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
     match op {
@@ -25,6 +25,9 @@ pub fn op_inputs(
         }
 
         &Operator::Select => {
+            let Some(op_stack) = op_stack else {
+                anyhow::bail!("selects cannot be typed with no stack");
+            };
             let val_ty = op_stack[op_stack.len() - 2].0;
             Ok(vec![val_ty, val_ty, Type::I32].into())
         }
@@ -482,14 +485,16 @@ pub fn op_inputs(
             params.push(Type::TypedFuncRef(true, sig_index.index() as u32));
             Ok(params.into())
         }
-        Operator::RefIsNull => Ok(vec![op_stack.last().unwrap().0].into()),
+        Operator::RefIsNull => Ok(vec![op_stack.context("in getting stack")?.last().unwrap().0].into()),
         Operator::RefFunc { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::MemoryCopy { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
+        Operator::MemoryFill { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
     }
 }
 
 pub fn op_outputs(
     module: &Module,
-    op_stack: &[(Type, Value)],
+    op_stack: Option<&[(Type, Value)]>,
     op: &Operator,
 ) -> Result<Cow<'static, [Type]>> {
     match op {
@@ -504,6 +509,9 @@ pub fn op_outputs(
         }
 
         &Operator::Select => {
+            let Some(op_stack) = op_stack else {
+                anyhow::bail!("selects cannot be typed with no stack");
+            };
             let val_ty = op_stack[op_stack.len() - 2].0;
             Ok(vec![val_ty].into())
         }
@@ -688,6 +696,8 @@ pub fn op_outputs(
         Operator::TableSize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::MemorySize { .. } => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::MemoryGrow { .. } => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::MemoryCopy { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::MemoryFill { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::V128Load { .. } => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::V128Load8x8S { .. } => Ok(Cow::Borrowed(&[Type::I32])),
@@ -1161,6 +1171,8 @@ impl Operator {
             Operator::TableSize { .. } => &[ReadTable],
             Operator::MemorySize { .. } => &[ReadMem],
             Operator::MemoryGrow { .. } => &[WriteMem, Trap],
+            Operator::MemoryCopy { .. } => &[Trap, ReadMem, WriteMem],
+            Operator::MemoryFill { .. } => &[Trap, WriteMem],
 
             Operator::V128Load { .. } => &[ReadMem],
             Operator::V128Load8x8S { .. } => &[ReadMem],
@@ -1637,6 +1649,10 @@ impl std::fmt::Display for Operator {
             Operator::TableSize { table_index, .. } => write!(f, "table_size<{}>", table_index)?,
             Operator::MemorySize { mem } => write!(f, "memory_size<{}>", mem)?,
             Operator::MemoryGrow { mem } => write!(f, "memory_grow<{}>", mem)?,
+            Operator::MemoryCopy { dst_mem, src_mem } => {
+                write!(f, "memory_copy<{}, {}>", dst_mem, src_mem)?
+            }
+            Operator::MemoryFill { mem } => write!(f, "memory_fill<{}>", mem)?,
 
             Operator::V128Load { memory } => write!(f, "v128load<{}>", memory)?,
             Operator::V128Load8x8S { memory } => write!(f, "v128load8x8s<{}>", memory)?,

@@ -12,6 +12,7 @@
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
 use crate::ir::{Block, BlockTarget, FunctionBody, Terminator, Type, Value};
+use crate::{Func, Signature, Table};
 use std::collections::HashSet;
 use std::convert::TryFrom;
 
@@ -52,6 +53,14 @@ pub enum WasmBlock<'a> {
     },
     /// A function return instruction.
     Return { values: &'a [Value] },
+    /// A function tail call instruction
+    ReturnCall { func: Func, values: &'a [Value] },
+    /// A function indirect tail call instruction
+    ReturnCallIndirect {
+        sig: Signature,
+        table: Table,
+        values: &'a [Value],
+    },
     /// An unreachable instruction.
     Unreachable,
 }
@@ -441,6 +450,21 @@ impl<'a, 'b> Context<'a, 'b> {
                 &Terminator::Unreachable | &Terminator::None => {
                     into.push(WasmBlock::Unreachable);
                 }
+                &Terminator::ReturnCall { func, ref args } => {
+                    into.push(WasmBlock::ReturnCall {
+                        func: func,
+                        values: args,
+                    });
+                }
+                &Terminator::ReturnCallIndirect {
+                    sig,
+                    table,
+                    ref args,
+                } => into.push(WasmBlock::ReturnCallIndirect {
+                    sig,
+                    table,
+                    values: args,
+                }),
             }
         }
     }
