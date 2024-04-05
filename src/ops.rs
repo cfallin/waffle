@@ -634,6 +634,7 @@ pub enum Operator {
     CallRef {
         sig_index: Signature,
     },
+    RefIsNull,
     RefFunc {
         func_index: Func,
     },
@@ -1276,6 +1277,7 @@ impl<'a, 'b> std::convert::TryFrom<&'b wasmparser::Operator<'a>> for Operator {
             &wasmparser::Operator::CallRef { type_index } => Ok(Operator::CallRef {
                 sig_index: Signature::from(type_index),
             }),
+            &wasmparser::Operator::RefIsNull => Ok(Operator::RefIsNull),
             &wasmparser::Operator::RefFunc { function_index } => Ok(Operator::RefFunc {
                 func_index: Func::from(function_index),
             }),

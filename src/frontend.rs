@@ -1426,6 +1426,7 @@ impl<'a, 'b> FunctionBodyBuilder<'a, 'b> {
             | wasmparser::Operator::F32x4DemoteF64x2Zero
             | wasmparser::Operator::F64x2PromoteLowF32x4
             | wasmparser::Operator::CallRef { .. }
+            | wasmparser::Operator::RefIsNull
             | wasmparser::Operator::RefFunc { .. } => {
                 self.emit(Operator::try_from(&op).unwrap(), loc)?
             }

@@ -940,6 +940,7 @@ impl<'a> WasmFuncBackend<'a> {
             Operator::CallRef { sig_index } => {
                 Some(wasm_encoder::Instruction::CallRef(sig_index.index() as u32))
             }
+            Operator::RefIsNull => Some(wasm_encoder::Instruction::RefIsNull),
             Operator::RefFunc { func_index } => {
                 Some(wasm_encoder::Instruction::RefFunc(func_index.index() as u32))
             }

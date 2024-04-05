@@ -11,11 +11,11 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-wasm-smith = "0.8"
+wasm-smith = "0.202.0"
 env_logger = "0.9"
 log = "0.4"
-wasmparser = "0.95"
-wasmtime = "7.0"
+wasmparser = "0.202.0"
+wasmtime = "19.0"
 
 [dependencies.waffle]
 path = ".."

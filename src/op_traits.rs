@@ -3,7 +3,7 @@
 use crate::entity::EntityRef;
 use crate::ir::{Module, Type, Value};
 use crate::Operator;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::borrow::Cow;
 
 pub fn op_inputs(
@@ -485,6 +485,7 @@ pub fn op_inputs(
             params.push(Type::TypedFuncRef(true, sig_index.index() as u32));
             Ok(params.into())
         }
+        Operator::RefIsNull => Ok(vec![op_stack.context("in getting stack")?.last().unwrap().0].into()),
         Operator::RefFunc { .. } => Ok(Cow::Borrowed(&[])),
         Operator::MemoryCopy { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
         Operator::MemoryFill { .. } => Ok(Cow::Borrowed(&[Type::I32, Type::I32, Type::I32])),
@@ -716,10 +717,10 @@ pub fn op_outputs(
         Operator::V128Load16Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::V128Load32Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::V128Load64Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
-        Operator::V128Store8Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
-        Operator::V128Store16Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
-        Operator::V128Store32Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
-        Operator::V128Store64Lane { .. } => Ok(Cow::Borrowed(&[Type::V128])),
+        Operator::V128Store8Lane { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::V128Store16Lane { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::V128Store32Lane { .. } => Ok(Cow::Borrowed(&[])),
+        Operator::V128Store64Lane { .. } => Ok(Cow::Borrowed(&[])),
 
         Operator::V128Const { .. } => Ok(Cow::Borrowed(&[Type::V128])),
         Operator::I8x16Shuffle { .. } => Ok(Cow::Borrowed(&[Type::V128])),
@@ -955,6 +956,7 @@ pub fn op_outputs(
         Operator::CallRef { sig_index } => {
             Ok(Vec::from(module.signatures[*sig_index].returns.clone()).into())
         }
+        Operator::RefIsNull => Ok(Cow::Borrowed(&[Type::I32])),
         Operator::RefFunc { func_index } => {
             let ty = module.funcs[*func_index].sig();
             Ok(vec![Type::TypedFuncRef(true, ty.index() as u32)].into())
@@ -1427,6 +1429,7 @@ impl Operator {
             Operator::F64x2PromoteLowF32x4 => &[],
 
             Operator::CallRef { .. } => &[All],
+            Operator::RefIsNull => &[],
             Operator::RefFunc { .. } => &[],
         }
     }
@@ -1922,6 +1925,7 @@ impl std::fmt::Display for Operator {
             Operator::F64x2PromoteLowF32x4 => write!(f, "f64x2promotelowf32x4")?,
 
             Operator::CallRef { sig_index } => write!(f, "call_ref<{}>", sig_index)?,
+            Operator::RefIsNull => write!(f, "ref_is_null")?,
             Operator::RefFunc { func_index } => write!(f, "ref_func<{}>", func_index)?,
         }
 
