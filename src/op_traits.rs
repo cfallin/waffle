@@ -483,6 +483,7 @@ pub fn op_inputs(
             Ok(params.into())
         }
         Operator::RefIsNull => Ok(vec![op_stack.last().unwrap().0].into()),
+        Operator::RefNull { .. } => Ok(Cow::Borrowed(&[])),
         Operator::RefFunc { .. } => Ok(Cow::Borrowed(&[])),
     }
 }
@@ -947,6 +948,9 @@ pub fn op_outputs(
             Ok(Vec::from(module.signatures[*sig_index].returns.clone()).into())
         }
         Operator::RefIsNull => Ok(Cow::Borrowed(&[Type::I32])),
+        Operator::RefNull { sig_index } => {
+            Ok(vec![Type::TypedFuncRef(true, sig_index.index() as u32)].into())
+        }
         Operator::RefFunc { func_index } => {
             let ty = module.funcs[*func_index].sig();
             Ok(vec![Type::TypedFuncRef(true, ty.index() as u32)].into())
@@ -1418,6 +1422,7 @@ impl Operator {
 
             Operator::CallRef { .. } => &[All],
             Operator::RefIsNull => &[],
+            Operator::RefNull { .. } => &[],
             Operator::RefFunc { .. } => &[],
         }
     }
@@ -1910,6 +1915,7 @@ impl std::fmt::Display for Operator {
 
             Operator::CallRef { sig_index } => write!(f, "call_ref<{}>", sig_index)?,
             Operator::RefIsNull => write!(f, "ref_is_null")?,
+            Operator::RefNull { sig_index } => write!(f, "ref_null<{}>", sig_index)?,
             Operator::RefFunc { func_index } => write!(f, "ref_func<{}>", func_index)?,
         }
 
