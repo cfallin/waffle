@@ -959,11 +959,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                 let table = &module.tables[table];
                 wasm_encoder::EntityType::Table(wasm_encoder::TableType {
                     element_type: wasm_encoder::RefType::from(table.ty),
-                    minimum: table
-                        .func_elements
-                        .as_ref()
-                        .map(|elts| elts.len() as u32)
-                        .unwrap_or(table.initial),
+                    minimum: table.initial,
                     maximum: table.max,
                 })
             }
