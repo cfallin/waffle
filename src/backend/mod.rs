@@ -1008,11 +1008,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
     for table_data in module.tables.values().skip(num_table_imports) {
         tables.table(wasm_encoder::TableType {
             element_type: wasm_encoder::RefType::from(table_data.ty),
-            minimum: table_data
-                .func_elements
-                .as_ref()
-                .map(|elt| elt.len())
-                .unwrap_or(0) as u32,
+            minimum: table_data.initial,
             maximum: table_data.max,
         });
     }
