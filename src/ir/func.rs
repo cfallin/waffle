@@ -641,21 +641,13 @@ impl Terminator {
         }
     }
 
-    pub fn visit_target<F: FnMut(&BlockTarget)>(&self, index: usize, mut f: F) {
+    pub fn visit_target<R, F: FnMut(&BlockTarget) -> R>(&self, index: usize, mut f: F) -> R {
         match (index, self) {
             (0, Terminator::Br { ref target, .. }) => f(target),
-            (0, Terminator::CondBr { ref if_true, .. }) => {
-                f(if_true);
-            }
-            (1, Terminator::CondBr { ref if_false, .. }) => {
-                f(if_false);
-            }
-            (0, Terminator::Select { ref default, .. }) => {
-                f(default);
-            }
-            (i, Terminator::Select { ref targets, .. }) if i <= targets.len() => {
-                f(&targets[i - 1]);
-            }
+            (0, Terminator::CondBr { ref if_true, .. }) => f(if_true),
+            (1, Terminator::CondBr { ref if_false, .. }) => f(if_false),
+            (0, Terminator::Select { ref default, .. }) => f(default),
+            (i, Terminator::Select { ref targets, .. }) if i <= targets.len() => f(&targets[i - 1]),
             _ => panic!("out of bounds"),
         }
     }

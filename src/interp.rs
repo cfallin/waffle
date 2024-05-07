@@ -347,6 +347,15 @@ impl ConstVal {
             _ => None,
         }
     }
+
+    pub fn meet(a: Option<ConstVal>, b: Option<ConstVal>) -> Option<ConstVal> {
+        match (a, b) {
+            (None, None) => None,
+            (Some(a), None) | (None, Some(a)) => Some(a),
+            (Some(a), Some(b)) if a == b => Some(a),
+            _ => Some(ConstVal::None),
+        }
+    }
 }
 
 pub fn const_eval(
