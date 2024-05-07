@@ -41,50 +41,57 @@ impl Trees {
         let mut remat = HashSet::default();
         let mut multi_use = HashSet::default();
 
-        for (value, def) in body.values.entries() {
-            match def {
-                &ValueDef::Operator(op, args, _) => {
-                    // Ignore operators with invalid args: these must
-                    // always be unreachable.
-                    if body.arg_pool[args].iter().any(|arg| arg.is_invalid()) {
-                        continue;
-                    }
-                    // If this is an always-rematerialized operator,
-                    // mark it as such and continue.
-                    if is_remat(&op) {
-                        remat.insert(value);
-                        continue;
-                    }
-
-                    // For each of the args, if the value is produced
-                    // by a single-output op and is movable, and is
-                    // not already recorded in `multi_use`, place it
-                    // in the arg slot. Otherwise if owned already
-                    // somewhere else, undo that and put in
-                    // `multi_use`.
-                    for (i, &arg) in body.arg_pool[args].iter().enumerate() {
-                        let arg = body.resolve_alias(arg);
-                        if multi_use.contains(&arg) {
+        for block_def in body.blocks.values() {
+            let mut last_non_pure = None;
+            for &value in &block_def.insts {
+                match &body.values[value] {
+                    &ValueDef::Operator(op, args, _) => {
+                        // Ignore operators with invalid args: these must
+                        // always be unreachable.
+                        if body.arg_pool[args].iter().any(|arg| arg.is_invalid()) {
                             continue;
-                        } else if let Some(old_owner) = owner.remove(&arg) {
-                            owned.remove(&old_owner);
-                            multi_use.insert(arg);
-                        } else if Self::is_movable(body, arg) {
-                            let pos = u16::try_from(i).unwrap();
-                            let value_arg = ValueArg(value, pos);
-                            owner.insert(arg, value_arg);
-                            owned.insert(value_arg, arg);
+                        }
+                        // If this is an always-rematerialized operator,
+                        // mark it as such and continue.
+                        if is_remat(&op) {
+                            remat.insert(value);
+                            continue;
+                        }
+
+                        // For each of the args, if the value is produced
+                        // by a single-output op and is movable, and is
+                        // not already recorded in `multi_use`, place it
+                        // in the arg slot. Otherwise if owned already
+                        // somewhere else, undo that and put in
+                        // `multi_use`.
+                        for (i, &arg) in body.arg_pool[args].iter().enumerate() {
+                            let arg = body.resolve_alias(arg);
+                            if multi_use.contains(&arg) {
+                                continue;
+                            } else if let Some(old_owner) = owner.remove(&arg) {
+                                owned.remove(&old_owner);
+                                multi_use.insert(arg);
+                            } else if Self::is_movable(body, arg) || Some(arg) == last_non_pure {
+                                let pos = u16::try_from(i).unwrap();
+                                let value_arg = ValueArg(value, pos);
+                                owner.insert(arg, value_arg);
+                                owned.insert(value_arg, arg);
+                            }
+                        }
+
+                        if !op.is_pure() {
+                            last_non_pure = Some(value);
                         }
                     }
+                    &ValueDef::PickOutput(..) => {
+                        // Can ignore use: multi-arity values are never treeified.
+                    }
+                    &ValueDef::BlockParam(..)
+                    | &ValueDef::Alias(..)
+                    | &ValueDef::Placeholder(..)
+                    | &ValueDef::Trace(..)
+                    | &ValueDef::None => {}
                 }
-                &ValueDef::PickOutput(..) => {
-                    // Can ignore use: multi-arity values are never treeified.
-                }
-                &ValueDef::BlockParam(..)
-                | &ValueDef::Alias(..)
-                | &ValueDef::Placeholder(..)
-                | &ValueDef::Trace(..)
-                | &ValueDef::None => {}
             }
         }
         for block in body.blocks.values() {
