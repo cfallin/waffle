@@ -9,24 +9,47 @@ use crate::scoped_map::ScopedMap;
 use crate::Operator;
 use smallvec::{smallvec, SmallVec};
 
-pub fn gvn(body: &mut FunctionBody, cfg: &CFGInfo) {
-    dom_pass::<GVNPass>(
-        body,
-        cfg,
-        &mut GVNPass {
+#[derive(Clone, Debug)]
+pub struct OptOptions {
+    pub gvn: bool,
+    pub cprop: bool,
+    pub redundant_blockparams: bool,
+}
+
+impl std::default::Default for OptOptions {
+    fn default() -> Self {
+        OptOptions {
+            gvn: true,
+            cprop: true,
+            redundant_blockparams: true,
+        }
+    }
+}
+
+pub fn basic_opt(body: &mut FunctionBody, cfg: &CFGInfo, options: &OptOptions) {
+    loop {
+        let mut pass = BasicOptPass {
             map: ScopedMap::default(),
             cfg,
-        },
-    );
+            options,
+            changed: false,
+        };
+        dom_pass::<BasicOptPass>(body, cfg, &mut pass);
+        if !pass.changed {
+            break;
+        }
+    }
 }
 
 #[derive(Debug)]
-struct GVNPass<'a> {
+struct BasicOptPass<'a> {
     map: ScopedMap<ValueDef, Value>,
     cfg: &'a CFGInfo,
+    options: &'a OptOptions,
+    changed: bool,
 }
 
-impl<'a> DomtreePass for GVNPass<'a> {
+impl<'a> DomtreePass for BasicOptPass<'a> {
     fn enter(&mut self, block: Block, body: &mut FunctionBody) {
         self.map.push_level();
         self.optimize(block, body);
@@ -82,9 +105,9 @@ fn remove_all_from_vec<T: Clone>(v: &mut Vec<T>, indices: &[usize]) {
     v.truncate(out);
 }
 
-impl<'a> GVNPass<'a> {
+impl<'a> BasicOptPass<'a> {
     fn optimize(&mut self, block: Block, body: &mut FunctionBody) {
-        if block != body.entry {
+        if self.options.redundant_blockparams && block != body.entry {
             // Pass over blockparams, checking all inputs. If all inputs
             // resolve to the same SSA value, remove the blockparam and
             // make it an alias of that value. If all inputs resolve to
@@ -126,6 +149,10 @@ impl<'a> GVNPass<'a> {
                 }
             }
 
+            if !const_insts_to_insert.is_empty() || !blockparams_to_remove.is_empty() {
+                self.changed = true;
+            }
+
             for inst in const_insts_to_insert {
                 body.blocks[block].insts.insert(0, inst);
             }
@@ -154,71 +181,81 @@ impl<'a> GVNPass<'a> {
                     &mut ValueDef::Operator(_, args, _) | &mut ValueDef::Trace(_, args) => {
                         for i in 0..args.len() {
                             let val = body.arg_pool[args][i];
-                            let val = body.resolve_and_update_alias(val);
-                            body.arg_pool[args][i] = val;
+                            let new_val = body.resolve_and_update_alias(val);
+                            body.arg_pool[args][i] = new_val;
+                            self.changed |= new_val != val;
                         }
                     }
                     &mut ValueDef::PickOutput(ref mut val, ..) => {
                         let updated = body.resolve_and_update_alias(*val);
                         *val = updated;
+                        self.changed |= updated != *val;
                     }
                     _ => {}
                 }
 
                 // Try to constant-propagate.
-                if let ValueDef::Operator(op, args, ..) = &value {
-                    let arg_values = body.arg_pool[*args]
-                        .iter()
-                        .map(|&arg| value_is_const(arg, body))
-                        .collect::<Vec<_>>();
-                    let const_val = const_eval(op, &arg_values[..], None);
-                    match const_val {
-                        Some(ConstVal::I32(val)) => {
-                            value = ValueDef::Operator(
-                                Operator::I32Const { value: val },
-                                ListRef::default(),
-                                body.single_type_list(Type::I32),
-                            );
-                            body.values[inst] = value.clone();
+                if self.options.cprop {
+                    if let ValueDef::Operator(op, args, ..) = &value {
+                        let arg_values = body.arg_pool[*args]
+                            .iter()
+                            .map(|&arg| value_is_const(arg, body))
+                            .collect::<Vec<_>>();
+                        let const_val = const_eval(op, &arg_values[..], None);
+                        match const_val {
+                            Some(ConstVal::I32(val)) => {
+                                value = ValueDef::Operator(
+                                    Operator::I32Const { value: val },
+                                    ListRef::default(),
+                                    body.single_type_list(Type::I32),
+                                );
+                                body.values[inst] = value.clone();
+                                self.changed = true;
+                            }
+                            Some(ConstVal::I64(val)) => {
+                                value = ValueDef::Operator(
+                                    Operator::I64Const { value: val },
+                                    ListRef::default(),
+                                    body.single_type_list(Type::I64),
+                                );
+                                body.values[inst] = value.clone();
+                                self.changed = true;
+                            }
+                            Some(ConstVal::F32(val)) => {
+                                value = ValueDef::Operator(
+                                    Operator::F32Const { value: val },
+                                    ListRef::default(),
+                                    body.single_type_list(Type::F32),
+                                );
+                                body.values[inst] = value.clone();
+                                self.changed = true;
+                            }
+                            Some(ConstVal::F64(val)) => {
+                                value = ValueDef::Operator(
+                                    Operator::F64Const { value: val },
+                                    ListRef::default(),
+                                    body.single_type_list(Type::F64),
+                                );
+                                body.values[inst] = value.clone();
+                                self.changed = true;
+                            }
+                            _ => {}
                         }
-                        Some(ConstVal::I64(val)) => {
-                            value = ValueDef::Operator(
-                                Operator::I64Const { value: val },
-                                ListRef::default(),
-                                body.single_type_list(Type::I64),
-                            );
-                            body.values[inst] = value.clone();
-                        }
-                        Some(ConstVal::F32(val)) => {
-                            value = ValueDef::Operator(
-                                Operator::F32Const { value: val },
-                                ListRef::default(),
-                                body.single_type_list(Type::F32),
-                            );
-                            body.values[inst] = value.clone();
-                        }
-                        Some(ConstVal::F64(val)) => {
-                            value = ValueDef::Operator(
-                                Operator::F64Const { value: val },
-                                ListRef::default(),
-                                body.single_type_list(Type::F64),
-                            );
-                            body.values[inst] = value.clone();
-                        }
-                        _ => {}
                     }
                 }
 
-                // GVN: look for already-existing copies of this
-                // value.
-                if let Some(value) = self.map.get(&value) {
-                    body.set_alias(inst, *value);
-                    i -= 1;
-                    body.blocks[block].insts.remove(i);
-                    continue;
+                if self.options.gvn {
+                    // GVN: look for already-existing copies of this
+                    // value.
+                    if let Some(value) = self.map.get(&value) {
+                        body.set_alias(inst, *value);
+                        i -= 1;
+                        body.blocks[block].insts.remove(i);
+                        self.changed = true;
+                        continue;
+                    }
+                    self.map.insert(value, inst);
                 }
-
-                self.map.insert(value, inst);
             }
         }
     }

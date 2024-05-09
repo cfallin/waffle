@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use waffle::{FrontendOptions, InterpContext, InterpResult, Module};
+use waffle::{FrontendOptions, InterpContext, InterpResult, Module, OptOptions};
 
 fuzz_target!(|module: waffle::fuzzing::ArbitraryModule| {
     let module = module.0;
@@ -48,7 +48,7 @@ fuzz_target!(|module: waffle::fuzzing::ArbitraryModule| {
     }
 
     let mut opt_module = parsed_module.clone();
-    opt_module.per_func_body(|body| body.optimize());
+    parsed_module.per_func_body(|body| body.optimize(&OptOptions::default()));
     opt_module.per_func_body(|body| body.convert_to_max_ssa(None));
 
     let mut opt_ctx = InterpContext::new(&opt_module).unwrap();

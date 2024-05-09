@@ -5,7 +5,7 @@ use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use waffle::InterpContext;
-use waffle::{entity::EntityRef, FrontendOptions, Func, Module};
+use waffle::{entity::EntityRef, FrontendOptions, Func, Module, OptOptions};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "waffle-util", about = "WAFFLE utility.")]
@@ -64,7 +64,7 @@ enum Command {
 fn apply_options(opts: &Options, module: &mut Module) -> Result<()> {
     module.expand_all_funcs()?;
     if opts.basic_opts {
-        module.per_func_body(|body| body.optimize());
+        module.per_func_body(|body| body.optimize(&OptOptions::default()));
     }
     if opts.max_ssa {
         module.per_func_body(|body| body.convert_to_max_ssa(None));

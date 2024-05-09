@@ -24,5 +24,7 @@ pub use ops::{Ieee32, Ieee64, MemoryArg, Operator};
 mod interp;
 pub use interp::*;
 
+pub use passes::basic_opt::OptOptions;
+
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
