@@ -152,15 +152,25 @@ impl<'a> WasmFuncBackend<'a> {
             }
             WasmBlock::BlockParams { from, to } => {
                 debug_assert_eq!(from.len(), to.len());
-                for (&from, &(_, to)) in from.iter().zip(to.iter()) {
+                for (&from, &(to_ty, to)) in from.iter().zip(to.iter()) {
                     if self.locals.values[to].is_empty() {
                         continue;
                     }
+                    let from_ty = self.body.values[self.body.resolve_alias(from)]
+                        .ty(&self.body.type_pool)
+                        .unwrap();
+                    assert_eq!(from_ty, to_ty);
+                    if self.locals.values[from].len() == 1 {
+                        assert_eq!(from_ty, self.locals.locals[self.locals.values[from][0]]);
+                    }
                     self.lower_value(from, func);
                 }
-                for &(_, to) in to.iter().rev() {
+                for &(to_ty, to) in to.iter().rev() {
                     if self.locals.values[to].is_empty() {
                         continue;
+                    }
+                    if self.locals.values[to].len() == 1 {
+                        assert_eq!(to_ty, self.locals.locals[self.locals.values[to][0]]);
                     }
                     self.lower_set_value(to, func);
                 }

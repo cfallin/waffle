@@ -422,8 +422,8 @@ impl FunctionBody {
                 let u = self.resolve_alias(u);
                 if block_inst[u].is_none() {
                     bad.push(format!(
-                        "Use of arg {} at {:?} illegal: not defined",
-                        u, inst
+                        "Use of arg {} at {:?} in {} illegal: not defined",
+                        u, inst, block
                     ));
                     return;
                 }
