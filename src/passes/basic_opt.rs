@@ -126,7 +126,9 @@ impl<'a> BasicOptPass<'a> {
                         .terminator
                         .visit_target(pos, |target| target.args[i]);
                     let input = body.resolve_alias(input);
-                    inputs.push(input);
+                    if input != blockparam {
+                        inputs.push(input);
+                    }
                     const_val = ConstVal::meet(const_val, Some(value_is_const(input, body)));
                 }
                 let const_val = const_val.unwrap();
