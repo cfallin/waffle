@@ -21,7 +21,7 @@ pub enum FuncDecl<'a> {
     /// A modified or new function body that requires compilation.
     Body(Signature, String, FunctionBody),
     /// A compiled function body (was IR, has been collapsed back to bytecode).
-    Compiled(Signature, String, wasm_encoder::Function),
+    Compiled(Signature, String, Vec<u8>),
     /// A placeholder.
     #[default]
     None,
