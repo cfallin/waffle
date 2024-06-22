@@ -7,8 +7,8 @@ license = "Apache-2.0 WITH LLVM-exception"
 edition = "2018"
 
 [dependencies]
-wasmparser = { path = "../wasm-tools/crates/wasmparser" }
-wasm-encoder = { path = "../wasm-tools/crates/wasm-encoder" }
+wasmparser = { git = "https://github.com/cfallin/wasm-tools", branch = "func-into-raw-body" }
+wasm-encoder = { git = "https://github.com/cfallin/wasm-tools", branch = "func-into-raw-body" }
 anyhow = "1.0"
 structopt = "0.3"
 log = "0.4"
