@@ -4,6 +4,8 @@
 
 // Re-export wasmparser for easier use of the right version by our embedders.
 pub use wasmparser;
+// Likewise for wasm-encoder.
+pub use wasm_encoder;
 
 mod backend;
 pub mod cfg;

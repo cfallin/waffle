@@ -7,6 +7,7 @@ use crate::Operator;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::borrow::Cow;
+use wasm_encoder::Encode;
 
 pub mod stackify;
 use stackify::{Context as StackifyContext, WasmBlock};
@@ -259,8 +260,8 @@ impl<'a> WasmFuncBackend<'a> {
                 sig_index,
                 table_index,
             } => Some(wasm_encoder::Instruction::CallIndirect {
-                ty: sig_index.index() as u32,
-                table: table_index.index() as u32,
+                type_index: sig_index.index() as u32,
+                table_index: table_index.index() as u32,
             }),
             Operator::Select => Some(wasm_encoder::Instruction::Select),
             Operator::TypedSelect { ty } => Some(wasm_encoder::Instruction::TypedSelect(
@@ -974,6 +975,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                     element_type: wasm_encoder::RefType::from(table.ty),
                     minimum: table.initial,
                     maximum: table.max,
+                    table64: false,
                 })
             }
             &ImportKind::Global(global) => {
@@ -982,6 +984,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                 wasm_encoder::EntityType::Global(wasm_encoder::GlobalType {
                     val_type: wasm_encoder::ValType::from(global.ty),
                     mutable: global.mutable,
+                    shared: false,
                 })
             }
             &ImportKind::Memory(mem) => {
@@ -992,6 +995,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                     shared: false,
                     minimum: mem.initial_pages as u64,
                     maximum: mem.maximum_pages.map(|val| val as u64),
+                    page_size_log2: None,
                 })
             }
         };
@@ -1020,6 +1024,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             element_type: wasm_encoder::RefType::from(table_data.ty),
             minimum: table_data.initial,
             maximum: table_data.max,
+            table64: false,
         });
     }
     into_mod.section(&tables);
@@ -1031,6 +1036,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             maximum: mem_data.maximum_pages.map(|val| val as u64),
             memory64: false,
             shared: false,
+            page_size_log2: None,
         });
     }
     into_mod.section(&memories);
@@ -1041,6 +1047,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             wasm_encoder::GlobalType {
                 val_type: wasm_encoder::ValType::from(global_data.ty),
                 mutable: global_data.mutable,
+                shared: false,
             },
             &const_init(global_data.ty, global_data.value),
         );
