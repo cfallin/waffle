@@ -204,7 +204,14 @@ impl<'a> BasicOptPass<'a> {
                             .iter()
                             .map(|&arg| value_is_const(arg, body))
                             .collect::<Vec<_>>();
-                        let const_val = const_eval(op, &arg_values[..], None);
+                        let const_val = match op {
+                            Operator::I32Const { .. }
+                            | Operator::I64Const { .. }
+                            | Operator::F32Const { .. }
+                            | Operator::F64Const { .. }
+                            | Operator::V128Const { .. } => None,
+                            _ => const_eval(op, &arg_values[..], None),
+                        };
                         match const_val {
                             Some(ConstVal::I32(val)) => {
                                 value = ValueDef::Operator(
