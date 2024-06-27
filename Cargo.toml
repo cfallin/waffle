@@ -7,8 +7,8 @@ license = "Apache-2.0 WITH LLVM-exception"
 edition = "2018"
 
 [dependencies]
-wasmparser = { git = "https://github.com/bytecodealliance/wasm-tools" }
-wasm-encoder = { git = "https://github.com/bytecodealliance/wasm-tools" }
+wasmparser = "0.212"
+wasm-encoder = "0.212"
 anyhow = "1.0"
 structopt = "0.3"
 log = "0.4"
