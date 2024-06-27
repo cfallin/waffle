@@ -524,6 +524,15 @@ impl<'a> WasmFuncBackend<'a> {
             Operator::MemoryGrow { mem } => {
                 Some(wasm_encoder::Instruction::MemoryGrow(mem.index() as u32))
             }
+            Operator::MemoryCopy { dst_mem, src_mem } => {
+                Some(wasm_encoder::Instruction::MemoryCopy {
+                    src_mem: src_mem.index() as u32,
+                    dst_mem: dst_mem.index() as u32,
+                })
+            }
+            Operator::MemoryFill { mem } => {
+                Some(wasm_encoder::Instruction::MemoryFill(mem.index() as u32))
+            }
 
             Operator::V128Load { memory } => Some(wasm_encoder::Instruction::V128Load(
                 wasm_encoder::MemArg::from(*memory),
