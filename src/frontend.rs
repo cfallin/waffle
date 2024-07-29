@@ -330,7 +330,6 @@ fn handle_payload<'a>(
             };
 
             if !handled {
-                println!(" -> not handled");
                 module
                     .custom_sections
                     .insert(reader.name().to_owned(), reader.data());
