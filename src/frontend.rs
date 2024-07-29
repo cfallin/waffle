@@ -249,64 +249,93 @@ fn handle_payload<'a>(
                 }
             }
         }
-        Payload::CustomSection(reader) => match reader.as_known() {
-            KnownCustom::Name(name_reader) => {
-                for subsection in name_reader {
-                    let subsection = subsection?;
-                    match subsection {
-                        Name::Function(names) => {
-                            for name in names {
-                                let name = name?;
-                                module.funcs[Func::new(name.index as usize)].set_name(name.name);
+        Payload::CustomSection(reader) => {
+            let handled = match reader.as_known() {
+                KnownCustom::Name(name_reader) => {
+                    for subsection in name_reader {
+                        let subsection = subsection?;
+                        match subsection {
+                            Name::Function(names) => {
+                                for name in names {
+                                    let name = name?;
+                                    module.funcs[Func::new(name.index as usize)]
+                                        .set_name(name.name);
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                    true
+                }
+                KnownCustom::Unknown => {
+                    if reader.name() == ".debug_info" {
+                        dwarf.debug_info =
+                            gimli::DebugInfo::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_abbrev" {
+                        dwarf.debug_abbrev =
+                            gimli::DebugAbbrev::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_addr" {
+                        dwarf.debug_addr = gimli::DebugAddr::from(gimli::EndianSlice::new(
+                            reader.data(),
+                            gimli::LittleEndian,
+                        ));
+                        true
+                    } else if reader.name() == ".debug_aranges" {
+                        dwarf.debug_aranges =
+                            gimli::DebugAranges::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_line" {
+                        dwarf.debug_line =
+                            gimli::DebugLine::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_line_str" {
+                        dwarf.debug_line_str =
+                            gimli::DebugLineStr::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_str" {
+                        dwarf.debug_str = gimli::DebugStr::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_str_offsets" {
+                        dwarf.debug_str_offsets = gimli::DebugStrOffsets::from(
+                            gimli::EndianSlice::new(reader.data(), gimli::LittleEndian),
+                        );
+                        true
+                    } else if reader.name() == ".debug_types" {
+                        dwarf.debug_types =
+                            gimli::DebugTypes::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_loc" {
+                        extra_sections.debug_loc =
+                            gimli::DebugLoc::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_loclists" {
+                        extra_sections.debug_loclists =
+                            gimli::DebugLocLists::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_ranges" {
+                        extra_sections.debug_ranges =
+                            gimli::DebugRanges::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else if reader.name() == ".debug_rnglists" {
+                        extra_sections.debug_rnglists =
+                            gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
+                        true
+                    } else {
+                        false
                     }
                 }
+                _ => false,
+            };
+
+            if !handled {
+                println!(" -> not handled");
+                module
+                    .custom_sections
+                    .insert(reader.name().to_owned(), reader.data());
             }
-            KnownCustom::Unknown => {
-                if reader.name() == ".debug_info" {
-                    dwarf.debug_info = gimli::DebugInfo::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_abbrev" {
-                    dwarf.debug_abbrev =
-                        gimli::DebugAbbrev::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_addr" {
-                    dwarf.debug_addr = gimli::DebugAddr::from(gimli::EndianSlice::new(
-                        reader.data(),
-                        gimli::LittleEndian,
-                    ));
-                } else if reader.name() == ".debug_aranges" {
-                    dwarf.debug_aranges =
-                        gimli::DebugAranges::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_line" {
-                    dwarf.debug_line = gimli::DebugLine::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_line_str" {
-                    dwarf.debug_line_str =
-                        gimli::DebugLineStr::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_str" {
-                    dwarf.debug_str = gimli::DebugStr::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_str_offsets" {
-                    dwarf.debug_str_offsets = gimli::DebugStrOffsets::from(
-                        gimli::EndianSlice::new(reader.data(), gimli::LittleEndian),
-                    );
-                } else if reader.name() == ".debug_types" {
-                    dwarf.debug_types = gimli::DebugTypes::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_loc" {
-                    extra_sections.debug_loc =
-                        gimli::DebugLoc::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_loclists" {
-                    extra_sections.debug_loclists =
-                        gimli::DebugLocLists::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_ranges" {
-                    extra_sections.debug_ranges =
-                        gimli::DebugRanges::new(reader.data(), gimli::LittleEndian);
-                } else if reader.name() == ".debug_rnglists" {
-                    extra_sections.debug_rnglists =
-                        gimli::DebugRngLists::new(reader.data(), gimli::LittleEndian);
-                }
-            }
-            _ => {}
-        },
+        }
         Payload::Version { .. } => {}
         Payload::ElementSection(reader) => {
             for element in reader {

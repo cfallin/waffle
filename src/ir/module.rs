@@ -3,6 +3,7 @@ use crate::entity::{EntityRef, EntityVec};
 use crate::ir::{Debug, DebugMap, FunctionBody};
 use crate::{backend, frontend};
 use anyhow::Result;
+use std::collections::BTreeMap;
 
 pub use crate::frontend::FrontendOptions;
 
@@ -19,6 +20,7 @@ pub struct Module<'a> {
     pub start_func: Option<Func>,
     pub debug: Debug,
     pub debug_map: DebugMap,
+    pub custom_sections: BTreeMap<String, &'a [u8]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -144,6 +146,7 @@ impl<'a> Module<'a> {
             start_func: None,
             debug: Debug::default(),
             debug_map: DebugMap::default(),
+            custom_sections: BTreeMap::default(),
         }
     }
 
@@ -166,6 +169,7 @@ impl<'a> Module<'a> {
             start_func: self.start_func,
             debug: self.debug,
             debug_map: self.debug_map,
+            custom_sections: BTreeMap::default(),
         }
     }
 }
