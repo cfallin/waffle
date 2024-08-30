@@ -7,8 +7,6 @@ use smallvec::{smallvec, SmallVec};
 
 use std::collections::HashMap;
 
-mod wasi;
-
 const WASM_PAGE: usize = 0x1_0000; // 64KiB
 const MAX_PAGES: usize = 2048; // 2048 * 64KiB = 128MiB
 
@@ -280,9 +278,6 @@ impl InterpContext {
     }
 
     fn call_import(&mut self, name: &str, args: &[ConstVal]) -> InterpResult {
-        if let Some(ret) = wasi::call_wasi(&mut self.memories[Memory::from(0)], name, args) {
-            return ret;
-        }
         panic!("Unknown import: {} with args: {:?}", name, args);
     }
 }
