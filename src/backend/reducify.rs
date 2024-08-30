@@ -4,6 +4,27 @@
 //! branching back to the main loop as soon as control passes through
 //! the loop header again.
 //!
+//! # Limitations
+//!
+//! ***WARNING*** EXPONENTIAL BLOWUP POTENTIAL ***WARNING***
+//!
+//! This pass is designed on the assumption that irreducible control
+//! flow is rare, and needs to be handled somehow but it's OK to,
+//! e.g., duplicate most of a loop body to do so. The tradeoff that
+//! we're aiming for is that we want zero runtime overhead -- we do
+//! not want a performance cliff if someone accidentally introduces an
+//! irreducible edge -- and we're hoping that this remains rare. If
+//! you feed this pass a state machine, or a fully-connected clique,
+//! for example, or even a deep nest of loops, one can get much worse
+//! than 2x code-size increase. You have been warned!
+//!
+//! In the future we may consider a hybrid approach where we start
+//! with this algorithm, keep track of block-count increase, and abort
+//! and move to a Relooper-style (dynamic label variable-based)
+//! approach with no code duplication if a threshold is reached.
+//!
+//! ***WARNING*** EXPONENTIAL BLOWUP POTENTIAL ***WARNING***
+//!
 //! # Finding Loop Headers
 //!
 //! The basic idea is that we compute RPO and treat all backedges in
