@@ -474,6 +474,25 @@ impl FunctionBody {
         Ok(())
     }
 
+    pub fn verify_reducible(&self) -> Result<()> {
+        let cfg = CFGInfo::new(self);
+        for (rpo, &block) in cfg.rpo.entries() {
+            for &succ in &self.blocks[block].succs {
+                let succ_rpo = cfg.rpo_pos[succ].unwrap();
+                if succ_rpo.index() <= rpo.index() && !cfg.dominates(succ, block) {
+                    anyhow::bail!(
+                        "Irreducible edge from {} ({}) to {} ({})",
+                        block,
+                        rpo,
+                        succ,
+                        succ_rpo
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn compile(&self) -> Result<wasm_encoder::Function> {
         let backend = WasmFuncBackend::new(self)?;
         backend.compile()
