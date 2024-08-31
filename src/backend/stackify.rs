@@ -23,7 +23,7 @@ pub enum WasmBlock<'a> {
         body: Vec<WasmBlock<'a>>,
         out: Block,
     },
-    /// A Wasm loop that has the given contents and whos label jumps
+    /// A Wasm loop that has the given contents and whose label jumps
     /// to the given CFG block header.
     Loop {
         body: Vec<WasmBlock<'a>>,

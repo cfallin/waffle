@@ -150,6 +150,23 @@ impl<'a> Module<'a> {
         }
     }
 
+    pub fn empty() -> Module<'static> {
+        Module {
+            orig_bytes: &[],
+            funcs: EntityVec::default(),
+            signatures: EntityVec::default(),
+            globals: EntityVec::default(),
+            tables: EntityVec::default(),
+            imports: vec![],
+            exports: vec![],
+            memories: EntityVec::default(),
+            start_func: None,
+            debug: Debug::default(),
+            debug_map: DebugMap::default(),
+            custom_sections: BTreeMap::default(),
+        }
+    }
+
     pub fn without_orig_bytes(self) -> Module<'static> {
         Module {
             orig_bytes: &[],
