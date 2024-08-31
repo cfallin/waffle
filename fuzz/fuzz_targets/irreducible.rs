@@ -8,7 +8,7 @@
 
 #![no_main]
 use arbitrary::Arbitrary;
-use libfuzzer_sys::fuzz_target;
+use libfuzzer_sys::{fuzz_target, Corpus};
 use waffle::{
     entity::PerEntity, Block, BlockTarget, FuncDecl, FunctionBody, Module, SignatureData,
     Terminator, Type,
@@ -21,7 +21,7 @@ struct CFG {
 }
 
 impl CFG {
-    fn to_module(&self) -> Module {
+    fn to_module(&self) -> Option<Module> {
         let mut module = Module::empty();
         let sig = module.signatures.push(SignatureData {
             params: vec![Type::I32],
@@ -40,8 +40,11 @@ impl CFG {
 
         let mut edges_by_origin: PerEntity<Block, Vec<Block>> = PerEntity::default();
         for &(from, to) in &self.edges {
-            let from = Block::from(u32::from(from) % num_blocks);
-            let to = Block::from(u32::from(to) % num_blocks);
+            if from >= self.num_blocks || to >= self.num_blocks {
+                return None;
+            }
+            let from = Block::from(u32::from(from));
+            let to = Block::from(u32::from(to));
             edges_by_origin[from].push(to);
         }
 
@@ -84,12 +87,17 @@ impl CFG {
         module
             .funcs
             .push(FuncDecl::Body(sig, "func0".to_string(), body));
-        module
+
+        Some(module)
     }
 }
 
-fuzz_target!(|cfg: CFG| {
+fuzz_target!(|cfg: CFG| -> Corpus {
     let _ = env_logger::try_init();
-    let module = cfg.to_module();
+    let module = match cfg.to_module() {
+        Some(m) => m,
+        None => return Corpus::Reject,
+    };
     let _ = module.to_wasm_bytes().unwrap();
+    Corpus::Keep
 });

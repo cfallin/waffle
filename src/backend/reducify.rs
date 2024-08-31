@@ -149,7 +149,7 @@
 //! merge-point between different copies of the same subgraph.
 
 use crate::entity::EntityRef;
-use crate::{cfg::CFGInfo, entity::PerEntity, Block, FunctionBody, cfg::RPOIndex, Value, ValueDef};
+use crate::{cfg::CFGInfo, cfg::RPOIndex, entity::PerEntity, Block, FunctionBody, Value, ValueDef};
 use fxhash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::borrow::Cow;
