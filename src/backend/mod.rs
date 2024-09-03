@@ -217,7 +217,7 @@ impl<'a> WasmFuncBackend<'a> {
                 &ValueDef::PickOutput(orig_value, idx, _) => {
                     ctx.locals.values[orig_value][idx as usize]
                 }
-                _ => unreachable!(),
+                val => unreachable!("bad value ({}): {:?}", value, val),
             };
             func.instruction(&wasm_encoder::Instruction::LocalGet(local.index() as u32));
         }

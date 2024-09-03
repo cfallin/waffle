@@ -81,7 +81,7 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                         .collect::<Vec<_>>()
                         .join(", ")
                 )?,
-                ValueDef::None => panic!(),
+                ValueDef::None => writeln!(f, "{}    {} = none", self.indent, value)?,
                 _ => {}
             }
         }

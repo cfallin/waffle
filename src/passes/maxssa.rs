@@ -157,9 +157,8 @@ impl MaxSSAPass {
                 ValueDef::PickOutput(value, ..) => {
                     *value = resolve(body, *value);
                 }
-                ValueDef::Alias(_) => {
-                    // Nullify the alias: should no longer be needed.
-                    def = ValueDef::None;
+                ValueDef::Alias(value) => {
+                    *value = resolve(body, *value);
                 }
                 _ => {}
             }
