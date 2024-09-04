@@ -72,42 +72,68 @@ impl MaxSSAPass {
     }
 
     fn visit_use(&mut self, body: &mut FunctionBody, cfg: &CFGInfo, block: Block, value: Value) {
-        if self.value_map.contains_key(&(block, value)) {
-            return;
-        }
-        if cfg.def_block[value] == block {
-            return;
-        }
-        self.new_args[block].push(value);
-
-        // Create a placeholder value.
-        let ty = body.values[value].ty(&body.type_pool).unwrap();
-        let blockparam = body.add_blockparam(block, ty);
-        self.value_map.insert((block, value), blockparam);
-
-        // Recursively visit preds and use the value there, to ensure
-        // they have the value available as well.
-        for i in 0..body.blocks[block].preds.len() {
-            // Don't borrow for whole loop while iterating (`body` is
-            // taken as mut by recursion, but we don't add preds).
-            let pred = body.blocks[block].preds[i];
-            self.visit_use(body, cfg, pred, value);
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum Phase {
+            Pre,
+            Post,
         }
 
-        // If all preds have the same value, and this is not a
-        // cut-block, rewrite the blockparam to an alias instead.
-        if !self.is_cut_block(block) {
-            if let Some(pred_value) = iter_all_same(
-                body.blocks[block]
-                    .preds
-                    .iter()
-                    .map(|&pred| *self.value_map.get(&(pred, value)).unwrap_or(&value))
-                    .filter(|&val| val != blockparam),
-            ) {
-                body.blocks[block].params.pop();
-                self.new_args[block].pop();
-                body.values[blockparam] = ValueDef::Alias(pred_value);
-                self.value_map.insert((block, value), pred_value);
+        let mut stack = vec![(block, value, Phase::Pre, None)];
+
+        while let Some(&(block, value, phase, _)) = stack.last() {
+            match phase {
+                Phase::Pre => {
+                    if self.value_map.contains_key(&(block, value)) {
+                        stack.pop();
+                        continue;
+                    }
+                    if cfg.def_block[value] == block {
+                        stack.pop();
+                        continue;
+                    }
+
+                    self.new_args[block].push(value);
+
+                    // Create a placeholder value.
+                    let ty = body.values[value].ty(&body.type_pool).unwrap();
+                    let blockparam = body.add_blockparam(block, ty);
+                    self.value_map.insert((block, value), blockparam);
+
+                    stack.pop();
+                    stack.push((block, value, Phase::Post, Some(blockparam)));
+
+                    // Recursively visit preds and use the value there, to
+                    // ensure they have the value available as well.
+                    for i in 0..body.blocks[block].preds.len() {
+                        // Don't borrow for whole loop while iterating (`body` is
+                        // taken as mut by recursion, but we don't add preds).
+                        let pred = body.blocks[block].preds[i];
+                        stack.push((pred, value, Phase::Pre, None));
+                    }
+                }
+
+                Phase::Post => {
+                    let Some((_, _, _, Some(blockparam))) = stack.pop() else {
+                        unreachable!()
+                    };
+
+                    // If all preds have the same value, and this is not a
+                    // cut-block, rewrite the blockparam to an alias instead.
+                    if !self.is_cut_block(block) {
+                        if let Some(pred_value) = iter_all_same(
+                            body.blocks[block]
+                                .preds
+                                .iter()
+                                .map(|&pred| *self.value_map.get(&(pred, value)).unwrap_or(&value))
+                                .filter(|&val| val != blockparam),
+                        ) {
+                            body.blocks[block].params.pop();
+                            self.new_args[block].pop();
+                            body.values[blockparam] = ValueDef::Alias(pred_value);
+                            self.value_map.insert((block, value), pred_value);
+                        }
+                    }
+                }
             }
         }
     }
