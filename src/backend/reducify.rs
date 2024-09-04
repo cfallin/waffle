@@ -188,6 +188,19 @@ impl<'a> Reducifier<'a> {
         //   enforcing LIFO by extending appropriately.
         let cfg = CFGInfo::new(&self.body);
 
+        let mut has_irreducible = false;
+        for (rpo, &block) in cfg.rpo.entries() {
+            for &succ in &self.body.blocks[block].succs {
+                let succ_rpo = cfg.rpo_pos[succ].unwrap();
+                if succ_rpo.index() <= rpo.index() && !cfg.dominates(succ, block) {
+                    has_irreducible = true;
+                }
+            }
+        }
+        if !has_irreducible {
+            return Cow::Borrowed(self.body);
+        }
+
         for (rpo, &block) in cfg.rpo.entries() {
             for &succ in &self.body.blocks[block].succs {
                 let succ_rpo = cfg.rpo_pos[succ].unwrap();
@@ -238,10 +251,6 @@ impl<'a> Reducifier<'a> {
             }
         }
 
-        if irreducible_headers.is_empty() {
-            return Cow::Borrowed(self.body);
-        }
-
         if log::log_enabled!(log::Level::Trace) {
             for block in self.body.blocks.iter() {
                 let mut headers = self.blocks[block]
@@ -282,6 +291,7 @@ impl<'a> Reducifier<'a> {
 
         let mut new_body = self.body.clone();
         let cfg = CFGInfo::new(&new_body);
+        crate::passes::resolve_aliases::run(&mut new_body);
         crate::passes::maxssa::run(&mut new_body, Some(cut_blocks), &cfg);
         crate::passes::resolve_aliases::run(&mut new_body);
 
