@@ -55,7 +55,7 @@ pub fn run(body: &FunctionBody, cfg: &CFGInfo) {
 
         for &inst in &data.insts {
             match &body.values[inst] {
-                &ValueDef::Operator(_, args, _) | &ValueDef::Trace(_, args) => {
+                &ValueDef::Operator(_, args, _) => {
                     for &arg in &body.arg_pool[args] {
                         validate(arg);
                     }

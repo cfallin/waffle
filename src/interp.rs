@@ -194,27 +194,6 @@ impl InterpContext {
                         };
                         smallvec![result]
                     }
-                    &ValueDef::Trace(id, args) => {
-                        if let Some(handler) = self.trace_handler.as_ref() {
-                            let args = body.arg_pool[args]
-                                .iter()
-                                .map(|&arg| {
-                                    let arg = body.resolve_alias(arg);
-                                    let multivalue = frame
-                                        .values
-                                        .get(&arg)
-                                        .ok_or_else(|| format!("Unset SSA value: {}", arg))
-                                        .unwrap();
-                                    assert_eq!(multivalue.len(), 1);
-                                    multivalue[0]
-                                })
-                                .collect::<Vec<ConstVal>>();
-                            if !handler(id, args) {
-                                return InterpResult::TraceHandlerQuit;
-                            }
-                        }
-                        smallvec![]
-                    }
                     &ValueDef::None | &ValueDef::Placeholder(..) | &ValueDef::BlockParam(..) => {
                         unreachable!();
                     }

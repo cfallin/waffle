@@ -10,7 +10,7 @@ pub fn run(body: &mut FunctionBody) {
     for value in body.values.iter() {
         let mut value_def = std::mem::take(&mut body.values[value]);
         match &mut value_def {
-            ValueDef::Operator(_, args, _) | ValueDef::Trace(_, args) => {
+            ValueDef::Operator(_, args, _) => {
                 for i in 0..args.len() {
                     let val = body.arg_pool[*args][i];
                     let val = body.resolve_and_update_alias(val);

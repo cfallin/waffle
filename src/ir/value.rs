@@ -9,7 +9,6 @@ pub enum ValueDef {
     PickOutput(Value, u32, Type),
     Alias(Value),
     Placeholder(Type),
-    Trace(usize, ListRef<Value>),
     #[default]
     None,
 }
@@ -22,7 +21,6 @@ impl ValueDef {
             &ValueDef::Operator(_, _, tys) if tys.len() == 1 => Some(types[tys][0]),
             &ValueDef::PickOutput(_, _, ty) => Some(ty),
             &ValueDef::Placeholder(ty) => Some(ty),
-            &ValueDef::Trace(_, _) => None,
             _ => None,
         }
     }
@@ -48,11 +46,6 @@ impl ValueDef {
             &ValueDef::PickOutput(from, ..) => f(from),
             &ValueDef::Alias(value) => f(value),
             &ValueDef::Placeholder(_) => {}
-            &ValueDef::Trace(_, args) => {
-                for &arg in &arg_pool[args] {
-                    f(arg);
-                }
-            }
             &ValueDef::None => panic!(),
         }
     }
@@ -68,11 +61,6 @@ impl ValueDef {
             &mut ValueDef::PickOutput(ref mut from, ..) => f(from),
             &mut ValueDef::Alias(ref mut value) => f(value),
             &mut ValueDef::Placeholder(_) => {}
-            &mut ValueDef::Trace(_, args) => {
-                for arg in &mut arg_pool[args] {
-                    f(arg);
-                }
-            }
             &mut ValueDef::None => panic!(),
         }
     }

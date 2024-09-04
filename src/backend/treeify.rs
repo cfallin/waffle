@@ -89,7 +89,6 @@ impl Trees {
                     &ValueDef::BlockParam(..)
                     | &ValueDef::Alias(..)
                     | &ValueDef::Placeholder(..)
-                    | &ValueDef::Trace(..)
                     | &ValueDef::None => {}
                 }
             }

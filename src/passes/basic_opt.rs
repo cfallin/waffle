@@ -181,7 +181,7 @@ impl<'a> BasicOptPass<'a> {
 
                 // Resolve aliases in the arg lists.
                 match &mut value {
-                    &mut ValueDef::Operator(_, args, _) | &mut ValueDef::Trace(_, args) => {
+                    &mut ValueDef::Operator(_, args, _) => {
                         for i in 0..args.len() {
                             let val = body.arg_pool[args][i];
                             let new_val = body.resolve_and_update_alias(val);

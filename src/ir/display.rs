@@ -70,17 +70,6 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                 ValueDef::Placeholder(ty) => {
                     writeln!(f, "{}    {} = placeholder # {}", self.indent, value, ty)?
                 }
-                ValueDef::Trace(id, args) => writeln!(
-                    f,
-                    "{}    trace {}, {}",
-                    self.indent,
-                    id,
-                    self.body.arg_pool[*args]
-                        .iter()
-                        .map(|arg| format!("{}", arg))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )?,
                 ValueDef::None => writeln!(f, "{}    {} = none", self.indent, value)?,
                 _ => {}
             }
@@ -168,13 +157,6 @@ impl<'a> Display for FunctionBodyDisplay<'a> {
                     }
                     ValueDef::Alias(val) => {
                         writeln!(f, "{}    {} = {}", self.indent, inst, val)?;
-                    }
-                    ValueDef::Trace(id, args) => {
-                        let args = self.body.arg_pool[*args]
-                            .iter()
-                            .map(|&v| format!("{}", v))
-                            .collect::<Vec<_>>();
-                        writeln!(f, "{}    trace {}, {}", self.indent, id, args.join(", "))?;
                     }
                     _ => unreachable!(),
                 }
