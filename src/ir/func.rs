@@ -6,6 +6,7 @@ use crate::frontend::parse_body;
 use crate::ir::SourceLoc;
 use crate::passes::basic_opt::OptOptions;
 use crate::pool::{ListPool, ListRef};
+use crate::Operator;
 use anyhow::Result;
 use fxhash::FxHashMap;
 use std::collections::HashSet;
@@ -325,6 +326,24 @@ impl FunctionBody {
         log::trace!("add_value: def {:?}", value);
         let value = self.values.push(value);
         log::trace!(" -> {}", value);
+        value
+    }
+
+    /// Convenience method: add an operator value to the function in
+    /// the given block. Creates the argument and type list(s), adds
+    /// the value node, and appends the value node to the given block.
+    pub fn add_op(&mut self, block: Block, op: Operator, args: &[Value], tys: &[Type]) -> Value {
+        let args = match args.len() {
+            0 => ListRef::default(),
+            _ => self.arg_pool.from_iter(args.iter().cloned()),
+        };
+        let tys = match tys.len() {
+            0 => ListRef::default(),
+            1 => self.single_type_list(tys[0]),
+            _ => self.type_pool.from_iter(tys.iter().cloned()),
+        };
+        let value = self.add_value(ValueDef::Operator(op, args, tys));
+        self.append_to_block(block, value);
         value
     }
 

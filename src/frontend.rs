@@ -7,7 +7,6 @@ use crate::errors::FrontendError;
 use crate::ir::*;
 use crate::op_traits::{op_inputs, op_outputs};
 use crate::ops::Operator;
-use crate::pool::ListRef;
 use addr2line::gimli;
 use anyhow::{bail, Result};
 use fxhash::{FxHashMap, FxHashSet};
@@ -714,36 +713,14 @@ impl LocalTracker {
         ty: Type,
         at_block: Block,
     ) -> Value {
-        let types = body.single_type_list(ty);
         let val = match ty {
-            Type::I32 => body.add_value(ValueDef::Operator(
-                Operator::I32Const { value: 0 },
-                ListRef::default(),
-                types,
-            )),
-            Type::I64 => body.add_value(ValueDef::Operator(
-                Operator::I64Const { value: 0 },
-                ListRef::default(),
-                types,
-            )),
-            Type::F32 => body.add_value(ValueDef::Operator(
-                Operator::F32Const { value: 0 },
-                ListRef::default(),
-                types,
-            )),
-            Type::F64 => body.add_value(ValueDef::Operator(
-                Operator::F64Const { value: 0 },
-                ListRef::default(),
-                types,
-            )),
-            Type::V128 => body.add_value(ValueDef::Operator(
-                Operator::V128Const { value: 0 },
-                ListRef::default(),
-                types,
-            )),
+            Type::I32 => body.add_op(at_block, Operator::I32Const { value: 0 }, &[], &[ty]),
+            Type::I64 => body.add_op(at_block, Operator::I64Const { value: 0 }, &[], &[ty]),
+            Type::F32 => body.add_op(at_block, Operator::F32Const { value: 0 }, &[], &[ty]),
+            Type::F64 => body.add_op(at_block, Operator::F64Const { value: 0 }, &[], &[ty]),
+            Type::V128 => body.add_op(at_block, Operator::V128Const { value: 0 }, &[], &[ty]),
             _ => todo!("unsupported type: {:?}", ty),
         };
-        body.append_to_block(at_block, val);
         log::trace!(
             "created default value {} of type {} at block {}",
             val,

@@ -456,8 +456,7 @@ impl<'a> Reducifier<'a> {
 mod test {
     use super::*;
     use crate::{
-        entity::EntityRef, BlockTarget, FuncDecl, Module, Operator, SignatureData, Terminator,
-        Type, ValueDef,
+        entity::EntityRef, BlockTarget, FuncDecl, Module, Operator, SignatureData, Terminator, Type,
     };
 
     #[test]
@@ -498,23 +497,19 @@ mod test {
         let block2_param = body.add_blockparam(block2, Type::I64);
         let block3_param = body.add_blockparam(block3, Type::F64);
 
-        let args = body.arg_pool.single(block2_param);
-        let f64_ty = body.single_type_list(Type::F64);
-        let block2_param_cast = body.add_value(ValueDef::Operator(
+        let block2_param_cast = body.add_op(
+            block2,
             Operator::F64ReinterpretI64,
-            args,
-            f64_ty,
-        ));
-        body.blocks[block2].insts.push(block2_param_cast);
+            &[block2_param],
+            &[Type::F64],
+        );
 
-        let args = body.arg_pool.single(block3_param);
-        let i64_ty = body.single_type_list(Type::I64);
-        let block3_param_cast = body.add_value(ValueDef::Operator(
+        let block3_param_cast = body.add_op(
+            block3,
             Operator::I64ReinterpretF64,
-            args,
-            i64_ty,
-        ));
-        body.blocks[block3].insts.push(block3_param_cast);
+            &[block3_param],
+            &[Type::I64],
+        );
 
         body.set_terminator(
             block2,
