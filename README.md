@@ -1,14 +1,37 @@
-# WAFFLE: Wasm Analysis Framework for Lightweight Experimentation
+<div align="center">
+  <h1>waffle</h1>
 
-Synopsis: an SSA IR compiler framework for Wasm-to-Wasm transforms, in Rust.
+  <p>
+    <strong>waffle Wasm compiler library</strong>
+  </p>
 
-## Status: working for Wasm MVP; roundtrips complex modules successfully
+  <strong>A <a href="https://bytecodealliance.org/">Bytecode Alliance</a> project</strong>
+
+  <p>
+    <a href="https://github.com/cfallin/waffle/actions?query=workflow%3ACI"><img src="https://github.com/cfallin/waffle/workflows/CI/badge.svg" alt="build status" /></a>
+    <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm"><img src="https://img.shields.io/badge/zulip-join_chat-brightgreen.svg" alt="zulip chat" /></a>
+    <a href="https://docs.rs/waffle"><img src="https://docs.rs/waffle/badge.svg" alt="Documentation Status" /></a>
+  </p>
+
+  <h3>
+    <a href="https://docs.rs/waffle">API Docs</a>
+    <span> | </span>
+    <a href="https://github.com/cfallin/waffle/blob/main/CONTRIBUTING.md">Contributing</a>
+    <span> | </span>
+    <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm">Chat</a>
+  </h3>
+</div>
+
+waffle (the Wasm Analysis Framework for Lightweight Experimentation)
+is an SSA IR compiler framework for Wasm-to-Wasm transforms, in Rust.
+
+## Status
 
 The transforms from Wasm to IR and from IR to Wasm work well, and has been
 fuzzed in various ways. In particular, waffle is fuzzed by roundtripping Wasm
 through SSA IR and back, and differentially executing the original and
 roundtripped Wasm under Wasmtime (with limits on execution time). At this time,
-no correctness bugs have been found.
+no correctness bugs are known.
 
 Waffle is able to roundtrip (convert to IR, then compile back to Wasm) complex
 modules such as the SpiderMonkey JS engine compiled to Wasm.
@@ -18,6 +41,9 @@ propagation. Much more could be done on this.
 
 There are various ways in which the generated Wasm bytecode could be improved;
 work is ongoing on this.
+
+waffle is in use by [weval](https://github.com/cfallin/weval), the
+WebAssembly partial evaluator, and was developed for this purpose.
 
 ## Architecture
 
