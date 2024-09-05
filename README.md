@@ -33,7 +33,12 @@ Cranelift's does, except that memory, table, etc. operations remain at the Wasm
 abstraction layer (are not lowered into implementation details), and arithmetic
 operators mirror Wasm's exactly.
 
-The backend operates in three stages:
+The backend operates in four stages:
+
+* [Reducifier](src/backend/reducify.rs), which uses context-sensitive
+  block duplication to turn loops with side-entrances (which are
+  irreducible) into reducible control flow, suitable for lowering to
+  Wasm control-flow primitives.
 
 * [Structured control flow recovery](src/backend/stackify.rs), which uses
   [Ramsey's algorithm](https://dl.acm.org/doi/abs/10.1145/3547621) to convert
