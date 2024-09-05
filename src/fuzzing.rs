@@ -2,6 +2,10 @@
 
 use libfuzzer_sys::arbitrary;
 
+/// Should this module be rejected early during fuzzing due to an
+/// unsupported feature?
+///
+/// Public/exported only for access by fuzzers.
 pub fn reject(bytes: &[u8]) -> bool {
     let parser = wasmparser::Parser::new(0);
     let mut has_start = false;
@@ -53,7 +57,9 @@ pub fn reject(bytes: &[u8]) -> bool {
     false
 }
 
-pub fn fuzzing_config() -> wasm_smith::Config {
+/// Get the configuration that we expect fuzzing targets to use to
+/// generate modules with `wasm_smith`.
+fn fuzzing_config() -> wasm_smith::Config {
     wasm_smith::Config {
         min_funcs: 1,
         max_funcs: 1,
@@ -74,6 +80,8 @@ pub fn fuzzing_config() -> wasm_smith::Config {
     }
 }
 
+/// A wrapper around `Module` that uses `arbitrary` to generate new
+/// modules.
 #[derive(Debug)]
 pub struct ArbitraryModule(pub wasm_smith::Module);
 

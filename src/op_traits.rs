@@ -6,6 +6,8 @@ use crate::Operator;
 use anyhow::Result;
 use std::borrow::Cow;
 
+/// Given a module and an existing operand stack for context, provide
+/// the type(s) that a given operator requires as inputs.
 pub fn op_inputs(
     module: &Module,
     op_stack: &[(Type, Value)],
@@ -490,6 +492,8 @@ pub fn op_inputs(
     }
 }
 
+/// Given a module and an existing operand stack for context, provide
+/// the type(s) that a given operator provides as outputs.
 pub fn op_outputs(
     module: &Module,
     op_stack: &[(Type, Value)],
@@ -962,21 +966,33 @@ pub fn op_outputs(
     }
 }
 
+/// Side-effects that an operator may have.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SideEffect {
+    /// Operator can trap.
     Trap,
+    /// Operator can read a memory.
     ReadMem,
+    /// Operator can write a memory.
     WriteMem,
+    /// Operator can read a global.
     ReadGlobal,
+    /// Operator can write a global.
     WriteGlobal,
+    /// Operator can read a table element.
     ReadTable,
+    /// Operator can write a table element.
     WriteTable,
+    /// Operator can read a local.
     ReadLocal,
+    /// Operator can write a local.
     WriteLocal,
+    /// Operator can have any of the above effects.
     All,
 }
 
 impl Operator {
+    /// What side-effects can this operator have?
     pub fn effects(&self) -> &'static [SideEffect] {
         use SideEffect::*;
 
@@ -1433,10 +1449,12 @@ impl Operator {
         }
     }
 
+    /// Is the operator pure (has no side-effects)?
     pub fn is_pure(&self) -> bool {
         self.effects().is_empty()
     }
 
+    /// Is the operator a direct or indirect call?
     pub fn is_call(&self) -> bool {
         match self {
             Operator::Call { .. } | Operator::CallIndirect { .. } => true,
@@ -1444,6 +1462,7 @@ impl Operator {
         }
     }
 
+    /// Does the operator access (read or write) memory?
     pub fn accesses_memory(&self) -> bool {
         self.effects().iter().any(|e| match e {
             SideEffect::ReadMem | SideEffect::WriteMem => true,
@@ -1933,8 +1952,13 @@ impl std::fmt::Display for Operator {
     }
 }
 
-pub fn op_rematerialize(op: &Operator) -> bool {
+/// Should we rematerialize this operator when generating Wasm
+/// bytecode?
+pub(crate) fn op_rematerialize(op: &Operator) -> bool {
     match op {
+        // constants are much cheaper (in code space and in terms of
+        // indirect effects on code quality) to always generate at
+        // point-of-use rather than store in a Wasm local.
         &Operator::I32Const { .. }
         | &Operator::I64Const { .. }
         | &Operator::F32Const { .. }

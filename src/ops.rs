@@ -1,9 +1,25 @@
 //! Operators.
+//!
+//! An operator is an entity in the IR that accepts some SSA value(s)
+//! (or none) as inputs, and produces SSA value(s) (or none) as
+//! outputs, when executed. The `Operator` itself contains all of its
+//! arguments: for example, a constant value operator (say
+//! `Operator::I32Const`) contains the constant value as a field of
+//! the enum arm.
+//!
+//! The set of operators supported by waffle is meant to be 1-to-1
+//! with Wasm: an operator represents and has the semantics of the
+//! Wasm opcode of the same name. The only exceptions are around
+//! features of Wasm bytecode that waffle "lifts" into its own SSA IR:
+//! accesses to Wasm locals (these become the SSA dataflow itself) and
+//! control flow (these become `Terminator` instructions).
 
 use crate::{entity::EntityRef, Func, Global, Memory, Signature, Table, Type};
 use std::convert::TryFrom;
 pub use wasmparser::{Ieee32, Ieee64};
 
+/// An argument to a memory load or store, specifying which memory,
+/// alignment and an optional offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MemoryArg {
     pub align: u32,
@@ -21,6 +37,8 @@ impl std::fmt::Display for MemoryArg {
     }
 }
 
+/// An operator in the IR, consuming arguments and producing results
+/// when executed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Operator {
     Unreachable,

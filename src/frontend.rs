@@ -15,12 +15,16 @@ use log::trace;
 use std::convert::TryFrom;
 use wasmparser::{BlockType, DataKind, ExternalKind, KnownCustom, Name, Parser, Payload, TypeRef};
 
+/// Options to control the Wasm-to-bytecode translation process.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrontendOptions {
+    /// Preserve DWARF debug-info. Otherwise, it is discarded if
+    /// present.
     pub debug: bool,
 }
 
-pub fn wasm_to_ir<'a>(bytes: &'a [u8], options: &FrontendOptions) -> Result<Module<'a>> {
+/// Convert the given bytecode to a `Module`.
+pub(crate) fn wasm_to_ir<'a>(bytes: &'a [u8], options: &FrontendOptions) -> Result<Module<'a>> {
     let mut module = Module::with_orig_bytes(bytes);
     let parser = Parser::new(0);
     let mut next_func = 0;
@@ -547,6 +551,7 @@ pub(crate) fn parse_body<'a>(
     Ok(ret)
 }
 
+/// State used to construct SSA from Wasm locals.
 #[derive(Debug, Clone, Default)]
 struct LocalTracker {
     /// Types of locals, as declared.
@@ -561,7 +566,9 @@ struct LocalTracker {
     block_start: FxHashMap<Block, FxHashMap<Local, Value>>,
     /// The local-to-value mapping at the end of a block.
     block_end: FxHashMap<Block, FxHashMap<Local, Value>>,
+    /// Mapping from locals to SSA values within the current block.
     in_cur_block: FxHashMap<Local, Value>,
+    /// Blockparams (phis) that are still `Placeholder`.
     incomplete_phis: FxHashMap<Block, Vec<(Local, Value)>>,
 }
 
@@ -824,6 +831,8 @@ impl LocalTracker {
     }
 }
 
+/// State used to build an SSA CFG from Wasm structured control flow
+/// with locals.
 #[derive(Debug)]
 struct FunctionBodyBuilder<'a, 'b> {
     module: &'b Module<'a>,
@@ -836,6 +845,8 @@ struct FunctionBodyBuilder<'a, 'b> {
     op_stack: Vec<(Type, Value)>,
 }
 
+/// A frame in the Wasm control stack, mapping to IR entities for
+/// associated label targets and block-parameter values.
 #[derive(Clone, Debug)]
 enum Frame {
     Block {

@@ -1,9 +1,14 @@
 //! Error types.
 
+/// An error that occurs when translating Wasm to IR.
 #[derive(Clone, Debug)]
 pub enum FrontendError {
+    /// The given WebAssembly feature is not supported.
     UnsupportedFeature(String),
+    /// Some dimension of the WebAssembly module is too large to be
+    /// supported by this library.
     TooLarge(String),
+    /// An internal error occurred.
     Internal(String),
 }
 

@@ -2,18 +2,39 @@ use super::{Block, Type, Value};
 use crate::pool::{ListPool, ListRef};
 use crate::Operator;
 
+/// A definition of an SSA value.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ValueDef {
+    /// This value is a block parameter of the given block, with the
+    /// given parameter position/index, and the given type.
     BlockParam(Block, u32, Type),
+    /// This value is an operator, taking the given arguments, and
+    /// producing the given result types.
+    ///
+    /// The result of an operator may be a single `Type` or a tuple of
+    /// types; in the latter case, valid IR must use `PickOutput` to
+    /// project out individual elements and use them.
     Operator(Operator, ListRef<Value>, ListRef<Type>),
+    /// This value projects out one result of a multi-result
+    /// instruction: given the value, the index in the result tuple,
+    /// it produces a value of the given type.
     PickOutput(Value, u32, Type),
+    /// This value is an alias of another value.
     Alias(Value),
+    /// This value is a placeholder to be filled in later (e.g.,
+    /// during SSA construction, may become a blockparam or an
+    /// alias). Placeholders have fixed types that cannot change once
+    /// they are filled in.
     Placeholder(Type),
+    /// No value: must be filled in before processing.
     #[default]
     None,
 }
 
 impl ValueDef {
+    /// Get the type of this value. Requires the type-pool. If this
+    /// value is an operator with zero or multiple result types, this
+    /// returns `None`.
     pub fn ty(&self, types: &ListPool<Type>) -> Option<Type> {
         match self {
             &ValueDef::BlockParam(_, _, ty) => Some(ty),
@@ -25,6 +46,7 @@ impl ValueDef {
         }
     }
 
+    /// Get the tuple of types of this value.
     pub fn tys<'a>(&'a self, types: &'a ListPool<Type>) -> &'a [Type] {
         match self {
             &ValueDef::Operator(_, _, tys) => &types[tys],
@@ -35,6 +57,8 @@ impl ValueDef {
         }
     }
 
+    /// Visit all other values used by this value with the given
+    /// visitor function.
     pub fn visit_uses<F: FnMut(Value)>(&self, arg_pool: &ListPool<Value>, mut f: F) {
         match self {
             &ValueDef::BlockParam { .. } => {}
@@ -50,6 +74,8 @@ impl ValueDef {
         }
     }
 
+    /// Visit and update all other values used by this value with the
+    /// given visitor function.
     pub fn update_uses<F: FnMut(&mut Value)>(&mut self, arg_pool: &mut ListPool<Value>, mut f: F) {
         match self {
             &mut ValueDef::BlockParam { .. } => {}

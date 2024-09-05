@@ -7,29 +7,73 @@ use smallvec::{smallvec, SmallVec};
 
 use std::collections::HashMap;
 
-const WASM_PAGE: usize = 0x1_0000; // 64KiB
+/// How large do we allow a Wasm memory to be when interpreting? Limit
+/// the size somewhat (apply an implementation limit) so we do not
+/// have unreasonably large state.
 const MAX_PAGES: usize = 2048; // 2048 * 64KiB = 128MiB
 
+/// Context for the IR interpreter. Corresponds roughly to Wasm module
+/// state.
 pub struct InterpContext {
+    /// Contents of memories.
     pub memories: PerEntity<Memory, InterpMemory>,
+    /// Contents of tables.
     pub tables: PerEntity<Table, InterpTable>,
+    /// Values of globals.
     pub globals: PerEntity<Global, ConstVal>,
+    /// Fuel remaining: allows deterministic stopping of execution.
     pub fuel: u64,
-    pub trace_handler: Option<Box<dyn Fn(usize, Vec<ConstVal>) -> bool + Send>>,
 }
 
-type MultiVal = SmallVec<[ConstVal; 2]>;
+/// The state of one interpreter memory.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InterpMemory {
+    pub data: Vec<u8>,
+    pub max_pages: usize,
+}
 
+/// The state of one interpreter table.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InterpTable {
+    pub elements: Vec<Func>,
+}
+
+/// One stack frame in the interpreted execution context.
+#[derive(Debug, Clone, Default)]
+pub struct InterpStackFrame {
+    func: Func,
+    cur_block: Block,
+    values: HashMap<Value, SmallVec<[ConstVal; 2]>>,
+}
+
+/// The result of an interpreter session.
 #[derive(Clone, Debug)]
 pub enum InterpResult {
+    /// The function returned with the given value(s).
     Ok(MultiVal),
-    Exit,
+    /// The module trapped.
     Trap(Func, Block, u32),
+    /// The module ran out of fuel.
     OutOfFuel,
-    TraceHandlerQuit,
 }
 
+/// A constant concrete value during interpretation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum ConstVal {
+    I32(u32),
+    I64(u64),
+    F32(u32),
+    F64(u64),
+    #[default]
+    None,
+}
+
+/// Representation of multiple result values.
+type MultiVal = SmallVec<[ConstVal; 2]>;
+
 impl InterpResult {
+    /// Extract the return value(s), if normal return, otherwise
+    /// produce an error.
     pub fn ok(self) -> anyhow::Result<MultiVal> {
         match self {
             InterpResult::Ok(vals) => Ok(vals),
@@ -39,6 +83,7 @@ impl InterpResult {
 }
 
 impl InterpContext {
+    /// Construct a new interpreter context for the given module.
     pub fn new(module: &Module<'_>) -> anyhow::Result<Self> {
         let mut memories = PerEntity::default();
         for (memory, data) in module.memories.entries() {
@@ -83,10 +128,11 @@ impl InterpContext {
             tables,
             globals,
             fuel: u64::MAX,
-            trace_handler: None,
         })
     }
 
+    /// Call the given function with the given args, running the
+    /// interpreter until fuel is exhausted or the function returns.
     pub fn call(&mut self, module: &Module<'_>, func: Func, args: &[ConstVal]) -> InterpResult {
         let body = match &module.funcs[func] {
             FuncDecl::Lazy(..) => panic!("Un-expanded function"),
@@ -261,13 +307,6 @@ impl InterpContext {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct InterpStackFrame {
-    func: Func,
-    cur_block: Block,
-    values: HashMap<Value, SmallVec<[ConstVal; 2]>>,
-}
-
 impl InterpStackFrame {
     fn apply_target(&mut self, body: &FunctionBody, target: &BlockTarget) {
         // Collect blockparam args.
@@ -293,27 +332,6 @@ impl InterpStackFrame {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InterpMemory {
-    pub data: Vec<u8>,
-    pub max_pages: usize,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InterpTable {
-    pub elements: Vec<Func>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub enum ConstVal {
-    I32(u32),
-    I64(u64),
-    F32(u32),
-    F64(u64),
-    #[default]
-    None,
-}
-
 impl ConstVal {
     pub fn as_u32(self) -> Option<u32> {
         match self {
@@ -332,6 +350,8 @@ impl ConstVal {
     }
 }
 
+/// Constant-evaluate the given operator with the given arguments,
+/// returning a constant result if possible to know.
 pub fn const_eval(
     op: &Operator,
     vals: &[ConstVal],

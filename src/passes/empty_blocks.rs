@@ -37,7 +37,7 @@ fn rewrite_target(
     forwardings[target.block.index()].clone()
 }
 
-pub fn run(body: &mut FunctionBody) {
+pub(crate) fn run(body: &mut FunctionBody) {
     log::trace!(
         "empty_blocks: running on func:\n{}\n",
         body.display_verbose("| ", None)

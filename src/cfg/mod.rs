@@ -13,6 +13,7 @@ pub mod postorder;
 
 declare_entity!(RPOIndex, "rpo");
 
+/// Auxiliary analyses of the control-flow graph.
 #[derive(Clone, Debug)]
 pub struct CFGInfo {
     /// Entry block.

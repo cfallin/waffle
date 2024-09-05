@@ -26,7 +26,7 @@ impl std::default::Default for OptOptions {
     }
 }
 
-pub fn basic_opt(body: &mut FunctionBody, cfg: &CFGInfo, options: &OptOptions) {
+pub(crate) fn basic_opt(body: &mut FunctionBody, cfg: &CFGInfo, options: &OptOptions) {
     loop {
         let mut pass = BasicOptPass {
             map: ScopedMap::default(),

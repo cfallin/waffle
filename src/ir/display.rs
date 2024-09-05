@@ -5,6 +5,8 @@ use crate::entity::EntityRef;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
+/// A wrapper around a `FunctionBody` together with some auxiliary
+/// information to perform a pretty-print of that function.
 pub struct FunctionBodyDisplay<'a> {
     pub(crate) body: &'a FunctionBody,
     pub(crate) indent: &'a str,

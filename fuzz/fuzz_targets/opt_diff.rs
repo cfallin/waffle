@@ -44,7 +44,6 @@ fuzz_target!(|module: waffle::fuzzing::ArbitraryModule| {
             return;
         }
         InterpResult::Ok(_) => {}
-        ret => panic!("Bad result: {:?}", ret),
     }
 
     let mut opt_module = parsed_module.clone();

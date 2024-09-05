@@ -9,7 +9,7 @@ use crate::entity::PerEntity;
 use crate::ir::{Block, FunctionBody, Value, ValueDef};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-pub fn run(body: &mut FunctionBody, cut_blocks: Option<HashSet<Block>>, cfg: &CFGInfo) {
+pub(crate) fn run(body: &mut FunctionBody, cut_blocks: Option<HashSet<Block>>, cfg: &CFGInfo) {
     MaxSSAPass::new(cut_blocks).run(body, cfg);
 }
 
