@@ -8,7 +8,7 @@
   <strong>A <a href="https://bytecodealliance.org/">Bytecode Alliance</a> project</strong>
 
   <p>
-    <a href="https://github.com/cfallin/waffle/actions?query=workflow%3ACI"><img src="https://github.com/cfallin/waffle/workflows/CI/badge.svg" alt="build status" /></a>
+    <a href="https://github.com/bytecodealliance/waffle/actions?query=workflow%3ACI"><img src="https://github.com/bytecodealliance/waffle/workflows/CI/badge.svg" alt="build status" /></a>
     <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm"><img src="https://img.shields.io/badge/zulip-join_chat-brightgreen.svg" alt="zulip chat" /></a>
     <a href="https://docs.rs/waffle"><img src="https://docs.rs/waffle/badge.svg" alt="Documentation Status" /></a>
   </p>
@@ -16,7 +16,7 @@
   <h3>
     <a href="https://docs.rs/waffle">API Docs</a>
     <span> | </span>
-    <a href="https://github.com/cfallin/waffle/blob/main/CONTRIBUTING.md">Contributing</a>
+    <a href="https://github.com/bytecodealliance/waffle/blob/main/CONTRIBUTING.md">Contributing</a>
     <span> | </span>
     <a href="https://bytecodealliance.zulipchat.com/#narrow/stream/223391-wasm">Chat</a>
   </h3>
@@ -42,7 +42,7 @@ propagation. Much more could be done on this.
 There are various ways in which the generated Wasm bytecode could be improved;
 work is ongoing on this.
 
-waffle is in use by [weval](https://github.com/cfallin/weval), the
+waffle is in use by [weval](https://github.com/bytecodealliance/weval), the
 WebAssembly partial evaluator, and was developed for this purpose.
 
 ## Architecture
