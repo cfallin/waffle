@@ -1,0 +1,6 @@
+/target
+*~
+.*.swp
+Cargo.lock
+/*.wasm
+wasm_tests/*.wasm
