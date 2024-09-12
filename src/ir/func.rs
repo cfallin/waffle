@@ -603,8 +603,7 @@ impl FunctionBody {
     /// point. This is mostly useful for custom per-function
     /// compilation flows, e.g. per-function caching.
     pub fn compile(&self) -> Result<wasm_encoder::Function> {
-        let backend = WasmFuncBackend::new(self)?;
-        backend.compile()
+        WasmFuncBackend::compile(self)
     }
 }
 

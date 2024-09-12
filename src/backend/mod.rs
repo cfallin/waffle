@@ -35,15 +35,21 @@ macro_rules! op {
 }
 
 impl<'a> WasmFuncBackend<'a> {
-    pub fn new(body: &'a FunctionBody) -> Result<WasmFuncBackend<'a>> {
+    pub fn compile(body: &'a FunctionBody) -> Result<wasm_encoder::Function> {
         body.validate()?;
         log::debug!("Backend compiling:\n{}\n", body.display_verbose("| ", None));
+        // For ownership reasons (to avoid a self-referential struct
+        // with the `Cow::Owned` case when the Reducifier modifies the
+        // body), we have to run the Reducifier first, own its result
+        // in this stack frame, then construct the `WasmFuncBackend`
+        // state and run the rest of the compilation in `lower()`.
         let body = Reducifier::new(body).run();
         let cfg = CFGInfo::new(&body);
-        Ok(WasmFuncBackend { body, cfg })
+        let state = WasmFuncBackend { body, cfg };
+        state.lower()
     }
 
-    pub fn compile(&self) -> Result<wasm_encoder::Function> {
+    pub fn lower(&self) -> Result<wasm_encoder::Function> {
         log::debug!("CFG:\n{:?}\n", self.cfg);
         let trees = Trees::compute(&self.body);
         log::debug!("Trees:\n{:?}\n", trees);
@@ -1182,9 +1188,7 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
                 FuncDecl::Compiled(_, _name, bytes) => Ok(Cow::Borrowed(&bytes[..])),
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
-                    WasmFuncBackend::new(body)?
-                        .compile()
-                        .map(|func| Cow::Owned(func.into_raw_body()))
+                    WasmFuncBackend::compile(body).map(|func| Cow::Owned(func.into_raw_body()))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
                 FuncDecl::None => panic!("FuncDecl::None at compilation time"),

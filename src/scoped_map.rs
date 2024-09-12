@@ -23,7 +23,9 @@
 //! particular key `k1` to value `v1` at level 3, then set it again at
 //! level 4, we will remove it when we pop level 4; the old value set
 //! at level 3 does not re-appear. Doing so would require a more
-//! complex data structure, and is unnecessary for our use-cases.
+//! complex data structure, and is unnecessary for our use-cases. In
+//! particular, we use this for GVN, where if a key already exists, we
+//! use it rather than setting it again in a more nested scope.
 
 use fxhash::FxHashMap;
 use std::fmt::Debug;
