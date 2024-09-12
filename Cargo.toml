@@ -24,6 +24,9 @@ addr2line = "0.21"
 libfuzzer-sys = { version = "0.4.7", optional = true }
 wasm-smith = { version = "0.202", optional = true }
 
+[dev-dependencies]
+wat = "1.212.0"
+
 [features]
 default = []
 fuzzing = ["libfuzzer-sys", "wasm-smith"]
