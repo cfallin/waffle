@@ -153,7 +153,8 @@ use crate::{cfg::CFGInfo, cfg::RPOIndex, entity::PerEntity, Block, FunctionBody,
 use fxhash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::collections::{HashSet, VecDeque};
+use fxhash::FxHashSet as HashSet;
+use std::collections::VecDeque;
 
 pub struct Reducifier<'a> {
     body: &'a FunctionBody,
