@@ -42,7 +42,6 @@ impl Trees {
         let mut multi_use = HashSet::default();
 
         for block_def in body.blocks.values() {
-            let mut last_non_pure = None;
             for &value in &block_def.insts {
                 match &body.values[value] {
                     &ValueDef::Operator(op, args, _) => {
@@ -71,16 +70,12 @@ impl Trees {
                             } else if let Some(old_owner) = owner.remove(&arg) {
                                 owned.remove(&old_owner);
                                 multi_use.insert(arg);
-                            } else if Self::is_movable(body, arg) || Some(arg) == last_non_pure {
+                            } else if Self::is_movable(body, arg) {
                                 let pos = u16::try_from(i).unwrap();
                                 let value_arg = ValueArg(value, pos);
                                 owner.insert(arg, value_arg);
                                 owned.insert(value_arg, arg);
                             }
-                        }
-
-                        if !op.is_pure() {
-                            last_non_pure = Some(value);
                         }
                     }
                     &ValueDef::PickOutput(..) => {
@@ -117,6 +112,14 @@ impl Trees {
     }
 
     fn is_movable(body: &FunctionBody, value: Value) -> bool {
+        // Only pure ops may be owned by a consumer: a non-pure op (a
+        // load, call, global access, ...) must remain a root, emitted
+        // at its original position and passed via a local. Owning an
+        // effectful op under a consumer -- even the immediately
+        // adjacent one -- is unsound in general, because the
+        // consumer's own tree may itself be sunk under a still-later
+        // use, dragging the effect past intervening effectful ops
+        // (e.g., a load past a store to the same address).
         Self::is_single_output_op(body, value)
             .map(|op| op.is_pure())
             .unwrap_or(false)
