@@ -1,7 +1,7 @@
 //! Integration test to ensure that roundtripping works.
 
 use std::path::PathBuf;
-use waffle::{FrontendOptions, Module, OptOptions};
+use waffle::{BackendOptions, FrontendOptions, Module, OptOptions};
 
 fn get_wats() -> Vec<PathBuf> {
     let test_dir = std::env::current_dir()
@@ -33,5 +33,24 @@ fn idempotent_roundtrips() {
         module2.per_func_body(|func| func.optimize(&OptOptions::default()));
         let bytes3 = module2.to_wasm_bytes().unwrap();
         assert_eq!(bytes2, bytes3);
+    }
+}
+
+#[test]
+fn multiloop_validates() {
+    for wat in get_wats() {
+        let bytes1 = wat::parse_file(&wat).unwrap();
+        let opts = FrontendOptions::default();
+        let mut module1 = Module::from_wasm_bytes(&bytes1, &opts).unwrap();
+        module1.expand_all_funcs().unwrap();
+        module1.per_func_body(|func| func.optimize(&OptOptions::default()));
+        let bytes2 = module1
+            .to_wasm_bytes_with(BackendOptions { multiloop: true })
+            .unwrap();
+        let features = waffle::wasmparser::WasmFeatures::default()
+            | waffle::wasmparser::WasmFeatures::MULTILOOP;
+        waffle::wasmparser::Validator::new_with_features(features)
+            .validate_all(&bytes2)
+            .unwrap_or_else(|e| panic!("{}: {}", wat.display(), e));
     }
 }

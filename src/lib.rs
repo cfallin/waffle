@@ -20,6 +20,7 @@ pub use wasmparser;
 pub use wasm_encoder;
 
 mod backend;
+pub use backend::BackendOptions;
 pub mod cfg;
 pub mod entity;
 mod errors;

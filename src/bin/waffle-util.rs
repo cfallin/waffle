@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::debug;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use waffle::{entity::EntityRef, FrontendOptions, Func, Module, OptOptions};
+use waffle::{entity::EntityRef, BackendOptions, FrontendOptions, Func, Module, OptOptions};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "waffle-util", about = "WAFFLE utility.")]
@@ -27,6 +27,12 @@ struct Options {
 
     #[structopt(help = "Transform to maximal SSA", long = "max-ssa")]
     max_ssa: bool,
+
+    #[structopt(
+        help = "Emit function bodies as multiloop regions (local extension)",
+        long = "multiloop"
+    )]
+    multiloop: bool,
 
     #[structopt(subcommand)]
     command: Command,
@@ -104,7 +110,9 @@ fn main() -> Result<()> {
             debug!("Loaded {} bytes of Wasm data", bytes.len());
             let mut module = Module::from_wasm_bytes(&bytes[..], &options)?;
             apply_options(&opts, &mut module)?;
-            let produced = module.to_wasm_bytes()?;
+            let produced = module.to_wasm_bytes_with(BackendOptions {
+                multiloop: opts.multiloop,
+            })?;
             std::fs::write(output, &produced[..])?;
         }
     }

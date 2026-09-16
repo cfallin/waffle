@@ -2,6 +2,7 @@ use super::{
     Func, FuncDecl, Global, Memory, ModuleDisplay, NOPPrintDecorator, PrintDecorator, Signature,
     Table, Type,
 };
+use crate::backend::BackendOptions;
 use crate::entity::{EntityRef, EntityVec};
 use crate::ir::{Debug, DebugMap, FunctionBody};
 use crate::{backend, frontend};
@@ -281,7 +282,12 @@ impl<'a> Module<'a> {
 
     /// Compile the module to Wasm bytecode.
     pub fn to_wasm_bytes(&self) -> Result<Vec<u8>> {
-        backend::compile(self)
+        self.to_wasm_bytes_with(BackendOptions::default())
+    }
+
+    /// Compile the module to Wasm bytecode with the given backend options.
+    pub fn to_wasm_bytes_with(&self, options: BackendOptions) -> Result<Vec<u8>> {
+        backend::compile(self, options)
     }
 
     /// Perform some work on each function body with IR.

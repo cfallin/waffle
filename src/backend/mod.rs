@@ -2,7 +2,9 @@
 
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
-use crate::ir::{ExportKind, FuncDecl, FunctionBody, ImportKind, Module, Type, Value, ValueDef};
+use crate::ir::{
+    Block, ExportKind, FuncDecl, FunctionBody, ImportKind, Module, Type, Value, ValueDef,
+};
 use crate::Operator;
 use anyhow::Result;
 #[cfg(feature = "parallel")]
@@ -21,10 +23,20 @@ pub mod treeify;
 use treeify::Trees;
 pub mod localify;
 use localify::Localifier;
+pub mod multiloop;
+
+/// Options controlling how function bodies are lowered to Wasm.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BackendOptions {
+    /// Emit each function body as one top-level `multiloop` region
+    /// (a local Wasm extension) rather than structured control flow.
+    pub multiloop: bool,
+}
 
 pub struct WasmFuncBackend<'a> {
     body: Cow<'a, FunctionBody>,
     cfg: CFGInfo,
+    options: BackendOptions,
 }
 
 struct CompileContext<'a> {
@@ -41,6 +53,13 @@ macro_rules! op {
 
 impl<'a> WasmFuncBackend<'a> {
     pub fn compile(body: &'a FunctionBody) -> Result<wasm_encoder::Function> {
+        Self::compile_with(body, BackendOptions::default())
+    }
+
+    pub fn compile_with(
+        body: &'a FunctionBody,
+        options: BackendOptions,
+    ) -> Result<wasm_encoder::Function> {
         body.validate()?;
         log::debug!("Backend compiling:\n{}\n", body.display_verbose("| ", None));
         // For ownership reasons (to avoid a self-referential struct
@@ -48,9 +67,15 @@ impl<'a> WasmFuncBackend<'a> {
         // body), we have to run the Reducifier first, own its result
         // in this stack frame, then construct the `WasmFuncBackend`
         // state and run the rest of the compilation in `lower()`.
-        let body = Reducifier::new(body).run();
+        // Multiloop bodies express irreducible control flow directly,
+        // so they skip the Reducifier.
+        let body = if options.multiloop {
+            Cow::Borrowed(body)
+        } else {
+            Reducifier::new(body).run()
+        };
         let cfg = CFGInfo::new(&body);
-        let state = WasmFuncBackend { body, cfg };
+        let state = WasmFuncBackend { body, cfg, options };
         state.lower()
     }
 
@@ -58,7 +83,11 @@ impl<'a> WasmFuncBackend<'a> {
         log::debug!("CFG:\n{:?}\n", self.cfg);
         let trees = Trees::compute(&self.body);
         log::debug!("Trees:\n{:?}\n", trees);
-        let ctrl = StackifyContext::new(&self.body, &self.cfg)?.compute();
+        let ctrl = if self.options.multiloop {
+            vec![]
+        } else {
+            StackifyContext::new(&self.body, &self.cfg)?.compute()
+        };
         log::debug!("Ctrl:\n{:?}\n", ctrl);
         let locals = Localifier::compute(&self.body, &self.cfg, &trees);
         log::debug!("Locals:\n{:?}\n", locals);
@@ -78,19 +107,23 @@ impl<'a> WasmFuncBackend<'a> {
                 .collect::<Vec<_>>(),
         );
 
-        for block in &ctx.ctrl {
-            self.lower_block(&ctx, block, &mut func);
-        }
-
-        // If the last block was a Block, Loop or If, then the type
-        // may not match, so end with an Unreachable.
-        match ctx.ctrl.last() {
-            Some(&WasmBlock::Block { .. })
-            | Some(&WasmBlock::Loop { .. })
-            | Some(&WasmBlock::If { .. }) => {
-                func.instruction(&wasm_encoder::Instruction::Unreachable);
+        if self.options.multiloop {
+            self.lower_multiloop(&ctx, &mut func);
+        } else {
+            for block in &ctx.ctrl {
+                self.lower_block(&ctx, block, &mut func);
             }
-            _ => {}
+
+            // If the last block was a Block, Loop or If, then the type
+            // may not match, so end with an Unreachable.
+            match ctx.ctrl.last() {
+                Some(&WasmBlock::Block { .. })
+                | Some(&WasmBlock::Loop { .. })
+                | Some(&WasmBlock::If { .. }) => {
+                    func.instruction(&wasm_encoder::Instruction::Unreachable);
+                }
+                _ => {}
+            }
         }
         func.instruction(&wasm_encoder::Instruction::End);
 
@@ -164,41 +197,10 @@ impl<'a> WasmFuncBackend<'a> {
                 ));
             }
             WasmBlock::Leaf { block } => {
-                for &inst in &self.body.blocks[*block].insts {
-                    // If this value is "owned", do nothing: it will be lowered in
-                    // the one place it's used.
-                    if ctx.trees.owner.contains_key(&inst) || ctx.trees.remat.contains(&inst) {
-                        continue;
-                    }
-                    if let &ValueDef::Operator(..) = &self.body.values[inst] {
-                        self.lower_inst(ctx, inst, /* root = */ true, func);
-                    }
-                }
+                self.lower_leaf(ctx, *block, func);
             }
             WasmBlock::BlockParams { from, to } => {
-                debug_assert_eq!(from.len(), to.len());
-                for (&from, &(to_ty, to)) in from.iter().zip(to.iter()) {
-                    if ctx.locals.values[to].is_empty() {
-                        continue;
-                    }
-                    let from_ty = self.body.values[self.body.resolve_alias(from)]
-                        .ty(&self.body.type_pool)
-                        .unwrap();
-                    assert_eq!(from_ty, to_ty);
-                    if ctx.locals.values[from].len() == 1 {
-                        assert_eq!(from_ty, ctx.locals.locals[ctx.locals.values[from][0]]);
-                    }
-                    self.lower_value(ctx, from, func);
-                }
-                for &(to_ty, to) in to.iter().rev() {
-                    if ctx.locals.values[to].is_empty() {
-                        continue;
-                    }
-                    if ctx.locals.values[to].len() == 1 {
-                        assert_eq!(to_ty, ctx.locals.locals[ctx.locals.values[to][0]]);
-                    }
-                    self.lower_set_value(ctx, to, func);
-                }
+                self.lower_blockparams(ctx, from, to, func);
             }
             WasmBlock::Return { values } => {
                 for &value in &values[..] {
@@ -209,6 +211,65 @@ impl<'a> WasmFuncBackend<'a> {
             WasmBlock::Unreachable => {
                 func.instruction(&wasm_encoder::Instruction::Unreachable);
             }
+        }
+    }
+
+    fn lower_leaf(
+        &self,
+        ctx: &CompileContext<'_>,
+        block: Block,
+        func: &mut wasm_encoder::Function,
+    ) {
+        for &inst in &self.body.blocks[block].insts {
+            // If this value is "owned", do nothing: it will be lowered in
+            // the one place it's used.
+            if ctx.trees.owner.contains_key(&inst) || ctx.trees.remat.contains(&inst) {
+                continue;
+            }
+            if let &ValueDef::Operator(..) = &self.body.values[inst] {
+                self.lower_inst(ctx, inst, /* root = */ true, func);
+            }
+        }
+    }
+
+    fn lower_blockparams(
+        &self,
+        ctx: &CompileContext<'_>,
+        from: &[Value],
+        to: &[(Type, Value)],
+        func: &mut wasm_encoder::Function,
+    ) {
+        debug_assert_eq!(from.len(), to.len());
+        // A transfer whose source and destination occupy the same local
+        // is the identity.
+        let same_local = |from: Value, to: Value| {
+            let from = self.body.resolve_alias(from);
+            !ctx.trees.remat.contains(&from)
+                && ctx.locals.values[to].len() == 1
+                && ctx.locals.values[from].len() == 1
+                && ctx.locals.values[from][0] == ctx.locals.values[to][0]
+        };
+        for (&from, &(to_ty, to)) in from.iter().zip(to.iter()) {
+            if ctx.locals.values[to].is_empty() || same_local(from, to) {
+                continue;
+            }
+            let from_ty = self.body.values[self.body.resolve_alias(from)]
+                .ty(&self.body.type_pool)
+                .unwrap();
+            assert_eq!(from_ty, to_ty);
+            if ctx.locals.values[from].len() == 1 {
+                assert_eq!(from_ty, ctx.locals.locals[ctx.locals.values[from][0]]);
+            }
+            self.lower_value(ctx, from, func);
+        }
+        for (&from, &(to_ty, to)) in from.iter().zip(to.iter()).rev() {
+            if ctx.locals.values[to].is_empty() || same_local(from, to) {
+                continue;
+            }
+            if ctx.locals.values[to].len() == 1 {
+                assert_eq!(to_ty, ctx.locals.locals[ctx.locals.values[to][0]]);
+            }
+            self.lower_set_value(ctx, to, func);
         }
     }
 
@@ -988,7 +1049,7 @@ impl<'a> WasmFuncBackend<'a> {
     }
 }
 
-pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
+pub fn compile(module: &Module<'_>, options: BackendOptions) -> anyhow::Result<Vec<u8>> {
     let mut into_mod = wasm_encoder::Module::new();
 
     let mut types = wasm_encoder::TypeSection::new();
@@ -1199,13 +1260,16 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         .map(|(func, func_decl)| -> Result<_> {
             match func_decl {
                 FuncDecl::Lazy(_, _name, reader) => {
-                    let data = &module.orig_bytes.unwrap()[reader.range()];
+                    let range = reader.range();
+                    let data =
+                        &module.orig_bytes.unwrap()[range.start as usize..range.end as usize];
                     Ok(Cow::Borrowed(data))
                 }
                 FuncDecl::Compiled(_, _name, bytes) => Ok(Cow::Borrowed(&bytes[..])),
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
-                    WasmFuncBackend::compile(body).map(|func| Cow::Owned(func.into_raw_body()))
+                    WasmFuncBackend::compile_with(body, options)
+                        .map(|func| Cow::Owned(func.into_raw_body()))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
                 FuncDecl::None => panic!("FuncDecl::None at compilation time"),

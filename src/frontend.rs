@@ -574,7 +574,7 @@ pub(crate) fn parse_body<'a>(
     let ops = body.get_operators_reader()?;
     for item in ops.into_iter_with_offsets() {
         let (op, offset) = item?;
-        let loc = debug_locs.get_loc(offset);
+        let loc = debug_locs.get_loc(offset as usize);
         if builder.reachable {
             builder.handle_op(op, loc)?;
         } else {

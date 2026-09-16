@@ -342,7 +342,11 @@ impl<'a, PD: PrintDecorator> Display for ModuleDisplay<'a, PD> {
                         sig,
                         sig_strs.get(&sig).unwrap()
                     )?;
-                    writeln!(f, "  # raw bytes (length {})", reader.range().len())?;
+                    writeln!(
+                        f,
+                        "  # raw bytes (length {})",
+                        (reader.range().end - reader.range().start)
+                    )?;
                 }
                 FuncDecl::Compiled(sig, name, _) => {
                     writeln!(

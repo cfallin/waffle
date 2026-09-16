@@ -317,6 +317,20 @@ impl<'a> Context<'a> {
     }
 
     fn allocate(&mut self) {
+        // Incoming edge args per blockparam, so a param can take over the
+        // local of an arg whose range has already ended (the move on that
+        // edge then lowers to nothing).
+        let mut incoming: HashMap<Value, SmallVec<[Value; 4]>> = HashMap::default();
+        for block in self.body.blocks.iter() {
+            self.body.blocks[block].terminator.visit_targets(|target| {
+                for (i, &arg) in target.args.iter().enumerate() {
+                    if let Some(&(_, param)) = self.body.blocks[target.block].params.get(i) {
+                        let arg = self.body.resolve_alias(arg);
+                        incoming.entry(param).or_default().push(arg);
+                    }
+                }
+            });
+        }
         // Sort values by ranges' starting points, then value to break ties.
         let mut ranges: Vec<(Value, std::ops::Range<usize>)> = self
             .ranges
@@ -366,14 +380,32 @@ impl<'a> Context<'a> {
                     }
                 }
 
+                // A blockparam prefers a free local that one of its
+                // incoming args already occupies.
+                let mut preferred: Option<Local> = None;
+                if let Some(args) = incoming.get(&value) {
+                    'args: for &arg in args {
+                        for &l in self.results.values[arg].iter() {
+                            if let Some(list) = freelist.get_mut(&self.results.locals[l]) {
+                                if let Some(pos) = list.iter().position(|&x| x == l) {
+                                    list.swap_remove(pos);
+                                    preferred = Some(l);
+                                    break 'args;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Try getting a local from the freelist; if not,
                 // allocate a new one.
                 let mut allocs = smallvec![];
                 let expiring = expiring.entry(range.end).or_insert_with(|| smallvec![]);
                 for &ty in self.body.values[value].tys(&self.body.type_pool) {
-                    let local = freelist
-                        .get_mut(&ty)
-                        .and_then(|v| v.pop())
+                    let local = preferred
+                        .take()
+                        .filter(|&l| self.results.locals[l] == ty)
+                        .or_else(|| freelist.get_mut(&ty).and_then(|v| v.pop()))
                         .unwrap_or_else(|| {
                             log::trace!(" -> allocating new local of type {}", ty);
                             self.results.locals.push(ty)
