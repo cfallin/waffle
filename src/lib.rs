@@ -19,7 +19,7 @@ pub use wasmparser;
 // Likewise for wasm-encoder.
 pub use wasm_encoder;
 
-mod backend;
+pub mod backend;
 pub mod cfg;
 pub mod entity;
 mod errors;
