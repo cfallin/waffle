@@ -2,12 +2,16 @@
 
 use crate::cfg::CFGInfo;
 use crate::entity::EntityRef;
-use crate::ir::{ExportKind, FuncDecl, FunctionBody, ImportKind, Module, Type, Value, ValueDef};
+use crate::ir::{
+    CodeLayout, ExportKind, FuncCodeLayout, FuncDecl, FunctionBody, ImportKind, Module, SourceLoc,
+    Type, Value, ValueDef,
+};
 use crate::Operator;
 use anyhow::Result;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::convert::TryFrom;
 
 pub(crate) mod bitset;
@@ -25,6 +29,9 @@ use localify::Localifier;
 pub struct WasmFuncBackend<'a> {
     body: Cow<'a, FunctionBody>,
     cfg: CFGInfo,
+    /// (offset in the function body, source location) of each emitted
+    /// instruction whose value has a source location.
+    locs: RefCell<Vec<(u32, SourceLoc)>>,
 }
 
 struct CompileContext<'a> {
@@ -41,6 +48,15 @@ macro_rules! op {
 
 impl<'a> WasmFuncBackend<'a> {
     pub fn compile(body: &'a FunctionBody) -> Result<wasm_encoder::Function> {
+        Self::compile_with_locs(body).map(|(func, _)| func)
+    }
+
+    /// Compile, also returning the offset (within the raw body, i.e.
+    /// counting from the locals declarations) of each instruction whose
+    /// value has a source location, with that location, in offset order.
+    pub fn compile_with_locs(
+        body: &'a FunctionBody,
+    ) -> Result<(wasm_encoder::Function, Vec<(u32, SourceLoc)>)> {
         body.validate()?;
         log::debug!("Backend compiling:\n{}\n", body.display_verbose("| ", None));
         // For ownership reasons (to avoid a self-referential struct
@@ -50,8 +66,13 @@ impl<'a> WasmFuncBackend<'a> {
         // state and run the rest of the compilation in `lower()`.
         let body = Reducifier::new(body).run();
         let cfg = CFGInfo::new(&body);
-        let state = WasmFuncBackend { body, cfg };
-        state.lower()
+        let state = WasmFuncBackend {
+            body,
+            cfg,
+            locs: RefCell::new(vec![]),
+        };
+        let func = state.lower()?;
+        Ok((func, state.locs.into_inner()))
     }
 
     pub fn lower(&self) -> Result<wasm_encoder::Function> {
@@ -294,6 +315,11 @@ impl<'a> WasmFuncBackend<'a> {
                     } else {
                         self.lower_value(ctx, arg, func);
                     }
+                }
+                let loc = self.body.source_locs[value];
+                if loc != SourceLoc::invalid() {
+                    let offset = u32::try_from(func.byte_len()).unwrap();
+                    self.locs.borrow_mut().push((offset, loc));
                 }
                 self.lower_op(op, func);
                 if root {
@@ -1015,6 +1041,12 @@ impl<'a> WasmFuncBackend<'a> {
 }
 
 pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
+    compile_with_layout(module).map(|(bytes, _)| bytes)
+}
+
+/// Compile the module, also returning where each function landed in the
+/// code section (see [`CodeLayout`]).
+pub fn compile_with_layout(module: &Module<'_>) -> anyhow::Result<(Vec<u8>, CodeLayout)> {
     let mut into_mod = wasm_encoder::Module::new();
 
     let mut types = wasm_encoder::TypeSection::new();
@@ -1226,12 +1258,13 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
             match func_decl {
                 FuncDecl::Lazy(_, _name, reader) => {
                     let data = &module.orig_bytes.unwrap()[reader.range()];
-                    Ok(Cow::Borrowed(data))
+                    Ok((Cow::Borrowed(data), vec![]))
                 }
-                FuncDecl::Compiled(_, _name, bytes) => Ok(Cow::Borrowed(&bytes[..])),
+                FuncDecl::Compiled(_, _name, bytes) => Ok((Cow::Borrowed(&bytes[..]), vec![])),
                 FuncDecl::Body(_, name, body) => {
                     log::debug!("Compiling {} \"{}\"", func, name);
-                    WasmFuncBackend::compile(body).map(|func| Cow::Owned(func.into_raw_body()))
+                    WasmFuncBackend::compile_with_locs(body)
+                        .map(|(func, locs)| (Cow::Owned(func.into_raw_body()), locs))
                 }
                 FuncDecl::Import(_, _) => unreachable!("Should have skipped imports"),
                 FuncDecl::None => panic!("FuncDecl::None at compilation time"),
@@ -1239,7 +1272,27 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         })
         .collect::<Result<Vec<_>>>()?;
 
-    for body in bodies {
+    // Code-section offsets count from the section's contents, which start
+    // with the function count.
+    let mut layout = CodeLayout::default();
+    let mut offset = leb128_len(u64::try_from(bodies.len()).unwrap());
+    for ((func, _), (body, locs)) in entries.iter().zip(bodies) {
+        let start = offset;
+        let body_start = start + leb128_len(u64::try_from(body.len()).unwrap());
+        let end = body_start + u32::try_from(body.len()).unwrap();
+        layout.funcs.push((
+            *func,
+            FuncCodeLayout {
+                start,
+                body_start,
+                end,
+                locs: locs
+                    .into_iter()
+                    .map(|(off, loc)| (body_start + off, loc))
+                    .collect(),
+            },
+        ));
+        offset = end;
         code.raw(&body);
     }
     into_mod.section(&code);
@@ -1272,7 +1325,16 @@ pub fn compile(module: &Module<'_>) -> anyhow::Result<Vec<u8>> {
         into_mod.section(&section);
     }
 
-    Ok(into_mod.finish())
+    Ok((into_mod.finish(), layout))
+}
+
+fn leb128_len(mut value: u64) -> u32 {
+    let mut len = 1;
+    while value >= 0x80 {
+        value >>= 7;
+        len += 1;
+    }
+    len
 }
 
 fn const_init(ty: Type, value: Option<u64>) -> wasm_encoder::ConstExpr {

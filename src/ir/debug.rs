@@ -101,3 +101,31 @@ impl DebugMap {
         })
     }
 }
+
+/// Where each function landed in a compiled module's code section, for
+/// producers that emit debug info (e.g. DWARF) for the output module.
+///
+/// Offsets are relative to the start of the code section's contents (the
+/// function-count field), which is the address space DWARF uses for
+/// WebAssembly.
+#[derive(Clone, Debug, Default)]
+pub struct CodeLayout {
+    /// Each defined (non-imported) function, in code-section order.
+    pub funcs: Vec<(crate::Func, FuncCodeLayout)>,
+}
+
+/// One function's placement in the code section (see [`CodeLayout`]).
+#[derive(Clone, Debug, Default)]
+pub struct FuncCodeLayout {
+    /// Offset of the function's entry (its body-size field).
+    pub start: u32,
+    /// Offset of its body proper (the locals declarations).
+    pub body_start: u32,
+    /// Offset just past its last byte.
+    pub end: u32,
+    /// For a function compiled from IR: the offset of each emitted
+    /// instruction whose value carries a valid source location, with that
+    /// location, in ascending offset order. Instructions without a
+    /// location (control flow, moves between locals) are not listed.
+    pub locs: Vec<(u32, SourceLoc)>,
+}

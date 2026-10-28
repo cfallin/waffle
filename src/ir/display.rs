@@ -192,16 +192,23 @@ impl<'a, PD: PrintDecorator> Display for FunctionBodyDisplay<'a, PD> {
                             .iter()
                             .map(|&ty| format!("{}", ty))
                             .collect::<Vec<_>>();
-                        let loc = if self.body.source_locs[inst] != SourceLoc::invalid()
-                            && self.module.is_some()
-                        {
-                            let module = self.module.as_ref().unwrap();
-                            let loc = self.body.source_locs[inst];
-                            let data = &module.debug.source_locs[loc];
-                            let filename = &module.debug.source_files[data.file];
-                            format!("@{} {}:{}:{}", loc, filename, data.line, data.col)
-                        } else {
+                        let loc = self.body.source_locs[inst];
+                        let loc = if loc == SourceLoc::invalid() {
                             "".to_owned()
+                        } else {
+                            // A producer may use its own location space
+                            // (not interned in the module): show the index.
+                            match self
+                                .module
+                                .filter(|m| loc.index() < m.debug.source_locs.len())
+                            {
+                                Some(module) => {
+                                    let data = &module.debug.source_locs[loc];
+                                    let filename = &module.debug.source_files[data.file];
+                                    format!("@{} {}:{}:{}", loc, filename, data.line, data.col)
+                                }
+                                None => format!("@{}", loc),
+                            }
                         };
                         write!(
                             f,

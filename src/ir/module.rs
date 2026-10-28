@@ -284,6 +284,14 @@ impl<'a> Module<'a> {
         backend::compile(self)
     }
 
+    /// Compile the module to Wasm bytecode, also returning where each
+    /// function landed in the code section and, for functions with IR
+    /// bodies, the offsets of instructions with source locations: the
+    /// input for emitting debug info for the output module.
+    pub fn to_wasm_bytes_with_layout(&self) -> Result<(Vec<u8>, crate::ir::CodeLayout)> {
+        backend::compile_with_layout(self)
+    }
+
     /// Perform some work on each function body with IR.
     pub fn per_func_body<F: Fn(&mut FunctionBody)>(&mut self, f: F) {
         for func_decl in self.funcs.values_mut() {
