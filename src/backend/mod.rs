@@ -307,6 +307,13 @@ impl<'a> WasmFuncBackend<'a> {
         log::trace!("lower_inst: value {} root {}", value, root);
         match &self.body.values[value] {
             &ValueDef::Operator(ref op, args, tys) => {
+                // The instruction's location covers its whole expression
+                // tree, starting with its operands.
+                let loc = self.body.source_locs[value];
+                if loc != SourceLoc::invalid() {
+                    let offset = u32::try_from(func.byte_len()).unwrap();
+                    self.locs.borrow_mut().push((offset, loc));
+                }
                 for &arg in &self.body.arg_pool[args] {
                     let arg = self.body.resolve_alias(arg);
                     if ctx.trees.owner.contains_key(&arg) || ctx.trees.remat.contains(&arg) {
@@ -315,11 +322,6 @@ impl<'a> WasmFuncBackend<'a> {
                     } else {
                         self.lower_value(ctx, arg, func);
                     }
-                }
-                let loc = self.body.source_locs[value];
-                if loc != SourceLoc::invalid() {
-                    let offset = u32::try_from(func.byte_len()).unwrap();
-                    self.locs.borrow_mut().push((offset, loc));
                 }
                 self.lower_op(op, func);
                 if root {
